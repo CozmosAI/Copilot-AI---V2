@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   Play, CalendarCheck, UserCheck, UserX, Stethoscope, DollarSign, CreditCard, 
@@ -187,7 +186,7 @@ const Dashboard: React.FC = () => {
                         <Target size={16} className="text-amber-500" />
                         <div>
                            <p className="text-xs font-bold text-amber-700">Leads Frios</p>
-                           <p className="text-[10px] text-amber-600/80">Sem interação > 24h</p>
+                           <p className="text-[10px] text-amber-600/80">Sem interação &gt; 24h</p>
                         </div>
                      </div>
                      <span className="text-sm font-black text-amber-700">{Math.round(metrics.marketing.leads * 0.3)}</span>
