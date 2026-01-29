@@ -1,0 +1,8 @@
+{
+  "name": "Copilot-ai-gestao ( V2 )",
+  "display_name": "COPILOT AI - Gestão & Crescimento",
+  "description": "Uma plataforma inteligente para médicos e clínicas que transforma dados de marketing, vendas e financeiro em decisões estratégicas através de IA.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
