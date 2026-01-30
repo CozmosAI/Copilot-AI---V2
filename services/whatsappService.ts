@@ -26,31 +26,50 @@ const safeFetch = async (url: string, options: any) => {
     }
 
     if (!response.ok) {
-        throw new Error(data.error || `Erro ${response.status} do servidor.`);
+        throw new Error(data.error || data.message || `Erro ${response.status} do servidor.`);
     }
     
     return data;
 };
 
 /**
- * 1. Iniciar conexão (Chama nosso backend local /api/whatsapp/init)
+ * 1. Iniciar conexão (Chama o N8N)
  */
 export const initInstance = async (userId: string, clinicName: string, phoneNumber?: string) => {
-    return safeFetch(`/api/whatsapp/init`, {
+    // URL do Webhook do N8N
+    const n8nBase = ((import.meta as any).env.VITE_N8N_WEBHOOK_URL || '').replace(/\/$/, '');
+    
+    if (!n8nBase) {
+        console.error("VITE_N8N_WEBHOOK_URL não definida no .env");
+        throw new Error("URL de conexão (N8N) não configurada.");
+    }
+
+    // Chama o Webhook 'criar-instancia' do N8N
+    return safeFetch(`${n8nBase}/criar-instancia`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, clinicName, phoneNumber })
     });
 };
 
+/**
+ * 2. Forçar configuração do Webhook (Chamado pelo Frontend após sucesso do N8N)
+ * Isso garante que as mensagens voltem para o nosso servidor.
+ */
+export const configureWebhook = async (instanceName: string) => {
+    return safeFetch(`/api/whatsapp/configure-webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName })
+    });
+};
 
-// 2. Verificar Status
-// O status real vem via Webhook para o Supabase, mas mantemos o placeholder
+// 3. Verificar Status (Placeholder)
 export const checkStatus = async (instanceName: string) => {
     return { status: 'UNKNOWN' }; 
 };
 
-// 3. Enviar Mensagem
+// 4. Enviar Mensagem
 export const sendMessage = async (instanceName: string, phone: string, text: string) => {
     let cleanPhone = phone.replace(/\D/g, '');
     if (cleanPhone.length <= 11 && !cleanPhone.startsWith('55')) {
@@ -64,9 +83,9 @@ export const sendMessage = async (instanceName: string, phone: string, text: str
     });
 };
 
-// 4. Logout
+// 5. Logout
 export const logoutInstance = async (userId: string) => {
-    const instanceName = `copilot_${userId.split('-')[0]}`; // Tentativa de adivinhar ou passar explicitamente
+    const instanceName = `copilot_${userId.split('-')[0]}`;
     
     return safeFetch(`/api/whatsapp/logout`, {
         method: 'POST',

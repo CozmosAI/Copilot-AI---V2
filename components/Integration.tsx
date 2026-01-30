@@ -8,7 +8,7 @@ import { useApp } from '../App';
 import { signInWithGoogleAds, getAccessibleCustomers } from '../services/googleAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
-import { initInstance, checkStatus, logoutInstance } from '../services/whatsappService';
+import { initInstance, configureWebhook, logoutInstance } from '../services/whatsappService';
 import { supabase } from '../lib/supabase';
 import { GoogleAdAccount } from '../types';
 
@@ -27,7 +27,7 @@ const Integration: React.FC = () => {
     googleCalendarToken, googleAdsToken, setGoogleAdsToken, setGoogleCalendarToken, 
     googleSheetsToken, setGoogleSheetsToken, 
     whatsappConfig, setWhatsappConfig,
-    addLead, user 
+    user 
   } = useApp();
   
   const [loading, setLoading] = useState<string | null>(null);
@@ -61,8 +61,7 @@ const Integration: React.FC = () => {
      }
   }, [whatsappConfig]);
 
-  // ... (Google Ads useEffects mantidos) ...
-
+  // ... (Google Ads useEffects) ...
   const handleSelectAdAccount = (accountId: string) => {
       localStorage.setItem('selected_google_account_id', accountId);
       setSelectedAdAccount(accountId);
@@ -77,15 +76,11 @@ const Integration: React.FC = () => {
           try {
               const accounts = await getAccessibleCustomers(googleAdsToken);
               setAdAccounts(accounts);
-          } catch (e) {
-              console.error(e);
-          } finally {
-              setIsLoadingAccounts(false);
-          }
+          } catch (e) { console.error(e); } finally { setIsLoadingAccounts(false); }
       }
   };
 
-  // --- WHATSAPP LOGIC ATUALIZADA ---
+  // --- WHATSAPP LOGIC ATUALIZADA (N8N + Webhook Config) ---
   const handleWppConnect = async () => {
     if (!user) return;
     
@@ -96,32 +91,31 @@ const Integration: React.FC = () => {
     setWppPairingCode(null);
     
     try {
-        // Agora chama o backend local server.js
+        // 1. Chama o N8N para criar instância e pegar QR Code
         const result = await initInstance(user.id, user.clinic, wppPhone || undefined);
         
         if (result.error) throw new Error(result.error);
 
+        // 2. CRUCIAL: Configura o Webhook no Servidor Local para garantir recebimento de msgs
+        if (result.instanceName) {
+            await configureWebhook(result.instanceName).catch(err => console.error("Falha ao configurar webhook automático:", err));
+        }
+
         if (result.qrCodeBase64) {
-            setWppQr(`data:image/png;base64,${result.qrCodeBase64}`);
+            setWppQr(result.qrCodeBase64.startsWith('data:') ? result.qrCodeBase64 : `data:image/png;base64,${result.qrCodeBase64}`);
             setWppStatus('QRCODE');
         } else if (result.pairingCode) {
             setWppPairingCode(result.pairingCode);
             setWppStatus('PAIRING');
-        } else if (result.status === 'CONNECTED') {
+        } else if (result.status === 'CONNECTED' || result.instance?.state === 'open') {
              setWppStatus('CONNECTED');
-             // Atualiza config global se já estiver conectado
-             setWhatsappConfig({ 
-               instanceName: result.instanceName, 
-               isConnected: true, 
-               apiKey: '', 
-               baseUrl: '' 
-             });
+             setWhatsappConfig({ instanceName: result.instanceName, isConnected: true, apiKey: '', baseUrl: '' });
         } else {
              throw new Error("Não foi possível obter o código de conexão.");
         }
     } catch (err: any) {
         setWppStatus('DISCONNECTED');
-        setWppError(err.message || "Erro ao conectar.");
+        setWppError(err.message || "Erro ao conectar via N8N.");
     } finally {
         setLoading(null);
     }
@@ -136,37 +130,15 @@ const Integration: React.FC = () => {
       setWppPhone('');
   };
   
-  // ... (Resto das funções de login Google mantidas) ...
+  // ... (Outros handlers mantidos iguais) ...
   const handleGoogleLogin = async () => { setLoading('google-ads'); try { await signInWithGoogleAds(); } catch (error: any) { alert("Erro: " + error.message); setLoading(null); } };
   const handleGoogleLogout = async () => { await supabase.auth.signOut(); localStorage.removeItem('google_ads_token'); localStorage.removeItem('selected_google_account_id'); setGoogleAdsToken(null); setSelectedAdAccount(null); window.location.reload(); };
   const handleCalendarLogin = async () => { setLoading('calendar'); try { await signInWithGoogleCalendar(); } catch (e: any) { alert(e.message); setLoading(null); } };
   const handleCalendarLogout = () => { localStorage.removeItem('google_calendar_token'); setGoogleCalendarToken(null); window.location.reload(); };
   const handleSheetsLogin = async () => { setLoading('sheets'); try { await signInWithGoogleSheets(); } catch (e: any) { alert(e.message); setLoading(null); } };
   const handleSheetsLogout = () => { localStorage.removeItem('google_sheets_token'); setGoogleSheetsToken(null); setSpreadsheets([]); setSelectedSpreadsheet(null); window.location.reload(); };
-
-  // ... (Sheets Logic mantida) ...
-  const handleSelectSpreadsheet = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const id = e.target.value;
-      if (!id) return;
-      const name = e.target.options[e.target.selectedIndex].text;
-      setSelectedSpreadsheet({ id, name });
-      setImportLoading(true);
-      try {
-          const tabs = await getSpreadsheetDetails(googleSheetsToken!, id);
-          setSheetTabs(tabs);
-          setSelectedTab(tabs[0] || '');
-      } catch (e) { alert('Erro ao carregar abas.'); } finally { setImportLoading(false); }
-  };
-  const handleImportLeads = async () => {
-      if (!selectedSpreadsheet || !selectedTab) return;
-      setImportLoading(true); setImportStatus('');
-      try {
-          const rows = await getSheetData(googleSheetsToken!, selectedSpreadsheet.id, selectedTab);
-          if (rows.length < 2) throw new Error("Planilha vazia.");
-          setImportStatus(`${rows.length - 1} leads importados!`);
-          setTimeout(() => setImportStatus(''), 5000);
-      } catch (e: any) { setImportStatus(`Erro: ${e.message}`); } finally { setImportLoading(false); }
-  };
+  const handleSelectSpreadsheet = async (e: React.ChangeEvent<HTMLSelectElement>) => { const id = e.target.value; if (!id) return; const name = e.target.options[e.target.selectedIndex].text; setSelectedSpreadsheet({ id, name }); setImportLoading(true); try { const tabs = await getSpreadsheetDetails(googleSheetsToken!, id); setSheetTabs(tabs); setSelectedTab(tabs[0] || ''); } catch (e) { alert('Erro ao carregar abas.'); } finally { setImportLoading(false); } };
+  const handleImportLeads = async () => { if (!selectedSpreadsheet || !selectedTab) return; setImportLoading(true); setImportStatus(''); try { const rows = await getSheetData(googleSheetsToken!, selectedSpreadsheet.id, selectedTab); if (rows.length < 2) throw new Error("Planilha vazia."); setImportStatus(`${rows.length - 1} leads importados!`); setTimeout(() => setImportStatus(''), 5000); } catch (e: any) { setImportStatus(`Erro: ${e.message}`); } finally { setImportLoading(false); } };
 
   return (
     <div className="space-y-8 pb-20 relative">
@@ -214,7 +186,7 @@ const Integration: React.FC = () => {
               <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MessageCircle size={24} className="text-emerald-600"/></div>
               {whatsappConfig?.isConnected ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Ativo</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
             </div>
-            <h3 className="font-black text-navy text-sm uppercase tracking-widest">WhatsApp Business (Nativo)</h3>
+            <h3 className="font-black text-navy text-sm uppercase tracking-widest">WhatsApp Business</h3>
             <p className="text-[10px] text-slate-400 mt-1 mb-4">Conecte seu número para ativar a IA.</p>
             
             {whatsappConfig?.isConnected ? (
@@ -248,7 +220,7 @@ const Integration: React.FC = () => {
                              <p className="text-[9px] text-slate-400 px-1">Deixe vazio para escanear QR Code.</p>
                           </div>
                           <button onClick={handleWppConnect} className="w-full py-3 bg-navy text-white rounded-xl text-[10px] font-black uppercase flex justify-center items-center gap-2 hover:bg-slate-800 shadow-lg shadow-navy/20">
-                             {loading === 'wpp' ? <Loader2 size={14} className="animate-spin" /> : (wppPhone ? 'Conectar com Número' : 'Gerar QR Code')}
+                             {loading === 'wpp' ? <Loader2 size={14} className="animate-spin" /> : (wppPhone ? 'Conectar via N8N' : 'Gerar QR via N8N')}
                           </button>
                        </div>
                    )}
@@ -256,7 +228,7 @@ const Integration: React.FC = () => {
                    {wppStatus === 'CONNECTING' && (
                        <div className="flex flex-col items-center py-4 text-slate-400 animate-in fade-in">
                            <Loader2 size={24} className="animate-spin mb-2 text-navy" />
-                           <p className="text-[10px] font-bold uppercase">Configurando Instância...</p>
+                           <p className="text-[10px] font-bold uppercase">Solicitando N8N...</p>
                        </div>
                    )}
                    
