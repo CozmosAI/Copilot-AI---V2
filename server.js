@@ -61,38 +61,6 @@ const evoRequest = async (endpoint, method = 'GET', body = null) => {
 // 1. ROTAS DE UTILIDADE
 // ==============================================================================
 
-// Forçar configuração do Webhook (Chamado após o N8N criar a instância)
-app.post('/api/whatsapp/configure-webhook', async (req, res) => {
-    const { instanceName } = req.body;
-    
-    if (!instanceName || !APP_BASE_URL) {
-        return res.status(400).json({ error: 'Instance Name ou APP_BASE_URL ausentes.' });
-    }
-
-    const webhookUrl = `${APP_BASE_URL}/api/webhook/whatsapp`;
-    console.log(`[CONFIG] Configurando webhook para ${instanceName} -> ${webhookUrl}`);
-
-    const response = await evoRequest(`/webhook/set/${instanceName}`, 'POST', {
-        webhook: {
-            enabled: true,
-            url: webhookUrl,
-            byEvents: false,
-            base64: false,
-            events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"]
-        }
-    });
-
-    // Também garante as configurações básicas de comportamento
-    await evoRequest(`/settings/set/${instanceName}`, 'POST', {
-        reject_call: true,
-        groups_ignore: true,
-        always_online: true,
-        read_messages: false
-    });
-
-    res.json(response.data || {});
-});
-
 app.post('/api/whatsapp/send', async (req, res) => {
     const { instanceName, number, text } = req.body;
     if (!instanceName || !number || !text) return res.status(400).json({ error: 'Dados incompletos' });

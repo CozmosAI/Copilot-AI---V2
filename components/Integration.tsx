@@ -8,7 +8,7 @@ import { useApp } from '../App';
 import { signInWithGoogleAds, getAccessibleCustomers } from '../services/googleAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
-import { initInstance, configureWebhook, logoutInstance } from '../services/whatsappService';
+import { initInstance, logoutInstance } from '../services/whatsappService';
 import { supabase } from '../lib/supabase';
 import { GoogleAdAccount } from '../types';
 
@@ -80,7 +80,7 @@ const Integration: React.FC = () => {
       }
   };
 
-  // --- WHATSAPP LOGIC ATUALIZADA (N8N + Webhook Config) ---
+  // --- WHATSAPP LOGIC RESTAURADA (Simples N8N) ---
   const handleWppConnect = async () => {
     if (!user) return;
     
@@ -95,11 +95,6 @@ const Integration: React.FC = () => {
         const result = await initInstance(user.id, user.clinic, wppPhone || undefined);
         
         if (result.error) throw new Error(result.error);
-
-        // 2. CRUCIAL: Configura o Webhook no Servidor Local para garantir recebimento de msgs
-        if (result.instanceName) {
-            await configureWebhook(result.instanceName).catch(err => console.error("Falha ao configurar webhook automático:", err));
-        }
 
         if (result.qrCodeBase64) {
             setWppQr(result.qrCodeBase64.startsWith('data:') ? result.qrCodeBase64 : `data:image/png;base64,${result.qrCodeBase64}`);
