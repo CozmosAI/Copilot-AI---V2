@@ -470,7 +470,7 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
                          value={name} 
                          onChange={e => setName(e.target.value)} 
                          required 
-                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm"
+                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm text-slate-900"
                          placeholder="Ex: Clínica Cozmos"
                       />
                    </div>
@@ -483,7 +483,7 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
                       value={email} 
                       onChange={e => setEmail(e.target.value)} 
                       required 
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm text-slate-900"
                       placeholder="doutor@clinica.com"
                    />
                 </div>
@@ -498,7 +498,7 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
                       value={pass} 
                       onChange={e => setPass(e.target.value)} 
                       required 
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm text-slate-900"
                       placeholder="••••••••"
                    />
                 </div>

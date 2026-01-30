@@ -1,3 +1,4 @@
+
 export interface WhatsappConfig {
   instanceName: string;
   isConnected: boolean;
@@ -37,7 +38,8 @@ const safeFetch = async (url: string, options: any) => {
  */
 export const initInstance = async (userId: string, clinicName: string, phoneNumber?: string) => {
     // URL do Webhook do N8N (Usamos diretamente do .env pois o usuário confirmou que ela está completa)
-    const n8nUrl = (import.meta as any).env.VITE_N8N_WEBHOOK_URL;
+    // ADICIONADO FALLBACK MANUALMENTE PARA GARANTIR FUNCIONAMENTO
+    const n8nUrl = (import.meta as any).env.VITE_N8N_WEBHOOK_URL || 'https://task-dev-01-n8n.8ypyjm.easypanel.host/webhook/criar-instancia';
     
     if (!n8nUrl) {
         console.error("VITE_N8N_WEBHOOK_URL não definida no .env");
