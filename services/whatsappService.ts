@@ -54,12 +54,29 @@ export const initInstance = async (userId: string, clinicName: string, phoneNumb
     });
 };
 
-// 2. Verificar Status (Placeholder)
+// 2. Verificar Status Real (Via Backend -> Evolution)
 export const checkStatus = async (instanceName: string) => {
-    return { status: 'UNKNOWN' }; 
+    try {
+        const data = await safeFetch(`/api/whatsapp/status/${instanceName}`, {
+            method: 'GET'
+        });
+        return data; // Retorna { status: 'connected' | 'connecting' | ... }
+    } catch (error) {
+        console.warn("Erro ao checar status:", error);
+        return { status: 'UNKNOWN' };
+    }
 };
 
-// 3. Enviar Mensagem
+// 3. Configurar Webhook da Instância (Crucial para o CRM funcionar)
+export const configureInstance = async (instanceName: string, userId: string) => {
+    return safeFetch(`/api/whatsapp/configure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName, userId })
+    });
+};
+
+// 4. Enviar Mensagem
 export const sendMessage = async (instanceName: string, phone: string, text: string) => {
     let cleanPhone = phone.replace(/\D/g, '');
     if (cleanPhone.length <= 11 && !cleanPhone.startsWith('55')) {
@@ -73,7 +90,7 @@ export const sendMessage = async (instanceName: string, phone: string, text: str
     });
 };
 
-// 4. Logout
+// 5. Logout
 export const logoutInstance = async (userId: string) => {
     const instanceName = `copilot_${userId.split('-')[0]}`;
     

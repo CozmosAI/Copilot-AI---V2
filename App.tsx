@@ -13,7 +13,7 @@ import LoadingScreen from './components/LoadingScreen';
 import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, WhatsappConfig } from './types';
 import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { initInstance } from './services/whatsappService';
+import { checkStatus, configureInstance } from './services/whatsappService';
 
 interface User {
   id: string;
@@ -162,9 +162,17 @@ const App: React.FC = () => {
   const restoreWhatsappConnection = async (userId: string, clinic: string) => {
       try {
           const { data } = await supabase.from('whatsapp_instances').select('*').eq('user_id', userId).maybeSingle();
-          if (data && data.status === 'connected') {
-              setWhatsappConfigState({ instanceName: data.instance_name, isConnected: true, apiKey: '', baseUrl: '' });
-              initInstance(userId, clinic).catch(console.error);
+          if (data && data.instance_name) {
+              // Verifica o status REAL na API, não apenas no banco
+              const statusData = await checkStatus(data.instance_name);
+              
+              if (statusData.status === 'connected') {
+                  setWhatsappConfigState({ instanceName: data.instance_name, isConnected: true, apiKey: '', baseUrl: '' });
+                  // Garante configuração silenciosa
+                  configureInstance(data.instance_name, userId).catch(console.error);
+              } else {
+                  setWhatsappConfigState(null);
+              }
           } else {
               setWhatsappConfigState(null);
           }

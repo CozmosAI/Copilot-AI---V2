@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -78,6 +79,66 @@ app.post('/api/whatsapp/logout', async (req, res) => {
     if (instanceName) await evoRequest(`/instance/logout/${instanceName}`, 'DELETE');
     if (userId) await supabase.from('whatsapp_instances').update({ status: 'disconnected' }).eq('user_id', userId);
     res.json({ success: true });
+});
+
+// --- NOVA ROTA: Verificar Status Real na API ---
+app.get('/api/whatsapp/status/:instanceName', async (req, res) => {
+    const { instanceName } = req.params;
+    // Consulta o estado da conexão na Evolution
+    const response = await evoRequest(`/instance/connectionState/${instanceName}`, 'GET');
+    
+    // Mapeia resposta para simplificar pro front
+    // Evolution retorna { instance: ..., state: "open" | "close" | "connecting" }
+    const state = response.data?.instance?.state || response.data?.state || 'disconnected';
+    
+    res.json({ 
+        status: state === 'open' ? 'connected' : state,
+        original: response.data 
+    });
+});
+
+// --- NOVA ROTA: Forçar Configuração (Webhook) ---
+app.post('/api/whatsapp/configure', async (req, res) => {
+    const { instanceName, userId } = req.body;
+    
+    if (!APP_BASE_URL) {
+        return res.status(500).json({ error: 'APP_BASE_URL não configurada no servidor.' });
+    }
+
+    const webhookUrl = `${APP_BASE_URL}/api/webhook/whatsapp`;
+    console.log(`Configurando Webhook para ${instanceName}: ${webhookUrl}`);
+
+    // 1. Configurar Webhook
+    const webhookRes = await evoRequest(`/webhook/set/${instanceName}`, 'POST', {
+        webhook: {
+            enabled: true,
+            url: webhookUrl,
+            byEvents: false,
+            base64: false,
+            events: [
+                "MESSAGES_UPSERT",
+                "MESSAGES_UPDATE",
+                "CONNECTION_UPDATE"
+            ]
+        }
+    });
+
+    // 2. Configurar Settings (Reject Calls, etc - Opcional)
+    await evoRequest(`/instance/settings/${instanceName}`, 'POST', {
+        reject_call: false,
+        groups_ignore: true,
+        always_online: true
+    });
+
+    // 3. Atualizar Status no Banco para garantir sincronia
+    if (userId) {
+        await supabase.from('whatsapp_instances').update({ 
+            status: 'connected',
+            updated_at: new Date()
+        }).eq('user_id', userId);
+    }
+
+    res.json({ success: true, webhook: webhookRes.data });
 });
 
 // ==============================================================================

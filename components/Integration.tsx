@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   CheckCircle2, Calendar, Loader2, LogOut, MessageCircle, Smartphone, 
   FileSpreadsheet, Activity, AlertCircle, Upload, RefreshCw, X, ChevronRight, LayoutList, Copy, Phone
@@ -8,7 +8,7 @@ import { useApp } from '../App';
 import { signInWithGoogleAds, getAccessibleCustomers } from '../services/googleAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
-import { initInstance, logoutInstance } from '../services/whatsappService';
+import { initInstance, logoutInstance, checkStatus, configureInstance } from '../services/whatsappService';
 import { supabase } from '../lib/supabase';
 import { GoogleAdAccount } from '../types';
 
@@ -38,6 +38,10 @@ const Integration: React.FC = () => {
   const [wppStatus, setWppStatus] = useState<'IDLE' | 'CONNECTING' | 'CONNECTED' | 'QRCODE' | 'PAIRING' | 'DISCONNECTED'>('IDLE');
   const [wppError, setWppError] = useState('');
   const [wppPhone, setWppPhone] = useState(''); 
+  const [tempInstanceName, setTempInstanceName] = useState<string>(''); // Para saber qual instância monitorar
+
+  // Polling Ref
+  const pollingIntervalRef = useRef<any>(null);
 
   // Sheets States
   const [spreadsheets, setSpreadsheets] = useState<any[]>([]);
@@ -58,8 +62,49 @@ const Integration: React.FC = () => {
          setWppStatus('CONNECTED');
          setWppQr(null);
          setWppPairingCode(null);
+         // Limpa polling se houver
+         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
      }
   }, [whatsappConfig]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+    };
+  }, []);
+
+  // --- POLLING LOGIC (MONITORAMENTO DO QR CODE) ---
+  useEffect(() => {
+    if (wppStatus === 'QRCODE' && tempInstanceName) {
+      // Inicia polling a cada 3 segundos
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          const result = await checkStatus(tempInstanceName);
+          console.log("Checking Status:", result);
+
+          if (result.status === 'connected') {
+             // 1. Conectou! Parar polling.
+             clearInterval(pollingIntervalRef.current);
+             
+             // 2. Configurar Webhook e Settings para garantir funcionamento
+             if (user) {
+                 await configureInstance(tempInstanceName, user.id);
+             }
+
+             // 3. Atualizar Estado Global
+             setWppStatus('CONNECTED');
+             setWhatsappConfig({ instanceName: tempInstanceName, isConnected: true, apiKey: '', baseUrl: '' });
+             setWppQr(null);
+          }
+        } catch (e) {
+          console.error("Polling error", e);
+        }
+      }, 3000);
+    } else {
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+    }
+  }, [wppStatus, tempInstanceName, user, setWhatsappConfig]);
 
   // ... (Google Ads useEffects) ...
   const handleSelectAdAccount = (accountId: string) => {
@@ -80,7 +125,7 @@ const Integration: React.FC = () => {
       }
   };
 
-  // --- WHATSAPP LOGIC RESTAURADA (Simples N8N) ---
+  // --- WHATSAPP LOGIC (HÍBRIDO N8N + POLLING) ---
   const handleWppConnect = async () => {
     if (!user) return;
     
@@ -96,15 +141,21 @@ const Integration: React.FC = () => {
         
         if (result.error) throw new Error(result.error);
 
+        // Salva o nome da instância para monitorar
+        const instanceName = result.instanceName || `copilot_${user.id.split('-')[0]}`;
+        setTempInstanceName(instanceName);
+
         if (result.qrCodeBase64) {
             setWppQr(result.qrCodeBase64.startsWith('data:') ? result.qrCodeBase64 : `data:image/png;base64,${result.qrCodeBase64}`);
-            setWppStatus('QRCODE');
+            setWppStatus('QRCODE'); // Isso dispara o useEffect do Polling
         } else if (result.pairingCode) {
             setWppPairingCode(result.pairingCode);
             setWppStatus('PAIRING');
         } else if (result.status === 'CONNECTED' || result.instance?.state === 'open') {
+             // Se já voltou conectado do N8N (raro, mas possível em reconexão)
+             await configureInstance(instanceName, user.id);
              setWppStatus('CONNECTED');
-             setWhatsappConfig({ instanceName: result.instanceName, isConnected: true, apiKey: '', baseUrl: '' });
+             setWhatsappConfig({ instanceName: instanceName, isConnected: true, apiKey: '', baseUrl: '' });
         } else {
              throw new Error("Não foi possível obter o código de conexão.");
         }
@@ -123,6 +174,7 @@ const Integration: React.FC = () => {
       setWppQr(null);
       setWppPairingCode(null);
       setWppPhone('');
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
   };
   
   // ... (Outros handlers mantidos iguais) ...
@@ -249,7 +301,10 @@ const Integration: React.FC = () => {
                            <div className="bg-white p-2 rounded-xl border border-slate-200 inline-block shadow-sm">
                                <img src={wppQr} alt="QR Code" className="w-48 h-48 object-contain" />
                            </div>
-                           <p className="text-[10px] font-bold text-navy uppercase animate-pulse">Escaneie com seu WhatsApp</p>
+                           <div className="flex flex-col items-center gap-1">
+                             <p className="text-[10px] font-bold text-navy uppercase animate-pulse">Escaneie com seu WhatsApp</p>
+                             <p className="text-[9px] text-slate-400">Verificando conexão automaticamente...</p>
+                           </div>
                            <button onClick={() => setWppStatus('IDLE')} className="text-[9px] underline text-slate-400 hover:text-rose-400">Cancelar</button>
                        </div>
                    )}
