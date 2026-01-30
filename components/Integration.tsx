@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, Calendar, Loader2, LogOut, MessageCircle, Smartphone, 
@@ -110,67 +109,32 @@ const Integration: React.FC = () => {
     setWppQr(null); 
     setWppPairingCode(null);
     
-    // Tratamento do número: Remove não dígitos e garante DDI 55 se parecer número BR
-    let formattedPhone = wppPhone.replace(/\D/g, '');
-    if (formattedPhone && formattedPhone.length >= 10 && formattedPhone.length <= 11) {
-       formattedPhone = '55' + formattedPhone;
-    }
-    
     try {
-        const result = await initInstance(user.id, user.clinic, formattedPhone);
+        // A função initInstance agora chama o n8n
+        const result = await initInstance(user.id, user.clinic, wppPhone || undefined);
         
-        if (result.state === 'open') {
-            setWppStatus('CONNECTED');
-            setWhatsappConfig({ instanceName: result.instanceName, isConnected: true, apiKey: '', baseUrl: '' });
+        // n8n responde com o QR Code diretamente
+        if (result.qrCodeBase64) {
+            setWppQr(`data:image/png;base64,${result.qrCodeBase64}`);
+            setWppStatus('QRCODE');
+            // Aqui você iniciaria o polling para um segundo webhook n8n
+            // startStatusPolling(result.instanceName);
+        } else if (result.pairingCode) {
+            setWppPairingCode(result.pairingCode);
+            setWppStatus('PAIRING');
+            // startStatusPolling(result.instanceName);
         } else {
-            if (result.pairingCode) {
-                setWppPairingCode(result.pairingCode);
-                setWppStatus('PAIRING');
-            } else if (result.base64) {
-                setWppQr(result.base64);
-                setWppStatus('QRCODE');
-            } else {
-                setWppStatus('CONNECTING');
-            }
-            startStatusPolling(result.instanceName);
+             throw new Error("Resposta inesperada do serviço de automação.");
         }
     } catch (err: any) {
         setWppStatus('DISCONNECTED');
-        setWppError(err.message || "Erro ao iniciar serviço WhatsApp.");
+        setWppError(err.message || "Erro ao conectar com o serviço de automação.");
     }
   };
 
+  // Esta função precisará chamar um NOVO webhook n8n que apenas checa o status
   const startStatusPolling = (instanceName: string) => {
-      let attempts = 0;
-      const maxAttempts = 120; 
-
-      const interval = setInterval(async () => {
-           attempts++;
-           try {
-               const check = await checkStatus(instanceName);
-               
-               if (check.status === 'CONNECTED' || check.state === 'open') {
-                   clearInterval(interval);
-                   setWppStatus('CONNECTED');
-                   setWppQr(null);
-                   setWppPairingCode(null);
-                   setWhatsappConfig({ instanceName: instanceName, isConnected: true, apiKey: '', baseUrl: '' });
-               }
-               // Se não conectou e não temos código de pareamento, tenta QR como fallback
-               else if (check.base64 && !wppPairingCode && wppStatus !== 'PAIRING') {
-                   setWppQr(check.base64);
-                   setWppStatus('QRCODE');
-               }
-           } catch(e) { console.error(e); }
-
-           if (attempts >= maxAttempts) {
-              clearInterval(interval);
-              if (wppStatus !== 'CONNECTED') {
-                  setWppStatus('IDLE');
-                  setWppError('Tempo limite excedido. Tente novamente.');
-              }
-           }
-      }, 3000); 
+      // ... Lógica de polling ...
   }
 
   const handleWppDisconnect = async () => {
@@ -282,21 +246,21 @@ const Integration: React.FC = () => {
                               </div>
                           )}
                           <div className="space-y-1">
-                             <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Seu Número WhatsApp</label>
+                             <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Seu Número WhatsApp (Opcional)</label>
                              <div className="relative">
                                 <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                                 <input 
                                   type="tel" 
                                   value={wppPhone}
                                   onChange={(e) => setWppPhone(e.target.value.replace(/\D/g, ''))}
-                                  placeholder="11 99999-9999"
+                                  placeholder="11999999999"
                                   className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy focus:outline-none focus:border-navy"
                                 />
                              </div>
-                             <p className="text-[9px] text-slate-400 px-1">Deixe vazio se preferir escanear QR Code.</p>
+                             <p className="text-[9px] text-slate-400 px-1">Deixe vazio para escanear QR Code.</p>
                           </div>
                           <button onClick={handleWppConnect} className="w-full py-3 bg-navy text-white rounded-xl text-[10px] font-black uppercase flex justify-center items-center gap-2 hover:bg-slate-800 shadow-lg shadow-navy/20">
-                             {wppPhone ? 'Receber Código' : 'Gerar QR Code'}
+                             {loading === 'wpp' ? <Loader2 size={14} className="animate-spin" /> : (wppPhone ? 'Conectar com Número' : 'Gerar QR Code')}
                           </button>
                        </div>
                    )}
@@ -304,7 +268,7 @@ const Integration: React.FC = () => {
                    {wppStatus === 'CONNECTING' && (
                        <div className="flex flex-col items-center py-4 text-slate-400 animate-in fade-in">
                            <Loader2 size={24} className="animate-spin mb-2 text-navy" />
-                           <p className="text-[10px] font-bold uppercase">Conectando à API...</p>
+                           <p className="text-[10px] font-bold uppercase">Aguardando automação...</p>
                        </div>
                    )}
                    
