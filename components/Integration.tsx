@@ -81,7 +81,7 @@ const Integration: React.FC = () => {
       pollingIntervalRef.current = setInterval(async () => {
         try {
           const result = await checkStatus(tempInstanceName);
-          console.log("Checking Status:", result);
+          console.log(`Checking Status for ${tempInstanceName}:`, result);
 
           if (result.status === 'connected') {
              // 1. Conectou! Parar polling.
@@ -137,13 +137,18 @@ const Integration: React.FC = () => {
     
     try {
         // 1. Chama o N8N para criar instância e pegar QR Code
+        // Agora o initInstance vai limpar o nome (Minha Clínica -> minhaclinica) automaticamente
         const result = await initInstance(user.id, user.clinic, wppPhone || undefined);
         
         if (result.error) throw new Error(result.error);
 
-        // Salva o nome da instância para monitorar
-        const instanceName = result.instanceName || `copilot_${user.id.split('-')[0]}`;
+        // O Service agora retorna o 'instanceName' já limpo que foi usado
+        const instanceName = result.instanceName;
+        
+        if (!instanceName) throw new Error("Erro: Nome da instância não retornado.");
+
         setTempInstanceName(instanceName);
+        console.log("Instância Criada/Recuperada:", instanceName);
 
         if (result.qrCodeBase64) {
             setWppQr(result.qrCodeBase64.startsWith('data:') ? result.qrCodeBase64 : `data:image/png;base64,${result.qrCodeBase64}`);
@@ -157,7 +162,9 @@ const Integration: React.FC = () => {
              setWppStatus('CONNECTED');
              setWhatsappConfig({ instanceName: instanceName, isConnected: true, apiKey: '', baseUrl: '' });
         } else {
-             throw new Error("Não foi possível obter o código de conexão.");
+             // Fallback: Se o N8N não mandou QR nem Status, mas deu 200 OK, assumimos que vai gerar.
+             // Mas geralmente se não tem QR, algo falhou na Evolution.
+             throw new Error("Não foi possível obter o código de conexão. Tente novamente.");
         }
     } catch (err: any) {
         setWppStatus('DISCONNECTED');
@@ -168,7 +175,7 @@ const Integration: React.FC = () => {
   };
 
   const handleWppDisconnect = async () => {
-      if (user) await logoutInstance(user.id);
+      if (user) await logoutInstance(user.id, whatsappConfig?.instanceName);
       setWhatsappConfig(null);
       setWppStatus('IDLE');
       setWppQr(null);
