@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from "@google/genai";
 
 // Carrega variáveis de ambiente
 dotenv.config();
@@ -22,6 +23,15 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// --- GEMINI SETUP ---
+const API_KEY = process.env.API_KEY;
+let aiClient = null;
+if (API_KEY) {
+    aiClient = new GoogleGenAI({ apiKey: API_KEY });
+} else {
+    console.warn("API_KEY do Gemini não definida no servidor. A IA não responderá.");
+}
 
 // --- EVOLUTION API CONFIG ---
 const EVO_URL = (process.env.EVOLUTION_API_URL || '').replace(/\/$/, '');
@@ -142,7 +152,7 @@ app.post('/api/whatsapp/configure', async (req, res) => {
 });
 
 // ==============================================================================
-// 2. WEBHOOK (RECEBIMENTO DE MENSAGENS)
+// 2. WEBHOOK (RECEBIMENTO DE MENSAGENS + CÉREBRO DA IA)
 // ==============================================================================
 
 app.post('/api/webhook/whatsapp', async (req, res) => {
@@ -157,7 +167,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             .from('whatsapp_instances')
             .select('user_id')
             .eq('instance_name', instance)
-            .single();
+            .maybeSingle();
 
         if (!instanceData) {
             // Se não achou no banco, não sabemos de quem é -> Ignora
@@ -176,7 +186,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             await supabase.from('whatsapp_instances').update({ status: dbStatus, updated_at: new Date() }).eq('instance_name', instance);
         }
 
-        // 3. Processar Mensagens (CRM)
+        // 3. Processar Mensagens (CRM + IA)
         if (eventType === 'MESSAGES_UPSERT') {
             const msgData = data;
             const remoteJid = msgData.key?.remoteJid || '';
@@ -185,6 +195,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             const isFromMe = msgData.key?.fromMe || false;
             const pushName = msgData.pushName || 'Desconhecido';
             const phone = remoteJid.split('@')[0];
+            const senderType = isFromMe ? 'me' : 'contact';
             
             let text = '';
             if (msgData.message?.conversation) text = msgData.message.conversation;
@@ -192,36 +203,168 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             
             if (!text && !isFromMe) return res.status(200).send('OK');
 
-            // Upsert Lead
+            // 3.1 Upsert Lead (Salvar no CRM) e Atualizar Last Sender
             let leadId = null;
             const { data: existingLead } = await supabase
                 .from('leads')
-                .select('id')
+                .select('id, status, history, name')
                 .eq('user_id', userId)
                 .eq('phone', phone)
-                .single();
+                .maybeSingle();
 
             if (existingLead) {
                 leadId = existingLead.id;
-                await supabase.from('leads').update({ last_message: text, last_interaction: new Date().toISOString(), status: 'Conversa' }).eq('id', leadId);
+                await supabase.from('leads').update({ 
+                    last_message: text, 
+                    last_interaction: new Date().toISOString(), 
+                    last_sender: senderType, // Atualiza quem falou por último
+                    status: 'Conversa' 
+                }).eq('id', leadId);
             } else {
                 const { data: newLead } = await supabase
                     .from('leads')
-                    .insert({ user_id: userId, name: pushName, phone: phone, status: 'Novo', temperature: 'Cold', source: 'WhatsApp', last_message: text, last_interaction: new Date().toISOString() })
+                    .insert({ 
+                        user_id: userId, 
+                        name: pushName, 
+                        phone: phone, 
+                        status: 'Novo', 
+                        temperature: 'Cold', 
+                        source: 'WhatsApp', 
+                        last_message: text, 
+                        last_interaction: new Date().toISOString(),
+                        last_sender: senderType
+                    })
                     .select().single();
                 if (newLead) leadId = newLead.id;
             }
 
-            // Salvar Mensagem
+            // 3.2 Salvar Mensagem no Histórico
             if (leadId) {
                 await supabase.from('whatsapp_messages').insert({
                     lead_id: leadId,
                     contact_phone: phone,
-                    sender: isFromMe ? 'me' : 'contact',
+                    sender: senderType,
                     body: text,
                     status: 'delivered',
                     created_at: new Date().toISOString()
                 });
+            }
+
+            // ==============================================================================
+            // 4. LÓGICA DA IA (O CÉREBRO)
+            // ==============================================================================
+            
+            // Só responde se: Não for eu, tiver mensagem de texto, e API configurada
+            if (!isFromMe && text && aiClient) {
+                
+                // A. Buscar Configuração do Usuário
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('ai_config, clinic_name')
+                    .eq('id', userId)
+                    .single();
+                
+                const aiConfig = profile?.ai_config;
+
+                // B. Verificar se a IA está ativa
+                if (aiConfig && aiConfig.active) {
+                    
+                    // (Opcional) Verificar Horário de Funcionamento
+                    let shouldReply = true;
+                    if (aiConfig.triggerType === 'off_hours' && aiConfig.workingHours) {
+                        // Implementar checagem simples de hora
+                        const now = new Date();
+                        const currentHour = now.getHours();
+                        const startH = parseInt(aiConfig.workingHours.start.split(':')[0]);
+                        const endH = parseInt(aiConfig.workingHours.end.split(':')[0]);
+                        
+                        // Se estiver DENTRO do horário comercial, NÃO responde (apenas fora)
+                        if (currentHour >= startH && currentHour < endH) {
+                            shouldReply = false;
+                            console.log(`IA Pausada: Dentro do horário comercial (${currentHour}h)`);
+                        }
+                    }
+
+                    if (shouldReply) {
+                        try {
+                            // C. Construir Contexto (Histórico Recente)
+                            const { data: historyData } = await supabase
+                                .from('whatsapp_messages')
+                                .select('sender, body')
+                                .eq('lead_id', leadId)
+                                .order('created_at', { ascending: false })
+                                .limit(10); // Últimas 10 mensagens
+                            
+                            // Ordenar para cronológico (Antiga -> Nova)
+                            const chatHistory = (historyData || []).reverse().map(m => 
+                                `${m.sender === 'me' ? 'Atendente' : 'Paciente'}: ${m.body}`
+                            ).join('\n');
+
+                            // D. Construir System Prompt
+                            const systemPrompt = `
+                                VOCÊ É: ${aiConfig.name}, atuando como ${aiConfig.role} na clínica ${profile.clinic_name || 'Médica'}.
+                                SEU OBJETIVO: ${aiConfig.objective}.
+                                
+                                INSTRUÇÕES DE COMPORTAMENTO:
+                                ${aiConfig.prompt}
+                                
+                                O QUE NÃO FAZER (NEGATIVO):
+                                ${aiConfig.negativePrompt}
+                                
+                                CONTEXTO ATUAL DO LEAD:
+                                Nome: ${existingLead?.name || pushName}
+                                Status no CRM: ${existingLead?.status || 'Novo'}
+                                
+                                HISTÓRICO DA CONVERSA:
+                                ${chatHistory}
+                                
+                                Responda à última mensagem do Paciente de forma natural, curta e humana.
+                            `;
+
+                            // E. Chamar Gemini
+                            console.log("Gerando resposta com Gemini...");
+                            const aiResponse = await aiClient.models.generateContent({
+                                model: 'gemini-3-flash-preview',
+                                contents: [{
+                                    role: 'user',
+                                    parts: [{ text: systemPrompt }]
+                                }]
+                            });
+                            
+                            const replyText = aiResponse.response.text();
+                            
+                            if (replyText) {
+                                // F. Enviar Resposta (Com delay humanizado se configurado)
+                                const delay = (aiConfig.delaySeconds || 5) * 1000;
+                                console.log(`Enviando resposta em ${delay}ms: ${replyText}`);
+                                
+                                setTimeout(async () => {
+                                    await evoRequest(`/message/sendText/${instance}`, 'POST', {
+                                        number: phone,
+                                        options: { delay: 1000, presence: 'composing' },
+                                        textMessage: { text: replyText }
+                                    });
+
+                                    // Salvar a resposta da IA no banco como 'me'
+                                    if (leadId) {
+                                        await supabase.from('leads').update({ last_sender: 'me', last_interaction: new Date().toISOString(), last_message: replyText }).eq('id', leadId);
+                                        await supabase.from('whatsapp_messages').insert({
+                                            lead_id: leadId,
+                                            contact_phone: phone,
+                                            sender: 'me',
+                                            body: replyText,
+                                            status: 'sent',
+                                            created_at: new Date().toISOString()
+                                        });
+                                    }
+                                }, delay);
+                            }
+
+                        } catch (aiError) {
+                            console.error("Erro na geração da IA:", aiError);
+                        }
+                    }
+                }
             }
         }
 

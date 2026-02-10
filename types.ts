@@ -9,6 +9,7 @@ export enum AppSection {
   AUTOMACAO = 'automacao',
   FINANCEIRO = 'financeiro',
   INTEGRACAO = 'integracao',
+  GRAVADOR = 'gravador',
   PERFIL = 'perfil'
 }
 
@@ -16,6 +17,58 @@ export interface DateRange {
   start: string; // YYYY-MM-DD
   end: string;   // YYYY-MM-DD
   label: string;
+}
+
+// --- PERFIL & USUÁRIO ---
+export type UserRole = 'owner' | 'admin' | 'member';
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: 'active' | 'pending';
+  addedAt: string;
+}
+
+// --- GRAVADOR & SOAP ---
+export interface ConsultationRecording {
+  id: string;
+  patientName: string;
+  date: string;
+  duration: string;
+  transcript?: string; // Texto bruto
+  soap: {
+    s: string; // Subjetivo
+    o: string; // Objetivo
+    a: string; // Avaliação
+    p: string; // Plano
+  };
+  audioUrl?: string; // Blob URL
+}
+
+// --- CONFIGURAÇÃO DA IA ---
+export interface AIConfig {
+  active: boolean;
+  name: string;
+  role: string; // Ex: SDR, Secretária
+  objective: string; // Ex: Agendar, Tirar Dúvidas
+  prompt: string;
+  negativePrompt: string; // O que não fazer
+  
+  // Fontes de Dados (Contexto)
+  useProfile: boolean; // Acesso aos dados do médico
+  useCRM: boolean; // Saber status do lead
+  useHistory: boolean; // Ler mensagens anteriores
+  
+  // Operacional
+  triggerType: 'always' | 'off_hours' | 'delay';
+  delaySeconds: number;
+  workingHours: {
+    start: string;
+    end: string;
+    weekends: boolean;
+  };
 }
 
 // --- TABELA: MARKETING_METRICS ---
@@ -27,6 +80,22 @@ export interface GoogleAdAccount {
   timeZone: string;
 }
 
+export interface AdPerformance {
+  platform: 'google' | 'meta';
+  spend: number;
+  leads: number;
+  cpl: number; // Custo por Lead
+  appointments: number; // Consultas Marcadas
+  cpa: number; // Custo por Agendamento
+  topAd: {
+    name: string;
+    imageUrl: string;
+    headline: string;
+    clicks: number;
+    generatedLeads: number; // Leads gerados especificamente por este criativo
+  };
+}
+
 // --- TABELA: LEADS (CRM) ---
 export interface Lead {
   id: string; // UUID no banco
@@ -34,11 +103,14 @@ export interface Lead {
   phone: string;
   email?: string; // Novo
   procedure?: string; // Novo (Interesse)
+  objective?: string; // Novo (Consulta, Retorno, etc)
+  adName?: string; // Novo (Qual anúncio trouxe)
   notes?: string; // Novo (Obs)
-  status: 'Novo' | 'Conversa' | 'Agendado' | 'No Show' | 'Venda' | 'Perdido';
+  status: string; // ALTERADO: De union type fixo para string para permitir colunas personalizadas
   temperature: 'Hot' | 'Warm' | 'Cold';
   lastMessage?: string;
   lastInteraction?: string;
+  lastSender?: 'me' | 'contact'; // NOVO: Para saber quem mandou a última msg
   history?: string; // JSON ou Texto longo
   potentialValue?: number;
   source?: string;
@@ -114,7 +186,10 @@ export interface ConsolidatedMetrics {
   vendas: {
     conversas: number;
     agendamentos: number;
-    comparecimento: number;
+    comparecimento: number; // Baseado em Agenda Realizada
+    comparecimentoTaxa: number; 
+    noShows: number; // Baseado em CRM Status 'No Show' ou Agenda 'Falta'
+    leadsSemResposta: number; // NOVO
     vendas: number;
     taxaConversao: number; // Leads -> Agendamento
     cac: number;

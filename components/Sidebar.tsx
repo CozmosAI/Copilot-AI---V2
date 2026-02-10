@@ -10,8 +10,8 @@ import {
   UserCircle,
   Calendar,
   LogOut,
-  ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Mic
 } from 'lucide-react';
 import { AppSection } from '../types';
 import { useApp } from '../App';
@@ -26,12 +26,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onNavigate }) => {
 
   const menuItems = [
     { id: AppSection.DASHBOARD, label: 'Visão Geral', icon: <LayoutDashboard size={18} /> },
+    { id: AppSection.MARKETING, label: 'Marketing', icon: <Megaphone size={18} /> },
     { id: AppSection.VENDAS, label: 'CRM & Vendas', icon: <Users size={18} /> },
     { id: AppSection.AGENDA, label: 'Agenda Médica', icon: <Calendar size={18} /> },
-    { id: AppSection.FINANCEIRO, label: 'Gestão Financeira', icon: <DollarSign size={18} /> },
-    { id: AppSection.MARKETING, label: 'Marketing', icon: <Megaphone size={18} /> },
     { id: AppSection.AUTOMACAO, label: 'Inteligência Artificial', icon: <Bot size={18} /> },
+    { id: AppSection.FINANCEIRO, label: 'Gestão Financeira', icon: <DollarSign size={18} /> },
     { id: AppSection.INTEGRACAO, label: 'Conexões', icon: <Link2 size={18} /> },
+    { id: AppSection.GRAVADOR, label: 'Gravador', icon: <Mic size={18} />, badge: 'Beta' },
   ];
 
   return (
@@ -70,7 +71,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onNavigate }) => {
                 </span>
                 <span className="text-sm font-medium">{item.label}</span>
               </div>
-              {isActive && <ChevronRight size={14} className="text-blue-400 animate-in slide-in-from-left-2 duration-300" />}
+              <div className="flex items-center gap-2">
+                {item.badge && (
+                  <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[9px] font-bold uppercase tracking-wide border border-blue-500/30">
+                    {item.badge}
+                  </span>
+                )}
+                {isActive && <ChevronRight size={14} className="text-blue-400 animate-in slide-in-from-left-2 duration-300" />}
+              </div>
             </button>
           )
         })}

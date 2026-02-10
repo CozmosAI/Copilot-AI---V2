@@ -1,10 +1,10 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   MessageCircle, Clock, Search, Send, Plus, X, 
   BarChart3, LayoutGrid, List as ListIcon, 
   Filter, MoreHorizontal, Calendar, DollarSign,
-  TrendingUp, Users, PieChart as PieChartIcon, ArrowRight
+  TrendingUp, Users, PieChart as PieChartIcon, ArrowRight,
+  Mail, Link2, Tag, FileText, Activity, GripHorizontal, Edit2, Check, Trash2
 } from 'lucide-react';
 import { analyzeLeadConversation } from '../services/geminiService';
 import { sendMessage } from '../services/whatsappService';
@@ -17,12 +17,40 @@ import {
 
 type ViewMode = 'kanban' | 'chat' | 'list' | 'metrics';
 
+// Estrutura para colunas dinâmicas
+interface KanbanColumnData {
+  id: string;
+  title: string;
+  color: string;
+}
+
+const DEFAULT_COLUMNS: KanbanColumnData[] = [
+  { id: 'Novo', title: 'Entrada', color: 'bg-slate-500' },
+  { id: 'Conversa', title: 'Qualificação', color: 'bg-blue-500' },
+  { id: 'Agendado', title: 'Agendado', color: 'bg-amber-500' },
+  { id: 'Venda', title: 'Fechado', color: 'bg-emerald-500' },
+  { id: 'Perdido', title: 'Perdido', color: 'bg-rose-500' },
+];
+
 const Sales: React.FC = () => {
   const { leads, addLead, updateLead, addFinancialEntry, user, whatsappConfig } = useApp();
   
   // View State
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
+  
+  // Kanban Columns State (Persistente)
+  const [columns, setColumns] = useState<KanbanColumnData[]>(() => {
+    const saved = localStorage.getItem('kanban_columns');
+    return saved ? JSON.parse(saved) : DEFAULT_COLUMNS;
+  });
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
+  const [tempColumnTitle, setTempColumnTitle] = useState('');
+
+  // Persistir colunas quando mudar
+  useEffect(() => {
+    localStorage.setItem('kanban_columns', JSON.stringify(columns));
+  }, [columns]);
   
   // AI & Chat State
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -32,9 +60,20 @@ const Sales: React.FC = () => {
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // New Lead Form
+  // New Lead Form State
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newLeadData, setNewLeadData] = useState({ name: '', phone: '', value: '', source: 'Manual' });
+  const [newLeadData, setNewLeadData] = useState({ 
+      name: '', 
+      phone: '', 
+      email: '', 
+      entryDate: new Date().toISOString().split('T')[0],
+      value: '', 
+      source: 'Manual',
+      adName: '',
+      objective: 'Consulta',
+      procedure: '',
+      description: ''
+  });
 
   // --- EFEITOS ---
   useEffect(() => {
@@ -52,11 +91,74 @@ const Sales: React.FC = () => {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
 
-  const handleDragStart = (e: React.DragEvent, leadId: string) => { e.dataTransfer.setData('leadId', leadId); };
-  const handleDrop = async (e: React.DragEvent, newStatus: string) => {
+  // --- LÓGICA DE COLUNAS (CRUD + DnD) ---
+  
+  const handleAddColumn = () => {
+    const newId = `col_${Date.now()}`;
+    const newCol: KanbanColumnData = {
+      id: newId,
+      title: 'Nova Fase',
+      color: 'bg-slate-400' // Cor padrão
+    };
+    setColumns([...columns, newCol]);
+    // Inicia edição automaticamente
+    setEditingColumnId(newId);
+    setTempColumnTitle('Nova Fase');
+  };
+
+  const handleUpdateColumnTitle = (id: string) => {
+    if (!tempColumnTitle.trim()) return;
+    setColumns(prev => prev.map(c => c.id === id ? { ...c, title: tempColumnTitle } : c));
+    setEditingColumnId(null);
+  };
+
+  const handleDeleteColumn = (id: string) => {
+    // Verifica se tem leads
+    const hasLeads = leads.some(l => l.status === id);
+    if (hasLeads) {
+      alert("Não é possível excluir uma coluna que contém leads. Mova-os primeiro.");
+      return;
+    }
+    if (confirm("Excluir esta coluna?")) {
+      setColumns(prev => prev.filter(c => c.id !== id));
+    }
+  };
+
+  // Drag and Drop de Colunas
+  const handleColumnDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('colIndex', index.toString());
+    e.dataTransfer.setData('type', 'COLUMN'); // Identificador do tipo
+  };
+
+  const handleColumnDrop = (e: React.DragEvent, dropIndex: number) => {
+    const type = e.dataTransfer.getData('type');
+    
+    if (type === 'COLUMN') {
+      e.preventDefault();
+      const dragIndex = Number(e.dataTransfer.getData('colIndex'));
+      if (dragIndex === dropIndex) return;
+
+      const newColumns = [...columns];
+      const [draggedItem] = newColumns.splice(dragIndex, 1);
+      newColumns.splice(dropIndex, 0, draggedItem);
+      setColumns(newColumns);
+    }
+  };
+
+  // Drag and Drop de Leads
+  const handleLeadDragStart = (e: React.DragEvent, leadId: string) => { 
+    e.dataTransfer.setData('leadId', leadId);
+    e.dataTransfer.setData('type', 'LEAD');
+  };
+
+  const handleLeadDrop = async (e: React.DragEvent, newStatus: string) => {
+      // Importante: Só processar se for um LEAD sendo solto
+      if (e.dataTransfer.getData('type') !== 'LEAD') return;
+
       e.preventDefault();
       const leadId = e.dataTransfer.getData('leadId');
       const lead = leads.find(l => l.id === leadId);
+      
       if (lead && lead.status !== newStatus) {
           await updateLead({ ...lead, status: newStatus as any });
           if (newStatus === 'Venda') {
@@ -87,8 +189,24 @@ const Sales: React.FC = () => {
 
   const handleAddLeadSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
-      await addLead({ id: '', name: newLeadData.name, phone: newLeadData.phone, status: 'Novo', temperature: 'Cold', potentialValue: Number(newLeadData.value) || 0, lastMessage: 'Adicionado manualmente', source: newLeadData.source });
-      setShowAddModal(false); setNewLeadData({ name: '', phone: '', value: '', source: 'Manual' });
+      await addLead({ 
+          id: '', 
+          name: newLeadData.name, 
+          phone: newLeadData.phone, 
+          email: newLeadData.email,
+          status: 'Novo', 
+          temperature: 'Cold', 
+          potentialValue: Number(newLeadData.value) || 0, 
+          lastMessage: newLeadData.description || 'Adicionado manualmente', 
+          source: newLeadData.source,
+          objective: newLeadData.objective,
+          procedure: newLeadData.procedure,
+          adName: newLeadData.adName,
+          notes: newLeadData.description,
+          created_at: new Date(newLeadData.entryDate).toISOString()
+      });
+      setShowAddModal(false); 
+      setNewLeadData({ name: '', phone: '', email: '', entryDate: new Date().toISOString().split('T')[0], value: '', source: 'Manual', adName: '', objective: 'Consulta', procedure: '', description: '' });
   };
 
   // --- STATS PARA O HEADER ---
@@ -107,21 +225,63 @@ const Sales: React.FC = () => {
   
   const COLORS = ['#0f172a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
-  const KanbanColumn = ({ status, title, color }: { status: string, title: string, color: string }) => {
+  const KanbanColumn: React.FC<{ status: string; title: string; color: string; index: number }> = ({ status, title, color, index }) => {
       const columnLeads = leads.filter(l => l.status === status);
       const totalValue = columnLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
+      const isEditing = editingColumnId === status;
+
       return (
-          <div className="flex flex-col h-full min-w-[280px] w-full md:w-1/5 bg-[#f8fafc] rounded-xl border border-slate-200" onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, status)}>
-              <div className={`p-4 border-b border-slate-200 flex justify-between items-center bg-white rounded-t-xl`}>
-                  <div className="flex items-center gap-2">
-                      <div className={`w-3 h-3 rounded-full ${color.replace('bg-', 'bg-').replace('/10', '')}`}></div>
-                      <h4 className="font-bold text-slate-700 text-sm">{title}</h4>
+          <div 
+            className="flex flex-col h-full min-w-[280px] w-full md:w-1/5 bg-[#f8fafc] rounded-xl border border-slate-200 transition-all" 
+            onDragOver={(e) => e.preventDefault()} 
+            onDrop={(e) => {
+               // Handle Lead Drop
+               if (e.dataTransfer.getData('type') === 'LEAD') {
+                   handleLeadDrop(e, status);
+               } 
+               // Handle Column Drop (Reordering)
+               else if (e.dataTransfer.getData('type') === 'COLUMN') {
+                   handleColumnDrop(e, index);
+               }
+            }}
+            draggable={!isEditing}
+            onDragStart={(e) => handleColumnDragStart(e, index)}
+          >
+              <div className={`p-4 border-b border-slate-200 flex justify-between items-center bg-white rounded-t-xl group cursor-move`}>
+                  <div className="flex items-center gap-2 flex-1">
+                      <div className="cursor-grab text-slate-300 hover:text-slate-500"><GripHorizontal size={14} /></div>
+                      <div className={`w-3 h-3 rounded-full ${color.replace('bg-', 'bg-').replace('/10', '')} shrink-0`}></div>
+                      
+                      {isEditing ? (
+                        <div className="flex items-center gap-1 flex-1">
+                           <input 
+                              autoFocus
+                              value={tempColumnTitle}
+                              onChange={(e) => setTempColumnTitle(e.target.value)}
+                              className="w-full text-sm font-bold text-slate-700 bg-slate-50 border border-blue-300 rounded px-1 focus:outline-none"
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateColumnTitle(status); }}
+                           />
+                           <button onClick={() => handleUpdateColumnTitle(status)} className="p-1 bg-green-50 text-green-600 rounded hover:bg-green-100"><Check size={12}/></button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 group/title flex-1">
+                           <h4 className="font-bold text-slate-700 text-sm truncate" onDoubleClick={() => { setEditingColumnId(status); setTempColumnTitle(title); }}>{title}</h4>
+                           <button onClick={() => { setEditingColumnId(status); setTempColumnTitle(title); }} className="opacity-0 group-hover/title:opacity-100 p-1 hover:bg-slate-100 rounded text-slate-400 transition-opacity">
+                              <Edit2 size={10} />
+                           </button>
+                        </div>
+                      )}
                   </div>
-                  <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{columnLeads.length}</span>
+                  <div className="flex items-center gap-1">
+                     <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{columnLeads.length}</span>
+                     {!DEFAULT_COLUMNS.find(c => c.id === status) && (
+                        <button onClick={() => handleDeleteColumn(status)} className="text-slate-300 hover:text-rose-500 p-1"><Trash2 size={12}/></button>
+                     )}
+                  </div>
               </div>
               <div className="p-2 flex-1 overflow-y-auto custom-scrollbar space-y-3">
                   {columnLeads.map(lead => (
-                      <div key={lead.id} draggable onDragStart={(e) => handleDragStart(e, lead.id)} onClick={() => { setActiveLead(lead); setViewMode('chat'); }}
+                      <div key={lead.id} draggable onDragStart={(e) => handleLeadDragStart(e, lead.id)} onClick={() => { setActiveLead(lead); setViewMode('chat'); }}
                         className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all group select-none relative overflow-hidden">
                           <div className={`absolute left-0 top-0 bottom-0 w-1 ${lead.temperature === 'Hot' ? 'bg-orange-500' : lead.temperature === 'Warm' ? 'bg-amber-400' : 'bg-slate-300'}`}></div>
                           
@@ -154,7 +314,7 @@ const Sales: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden">
-      {/* HEADER DE ESTATÍSTICAS (NOVO) */}
+      {/* HEADER DE ESTATÍSTICAS */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 shrink-0">
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
@@ -190,7 +350,7 @@ const Sales: React.FC = () => {
           </div>
       </div>
 
-      {/* METRICS VIEW (NOVO) */}
+      {/* METRICS VIEW */}
       {viewMode === 'metrics' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-6 pb-20">
               <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
@@ -232,17 +392,34 @@ const Sales: React.FC = () => {
       {/* KANBAN DENSE */}
       {viewMode === 'kanban' && (
           <div className="flex-1 overflow-x-auto pb-4">
-              <div className="flex gap-4 h-full min-w-[1200px] px-1">
-                  <KanbanColumn status="Novo" title="Entrada" color="bg-slate-500" />
-                  <KanbanColumn status="Conversa" title="Qualificação" color="bg-blue-500" />
-                  <KanbanColumn status="Agendado" title="Agendado" color="bg-amber-500" />
-                  <KanbanColumn status="Venda" title="Fechado" color="bg-emerald-500" />
-                  <KanbanColumn status="Perdido" title="Perdido" color="bg-rose-500" />
+              <div className="flex gap-4 h-full min-w-max px-1">
+                  {columns.map((col, index) => (
+                      <KanbanColumn 
+                        key={col.id} 
+                        status={col.id} 
+                        title={col.title} 
+                        color={col.color}
+                        index={index}
+                      />
+                  ))}
+                  
+                  {/* ADD NEW COLUMN BUTTON */}
+                  <div className="min-w-[100px] flex flex-col justify-start pt-2">
+                      <button 
+                        onClick={handleAddColumn}
+                        className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 transition-all group gap-2 h-[100px]"
+                      >
+                          <div className="bg-white p-2 rounded-full shadow-sm group-hover:shadow-md transition-all">
+                             <Plus size={20} />
+                          </div>
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Nova Coluna</span>
+                      </button>
+                  </div>
               </div>
           </div>
       )}
 
-      {/* CHAT VIEW (Mantido igual) */}
+      {/* CHAT VIEW */}
       {viewMode === 'chat' && (
           <div className="flex-1 flex gap-0 border border-slate-200 rounded-2xl bg-white overflow-hidden shadow-sm h-full">
             <div className="w-80 flex flex-col border-r border-slate-200 bg-slate-50/50">
@@ -260,6 +437,7 @@ const Sales: React.FC = () => {
                                <span className="text-[10px] text-slate-400">{lead.lastInteraction || '12:00'}</span>
                            </div>
                            <p className="text-xs text-slate-500 truncate group-hover:text-slate-700">{lead.lastMessage || '...'}</p>
+                           {lead.objective && <p className="text-[9px] mt-1 text-slate-400 bg-slate-50 px-1 py-0.5 rounded inline-block">{lead.objective}</p>}
                        </div>
                    ))}
                </div>
@@ -271,7 +449,13 @@ const Sales: React.FC = () => {
                         <div className="h-16 px-6 border-b border-slate-200 bg-white flex justify-between items-center shadow-sm z-10">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm">{activeLead.name.charAt(0)}</div>
-                                <div><h3 className="font-bold text-slate-800">{activeLead.name}</h3><p className="text-xs text-slate-500">{activeLead.phone}</p></div>
+                                <div>
+                                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                        {activeLead.name}
+                                        {activeLead.source && <span className="text-[9px] px-2 py-0.5 bg-slate-100 rounded-full text-slate-500 font-normal uppercase">{activeLead.source}</span>}
+                                    </h3>
+                                    <p className="text-xs text-slate-500">{activeLead.phone} {activeLead.email ? `• ${activeLead.email}` : ''}</p>
+                                </div>
                             </div>
                             <button onClick={handleAnalyzeLead} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-blue-600 hover:border-blue-200 flex items-center gap-2 transition-all">
                                 {isAnalyzing ? <span className="animate-spin">⌛</span> : <span className="text-lg">✨</span>} AI Insight
@@ -315,6 +499,7 @@ const Sales: React.FC = () => {
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nome / Contato</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Origem</th>
+                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Objetivo</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Valor</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                           </tr>
@@ -327,7 +512,11 @@ const Sales: React.FC = () => {
                                       <p className="text-xs text-slate-400 font-mono mt-0.5">{lead.phone}</p>
                                   </td>
                                   <td className="px-6 py-4"><span className="px-2.5 py-1 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 uppercase border border-slate-200">{lead.status}</span></td>
-                                  <td className="px-6 py-4"><span className="text-xs text-slate-500">{lead.source || '-'}</span></td>
+                                  <td className="px-6 py-4">
+                                      <span className="text-xs text-slate-600 block">{lead.source || 'Manual'}</span>
+                                      {lead.adName && <span className="text-[9px] text-slate-400 italic">Anúncio: {lead.adName}</span>}
+                                  </td>
+                                  <td className="px-6 py-4"><span className="text-xs text-slate-500">{lead.objective || '-'}</span></td>
                                   <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-600">R$ {lead.potentialValue}</td>
                                   <td className="px-6 py-4 text-right"><button onClick={() => { setActiveLead(lead); setViewMode('chat'); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><MessageCircle size={16}/></button></td>
                               </tr>
@@ -338,43 +527,110 @@ const Sales: React.FC = () => {
           </div>
       )}
 
-      {/* MODAL NOVO LEAD */}
+      {/* MODAL NOVO LEAD EXPANDIDO */}
       {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/80 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 border border-slate-200 animate-in zoom-in-95">
-                  <div className="flex justify-between items-center mb-8">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/80 backdrop-blur-sm animate-in fade-in p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
                       <div>
                         <h3 className="text-xl font-bold text-navy">Novo Lead</h3>
                         <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Adicionar ao Pipeline</p>
                       </div>
-                      <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} className="text-slate-400"/></button>
+                      <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} className="text-slate-400"/></button>
                   </div>
-                  <form onSubmit={handleAddLeadSubmit} className="space-y-5">
-                      <div className="space-y-1.5">
-                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome</label>
-                         <input required value={newLeadData.name} onChange={e => setNewLeadData({...newLeadData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
-                      </div>
-                      <div className="space-y-1.5">
-                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Telefone</label>
-                         <input required value={newLeadData.phone} onChange={e => setNewLeadData({...newLeadData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Valor (R$)</label>
-                            <input type="number" value={newLeadData.value} onChange={e => setNewLeadData({...newLeadData, value: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem</label>
-                            <select value={newLeadData.source} onChange={e => setNewLeadData({...newLeadData, source: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none">
-                                <option>Manual</option>
-                                <option>Indicação</option>
-                                <option>Google Ads</option>
-                                <option>Instagram</option>
-                            </select>
-                        </div>
-                      </div>
-                      <button type="submit" className="w-full bg-navy text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-navy/20 mt-2">Salvar Lead</button>
-                  </form>
+                  
+                  <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                      <form id="newLeadForm" onSubmit={handleAddLeadSubmit} className="space-y-8">
+                          
+                          {/* SEÇÃO: DADOS PESSOAIS */}
+                          <div>
+                              <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14}/> Dados Pessoais</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome Completo *</label>
+                                     <input required value={newLeadData.name} onChange={e => setNewLeadData({...newLeadData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="Ex: Ana Silva" />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Telefone (WhatsApp) *</label>
+                                     <input required value={newLeadData.phone} onChange={e => setNewLeadData({...newLeadData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="Ex: 11999999999" />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail</label>
+                                     <div className="relative">
+                                        <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                                        <input type="email" value={newLeadData.email} onChange={e => setNewLeadData({...newLeadData, email: e.target.value})} className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="ana@email.com" />
+                                     </div>
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* SEÇÃO: RASTREAMENTO & MARKETING */}
+                          <div>
+                              <h4 className="text-xs font-black text-indigo-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Link2 size={14}/> Rastreamento & Marketing</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data de Entrada</label>
+                                     <input type="date" required value={newLeadData.entryDate} onChange={e => setNewLeadData({...newLeadData, entryDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem do Lead</label>
+                                      <select value={newLeadData.source} onChange={e => setNewLeadData({...newLeadData, source: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none">
+                                          <option>Manual</option>
+                                          <option>Google Ads</option>
+                                          <option>Meta Ads (Insta/Face)</option>
+                                          <option>Indicação</option>
+                                          <option>Orgânico</option>
+                                      </select>
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Anúncio / Campanha</label>
+                                     <input value={newLeadData.adName} onChange={e => setNewLeadData({...newLeadData, adName: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="Ex: Campanha Botox - Criativo 01" />
+                                     <p className="text-[9px] text-slate-400 italic">Se veio de ads, tente especificar qual criativo trouxe o lead.</p>
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* SEÇÃO: DETALHES CLÍNICOS */}
+                          <div>
+                              <h4 className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Activity size={14}/> Detalhes Clínicos</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Objetivo</label>
+                                      <select value={newLeadData.objective} onChange={e => setNewLeadData({...newLeadData, objective: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none">
+                                          <option>Consulta</option>
+                                          <option>Retorno</option>
+                                          <option>Procedimento</option>
+                                          <option>Exame</option>
+                                          <option>Cirurgia</option>
+                                      </select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Procedimento Específico</label>
+                                     <input value={newLeadData.procedure} onChange={e => setNewLeadData({...newLeadData, procedure: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="Ex: Harmonização Facial" />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Valor Estimado (R$)</label>
+                                     <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">R$</span>
+                                        <input type="number" value={newLeadData.value} onChange={e => setNewLeadData({...newLeadData, value: e.target.value})} className="w-full pl-8 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="0,00" />
+                                     </div>
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Descrição / Observações</label>
+                                     <textarea value={newLeadData.description} onChange={e => setNewLeadData({...newLeadData, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all min-h-[100px]" placeholder="Detalhes importantes, objeções médicas, histórico..." />
+                                  </div>
+                              </div>
+                          </div>
+
+                      </form>
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 bg-white rounded-b-3xl flex justify-end gap-3">
+                     <button type="button" onClick={() => setShowAddModal(false)} className="px-6 py-3 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancelar</button>
+                     <button type="submit" form="newLeadForm" className="bg-navy text-white px-8 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-navy/30 hover:bg-slate-800 transition-all flex items-center gap-2">
+                        <Plus size={16} /> Salvar Lead
+                     </button>
+                  </div>
               </div>
           </div>
       )}

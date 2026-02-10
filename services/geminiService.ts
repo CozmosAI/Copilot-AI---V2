@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 
 export const getAIInsights = async (data: any): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -53,6 +53,47 @@ export const analyzeLeadConversation = async (name: string, history: string): Pr
     return response.text || "Análise indisponível.";
   } catch (error) {
     return "Erro ao analisar conversa.";
+  }
+};
+
+export const generateSOAPFromTranscript = async (transcript: string): Promise<{s: string, o: string, a: string, p: string}> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `
+    Aja como um médico especialista experiente.
+    Analise a transcrição abaixo de uma consulta médica (ou simulação) e gere um registro médico no formato SOAP (Subjetivo, Objetivo, Avaliação, Plano).
+    
+    TRANSCRIÇÃO:
+    "${transcript}"
+    
+    Retorne APENAS um JSON válido no seguinte formato, sem formatação markdown:
+    {
+      "s": "Texto do Subjetivo...",
+      "o": "Texto do Objetivo...",
+      "a": "Texto da Avaliação...",
+      "p": "Texto do Plano..."
+    }
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+    
+    const text = response.text || "{}";
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("SOAP Gen Error:", error);
+    return {
+      s: "Erro ao gerar.",
+      o: "Erro ao gerar.",
+      a: "Erro ao gerar.",
+      p: "Erro ao gerar."
+    };
   }
 };
 

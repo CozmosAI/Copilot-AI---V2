@@ -9,8 +9,9 @@ import Automation from './components/Automation';
 import Financial from './components/Financial';
 import Integration from './components/Integration';
 import Profile from './components/Profile';
+import Recorder from './components/Recorder';
 import LoadingScreen from './components/LoadingScreen';
-import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, WhatsappConfig } from './types';
+import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, WhatsappConfig, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
 import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { checkStatus, configureInstance } from './services/whatsappService';
@@ -22,6 +23,13 @@ interface User {
   email: string;
   plan: 'free' | 'pro' | 'enterprise';
   ticketValue: number;
+  
+  // Novos campos detalhados
+  phone?: string;
+  specialty?: string;
+  procedures?: string;
+  city?: string;
+  role?: UserRole;
 }
 
 interface AppContextType {
@@ -61,6 +69,24 @@ interface AppContextType {
   appointments: Appointment[];
   addAppointment: (apt: Appointment) => Promise<void>;
   updateAppointment: (apt: Appointment) => Promise<void>;
+
+  // Team Management
+  teamMembers: TeamMember[];
+  addTeamMember: (member: Omit<TeamMember, 'id' | 'addedAt' | 'status'>) => void;
+  removeTeamMember: (id: string) => void;
+
+  // AI Configuration
+  aiConfig: AIConfig;
+  updateAiConfig: (config: Partial<AIConfig>) => Promise<void>;
+
+  // Recorder (SOAP)
+  recordings: ConsultationRecording[];
+  addRecording: (recording: ConsultationRecording) => void;
+  updateRecording: (recording: ConsultationRecording) => void;
+  deleteRecording: (id: string) => void;
+
+  // Navigation
+  navigateToSection: (section: AppSection) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -100,6 +126,49 @@ const App: React.FC = () => {
   const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [recordings, setRecordings] = useState<ConsultationRecording[]>([]);
+  
+  // AI Config State (Default Values)
+  const [aiConfig, setAiConfig] = useState<AIConfig>({
+    active: false,
+    name: 'Assistente Virtual',
+    role: 'SDR (Pré-vendas)',
+    objective: 'Agendamento de Consulta',
+    prompt: 'Você é a assistente virtual da clínica. Seu tom deve ser acolhedor, profissional e direto. Seu objetivo é entender a queixa do paciente e agendar uma avaliação.',
+    negativePrompt: 'Não dê diagnósticos médicos. Não prometa cura. Não seja rude. Não invente preços não tabelados.',
+    useProfile: true,
+    useCRM: true,
+    useHistory: true,
+    triggerType: 'off_hours',
+    delaySeconds: 10,
+    workingHours: { start: '08:00', end: '18:00', weekends: false }
+  });
+
+  const updateAiConfig = async (config: Partial<AIConfig>) => {
+    const newConfig = { ...aiConfig, ...config };
+    setAiConfig(newConfig);
+    
+    // Persist to Supabase
+    if (user && supabase) {
+        try {
+            await supabase.from('profiles').update({ ai_config: newConfig }).eq('id', user.id);
+        } catch (e) {
+            console.error("Erro ao salvar config IA:", e);
+        }
+    }
+  };
+
+  // Recorder Actions
+  const addRecording = (recording: ConsultationRecording) => {
+    setRecordings(prev => [recording, ...prev]);
+  };
+  const updateRecording = (recording: ConsultationRecording) => {
+    setRecordings(prev => prev.map(r => r.id === recording.id ? recording : r));
+  };
+  const deleteRecording = (id: string) => {
+    setRecordings(prev => prev.filter(r => r.id !== id));
+  };
   
   // Tokens & Configs
   const [googleCalendarToken, setGoogleCalendarToken] = useState<string | null>(null);
@@ -147,7 +216,17 @@ const App: React.FC = () => {
     if (!supabase || !user) return;
     try {
       const { data } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
-      if (data) setLeads(data.map((d: any) => ({ ...d, potentialValue: Number(d.potential_value), lastMessage: d.last_message, lastInteraction: '1d', email: d.email, procedure: d.procedure, notes: d.notes, source: d.source })));
+      if (data) setLeads(data.map((d: any) => ({ 
+          ...d, 
+          potentialValue: Number(d.potential_value), 
+          lastMessage: d.last_message, 
+          lastInteraction: d.last_interaction, 
+          lastSender: d.last_sender, // MAPEAMENTO CRÍTICO
+          email: d.email, 
+          procedure: d.procedure, 
+          notes: d.notes, 
+          source: d.source 
+      })));
     } catch (err) { console.error(err); }
   }, [user]);
 
@@ -163,12 +242,10 @@ const App: React.FC = () => {
       try {
           const { data } = await supabase.from('whatsapp_instances').select('*').eq('user_id', userId).maybeSingle();
           if (data && data.instance_name) {
-              // Verifica o status REAL na API, não apenas no banco
               const statusData = await checkStatus(data.instance_name);
               
               if (statusData.status === 'connected') {
                   setWhatsappConfigState({ instanceName: data.instance_name, isConnected: true, apiKey: '', baseUrl: '' });
-                  // Garante configuração silenciosa
                   configureInstance(data.instance_name, userId).catch(console.error);
               } else {
                   setWhatsappConfigState(null);
@@ -198,6 +275,10 @@ const App: React.FC = () => {
          if (newProfile.google_calendar_token && newProfile.google_calendar_token !== googleCalendarToken) {
              setGoogleCalendarToken(newProfile.google_calendar_token);
          }
+         // Se houver update na config de IA pelo servidor ou outro lugar, atualizamos o state
+         if (newProfile.ai_config) {
+             setAiConfig(prev => ({...prev, ...newProfile.ai_config}));
+         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_instances', filter: `user_id=eq.${user.id}` }, (payload) => {
           const newData = payload.new as any;
@@ -222,10 +303,35 @@ const App: React.FC = () => {
           try {
               const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
               if (profile) {
-                setUser({ id: profile.id, name: profile.name || 'Admin', email: session.user.email || '', clinic: profile.clinic_name || 'Clínica', plan: 'pro', ticketValue: Number(profile.ticket_value) || 450 });
+                setUser({ 
+                    id: profile.id, 
+                    name: profile.name || 'Admin', 
+                    email: session.user.email || '', 
+                    clinic: profile.clinic_name || 'Minha Clínica', 
+                    plan: 'pro', 
+                    ticketValue: Number(profile.ticket_value) || 450,
+                    role: 'owner',
+                    specialty: 'Dermatologia',
+                    city: 'São Paulo',
+                    procedures: 'Botox, Preenchimento, Laser',
+                    phone: '11999999999'
+                });
                 if (profile.google_calendar_token) setGoogleCalendarToken(profile.google_calendar_token);
+                
+                // Carregar Configurações da IA
+                if (profile.ai_config) {
+                    setAiConfig(prev => ({ ...prev, ...profile.ai_config }));
+                }
               } else {
-                setUser({ id: userId, name: 'Doutor(a)', email: session.user.email || '', clinic: 'Minha Clínica', plan: 'pro', ticketValue: 450 });
+                setUser({ 
+                    id: userId, 
+                    name: 'Doutor(a)', 
+                    email: session.user.email || '', 
+                    clinic: 'Minha Clínica', 
+                    plan: 'pro', 
+                    ticketValue: 450, 
+                    role: 'owner' 
+                });
               }
           } catch(err) { console.error(err); }
           await restoreWhatsappConnection(userId, 'Minha Clínica');
@@ -298,13 +404,30 @@ const App: React.FC = () => {
     const { error } = await supabase!.from('transactions').delete().eq('id', id);
     if (error) setFinancialEntries(backup);
   };
+  
   const addLead = async (lead: Lead) => {
     if (!user) return;
     const tempId = crypto.randomUUID();
     setLeads(prev => [{ ...lead, id: tempId }, ...prev]);
-    const { error } = await supabase!.from('leads').insert([{ user_id: user.id, name: lead.name, phone: lead.phone, status: lead.status, temperature: lead.temperature, last_message: lead.lastMessage, potential_value: lead.potentialValue }]);
-    if (error) setLeads(prev => prev.filter(l => l.id !== tempId));
+    const payload = { 
+        user_id: user.id, 
+        name: lead.name, 
+        phone: lead.phone, 
+        email: lead.email || null,
+        status: lead.status, 
+        temperature: lead.temperature, 
+        last_message: lead.lastMessage, 
+        potential_value: lead.potentialValue,
+        source: lead.source,
+        procedure: lead.procedure || null,
+        notes: lead.notes || null,
+        created_at: lead.created_at || new Date().toISOString(),
+        last_sender: 'me'
+    };
+    const { error } = await supabase!.from('leads').insert([payload]);
+    if (error) { console.error("Erro ao salvar lead:", error); setLeads(prev => prev.filter(l => l.id !== tempId)); }
   };
+
   const updateLead = async (lead: Lead) => {
     setLeads(prev => prev.map(l => l.id === lead.id ? lead : l));
     const { error } = await supabase!.from('leads').update({ name: lead.name, phone: lead.phone, status: lead.status, temperature: lead.temperature, last_message: lead.lastMessage, potential_value: lead.potentialValue }).eq('id', lead.id);
@@ -328,31 +451,58 @@ const App: React.FC = () => {
     if (user.id !== 'demo-user' && supabase) await supabase.from('profiles').update({ name: updates.name, clinic_name: updates.clinic, ticket_value: updates.ticketValue }).eq('id', user.id);
   };
 
+  const addTeamMember = (member: Omit<TeamMember, 'id' | 'addedAt' | 'status'>) => {
+      const newMember: TeamMember = { ...member, id: crypto.randomUUID(), status: 'active', addedAt: new Date().toISOString() };
+      setTeamMembers(prev => [...prev, newMember]);
+  };
+  const removeTeamMember = (id: string) => { setTeamMembers(prev => prev.filter(m => m.id !== id)); };
+
   const consolidatedMetrics = useMemo((): ConsolidatedMetrics => {
     const filteredEntries = financialEntries.filter(e => e.date >= dateFilter.start && e.date <= dateFilter.end && e.status === 'efetuada');
     const filteredLeads = leads.filter(l => l.created_at && l.created_at.split('T')[0] >= dateFilter.start && l.created_at.split('T')[0] <= dateFilter.end);
     const filteredAppointments = appointments.filter(a => a.date >= dateFilter.start && a.date <= dateFilter.end);
+    
     const receitaBruta = filteredEntries.filter(e => e.type === 'receivable').reduce((acc, curr) => acc + curr.total, 0);
     const gastosOperacionais = filteredEntries.filter(e => e.type === 'payable' && e.category !== 'Marketing').reduce((acc, curr) => acc + curr.total, 0);
     const finalMarketingSpend = filteredEntries.filter(e => e.type === 'payable' && e.category === 'Marketing').reduce((acc, curr) => acc + curr.total, 0);
     const gastosTotais = gastosOperacionais + finalMarketingSpend;
+    
     const leadsCount = filteredLeads.length || 0;
     const conversas = filteredLeads.filter(l => l.status !== 'Novo').length;
     const vendas = filteredLeads.filter(l => l.status === 'Venda').length;
+    const noShowsCRM = filteredLeads.filter(l => l.status === 'No Show' || l.status === 'Falta').length; // Conta No Shows do CRM
+    
+    // CÁLCULO DE LEADS SEM RESPOSTA (> 2 horas)
+    const now = new Date();
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    const leadsSemResposta = leads.filter(l => {
+       if (l.lastSender === 'contact' && l.lastInteraction) {
+           const lastInteractionDate = new Date(l.lastInteraction);
+           return lastInteractionDate < twoHoursAgo;
+       }
+       return false;
+    }).length;
+
     const agendamentos = filteredAppointments.length;
     const comparecimento = filteredAppointments.filter(a => a.status === 'Realizado').length;
-
+    
     return {
-      marketing: { investimento: finalMarketingSpend, leads: leadsCount, clicks: leadsCount * 12, impressions: leadsCount * 480, cpl: (leadsCount > 0 && finalMarketingSpend > 0) ? finalMarketingSpend / leadsCount : 0, ctr: leadsCount > 0 ? 2.1 : 0 },
-      vendas: { conversas, agendamentos, comparecimento, vendas, taxaConversao: leadsCount > 0 ? (agendamentos / leadsCount) * 100 : 0, cac: agendamentos > 0 ? finalMarketingSpend / agendamentos : 0, cpv: vendas > 0 ? finalMarketingSpend / vendas : 0 },
-      financeiro: { receitaBruta, gastosTotais, lucroLiquido: receitaBruta - gastosTotais, roi: gastosTotais > 0 ? ((receitaBruta - gastosTotais) / gastosTotais) * 100 : 0, ticketMedio: vendas > 0 ? receitaBruta / vendas : 0 }
+      marketing: { 
+        investimento: finalMarketingSpend, leads: leadsCount, clicks: leadsCount * 12, impressions: leadsCount * 480, cpl: (leadsCount > 0 && finalMarketingSpend > 0) ? finalMarketingSpend / leadsCount : 0, ctr: leadsCount > 0 ? 2.1 : 0 
+      },
+      vendas: { 
+        conversas, agendamentos, comparecimento, comparecimentoTaxa: agendamentos > 0 ? (comparecimento / agendamentos) * 100 : 0, noShows: noShowsCRM, leadsSemResposta, vendas, taxaConversao: leadsCount > 0 ? (agendamentos / leadsCount) * 100 : 0, cac: agendamentos > 0 ? finalMarketingSpend / agendamentos : 0, cpv: vendas > 0 ? finalMarketingSpend / vendas : 0 
+      },
+      financeiro: { 
+        receitaBruta, gastosTotais, lucroLiquido: receitaBruta - gastosTotais, roi: gastosTotais > 0 ? ((receitaBruta - gastosTotais) / gastosTotais) * 100 : 0, ticketMedio: vendas > 0 ? receitaBruta / vendas : 0 
+      }
     };
   }, [dateFilter, financialEntries, leads, appointments, user?.ticketValue]);
 
   const setDateFilter = (label: string) => setInternalDateFilter(calculateRange(label));
   const toggleIntegration = (id: string) => setIntegrations(prev => ({ ...prev, [id]: !prev[id] }));
 
-  // Render Optimized - Removed fade-in wrapper to prevent layout thrashing on every tab switch
+  // Render Optimized
   const renderContent = () => {
     switch(activeSection) {
       case AppSection.DASHBOARD: return <Dashboard />;
@@ -362,6 +512,7 @@ const App: React.FC = () => {
       case AppSection.AUTOMACAO: return <Automation />;
       case AppSection.FINANCEIRO: return <Financial />;
       case AppSection.INTEGRACAO: return <Integration />;
+      case AppSection.GRAVADOR: return <Recorder />;
       case AppSection.PERFIL: return <Profile />;
       default: return <Dashboard />;
     }
@@ -371,7 +522,18 @@ const App: React.FC = () => {
   if (!isAuthenticated) return <AuthScreen onLogin={login} onSignUp={signUp} />;
 
   return (
-    <AppContext.Provider value={{ user, updateUser, isAuthenticated, login, signUp, logout, integrations, googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, whatsappConfig, setWhatsappConfig, toggleIntegration, refreshGoogleCredentials, dateFilter, setDateFilter, metrics: consolidatedMetrics, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, leads, addLead, updateLead, appointments, addAppointment, updateAppointment }}>
+    <AppContext.Provider value={{ 
+        user, updateUser, isAuthenticated, login, signUp, logout, integrations, 
+        googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
+        whatsappConfig, setWhatsappConfig, toggleIntegration, refreshGoogleCredentials, 
+        dateFilter, setDateFilter, metrics: consolidatedMetrics, 
+        financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, 
+        leads, addLead, updateLead, appointments, addAppointment, updateAppointment,
+        teamMembers, addTeamMember, removeTeamMember,
+        aiConfig, updateAiConfig,
+        recordings, addRecording, updateRecording, deleteRecording,
+        navigateToSection: setActiveSection // Expondo navegação
+    }}>
       <div className="flex flex-col md:flex-row h-screen overflow-hidden bg-[#f1f5f9]">
         <div className="md:hidden flex items-center justify-between p-4 bg-navy text-white z-[60] shadow-md">
           <h1 className="font-bold text-lg tracking-tight">COPILOT AI</h1>
@@ -388,7 +550,7 @@ const App: React.FC = () => {
   );
 };
 
-// --- NOVA TELA DE LOGIN (SPLIT SCREEN) ---
+// ... (AuthScreen unchanged)
 const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');

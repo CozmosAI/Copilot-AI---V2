@@ -14,6 +14,7 @@ create table if not exists profiles (
   ticket_value numeric default 450,
   google_calendar_token text,
   google_calendar_refresh_token text,
+  ai_config jsonb, -- COLUNA NOVA: Armazena configurações da IA
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
@@ -30,6 +31,10 @@ begin
   if not exists (select 1 from information_schema.columns where table_name='profiles' and column_name='clinic_name') then
     alter table profiles add column clinic_name text;
   end if;
+  -- Garante a coluna ai_config
+  if not exists (select 1 from information_schema.columns where table_name='profiles' and column_name='ai_config') then
+    alter table profiles add column ai_config jsonb default '{}'::jsonb;
+  end if;
 end $$;
 
 -- 3. Tabela LEADS (CRM)
@@ -45,6 +50,7 @@ create table if not exists leads (
   potential_value numeric default 0,
   last_message text,
   last_interaction timestamp with time zone default now(),
+  last_sender text default 'me', -- NOVO: 'me' ou 'contact'
   notes text,
   created_at timestamp with time zone default now()
 );
@@ -57,6 +63,10 @@ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='last_interaction') then
     alter table leads add column last_interaction timestamp with time zone default now();
+  end if;
+  -- Garante last_sender
+  if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='last_sender') then
+    alter table leads add column last_sender text default 'me';
   end if;
 end $$;
 
