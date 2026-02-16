@@ -4,7 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Copilot AI - Gestão & Crescimento</title>
+    <title>AXIS AI • Gestão Inteligente</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,12 +54,14 @@
         to { opacity: 1; }
       }
       
-      /* Input Autofill Fix */
+      /* Input Autofill Fix - Garante cor de fundo correta e texto legível */
       input:-webkit-autofill,
       input:-webkit-autofill:hover, 
       input:-webkit-autofill:focus, 
       input:-webkit-autofill:active{
-          -webkit-box-shadow: 0 0 0 30px white inset !important;
+          -webkit-box-shadow: 0 0 0 30px #f8fafc inset !important;
+          -webkit-text-fill-color: #0f172a !important;
+          transition: background-color 5000s ease-in-out 0s;
       }
     </style>
   <script type="importmap">
@@ -79,7 +81,9 @@
     "cors": "https://esm.sh/cors@^2.8.6",
     "path": "https://esm.sh/path@^0.12.7",
     "dotenv": "https://esm.sh/dotenv@^17.2.3",
-    "fs": "https://esm.sh/fs@^0.0.1-security"
+    "fs": "https://esm.sh/fs@^0.0.1-security",
+    "next/": "https://esm.sh/next@^16.1.6/",
+    "openai": "https://esm.sh/openai@^6.21.0"
   }
 }
 </script>

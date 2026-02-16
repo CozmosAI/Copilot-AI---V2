@@ -10,11 +10,19 @@ import Financial from './components/Financial';
 import Integration from './components/Integration';
 import Profile from './components/Profile';
 import Recorder from './components/Recorder';
+import AxisModule from './components/AxisModule'; // Importado
 import LoadingScreen from './components/LoadingScreen';
 import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, WhatsappConfig, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
-import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock } from 'lucide-react';
+import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { checkStatus, configureInstance } from './services/whatsappService';
+
+// Logo AXIS para tela de login
+const AxisLogo = ({ size = 32, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <path d="M12 2L2 21H7L12 11L17 21H22L12 2Z" />
+  </svg>
+);
 
 interface User {
   id: string;
@@ -506,6 +514,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch(activeSection) {
       case AppSection.DASHBOARD: return <Dashboard />;
+      case AppSection.AXIS: return <AxisModule />; // Renderização Adicionada
       case AppSection.MARKETING: return <Marketing />;
       case AppSection.VENDAS: return <Sales />;
       case AppSection.AGENDA: return <Agenda />;
@@ -536,7 +545,7 @@ const App: React.FC = () => {
     }}>
       <div className="flex flex-col md:flex-row h-screen overflow-hidden bg-[#f1f5f9]">
         <div className="md:hidden flex items-center justify-between p-4 bg-navy text-white z-[60] shadow-md">
-          <h1 className="font-bold text-lg tracking-tight">COPILOT AI</h1>
+          <h1 className="font-bold text-lg tracking-tight">AXIS AI</h1>
           <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/10 rounded-lg">{isSidebarOpen ? <X size={24} /> : <Menu size={24} />}</button>
         </div>
         <div className={`fixed inset-y-0 left-0 z-50 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:visible transition-all duration-300 ease-in-out shadow-2xl md:shadow-none`}>
@@ -550,7 +559,7 @@ const App: React.FC = () => {
   );
 };
 
-// ... (AuthScreen unchanged)
+// ... (AuthScreen updated)
 const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -559,6 +568,9 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  
+  // State para visibilidade da senha
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError(''); setSuccessMsg('');
@@ -579,10 +591,10 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-[120px] pointer-events-none"></div>
           
           <div className="relative z-10 flex items-center gap-3">
-             <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/10">
-                <Bot size={24} className="text-blue-400" />
+             <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/10">
+                <AxisLogo size={28} className="text-blue-400" />
              </div>
-             <span className="text-xl font-bold tracking-tight">COPILOT AI</span>
+             <span className="text-xl font-bold tracking-tight">AXIS AI</span>
           </div>
 
           <div className="relative z-10 max-w-lg space-y-6">
@@ -603,7 +615,7 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
           </div>
 
           <div className="relative z-10 text-xs text-slate-500 font-medium">
-             © 2024 Copilot AI Inc. Todos os direitos reservados.
+             © 2024 AXIS AI Inc. Todos os direitos reservados.
           </div>
        </div>
 
@@ -663,14 +675,24 @@ const AuthScreen = ({ onLogin, onSignUp }: { onLogin: any, onSignUp: any }) => {
                       <label className="text-xs font-semibold text-slate-700">Senha</label>
                       {isLogin && <a href="#" className="text-xs text-blue-600 hover:underline">Esqueceu?</a>}
                    </div>
-                   <input 
-                      type="password" 
-                      value={pass} 
-                      onChange={e => setPass(e.target.value)} 
-                      required 
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm text-slate-900"
-                      placeholder="••••••••"
-                   />
+                   <div className="relative">
+                       <input 
+                          type={showPassword ? "text" : "password"} 
+                          value={pass} 
+                          onChange={e => setPass(e.target.value)} 
+                          required 
+                          className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#0f172a] focus:border-[#0f172a] outline-none transition-all text-sm text-slate-900"
+                          placeholder="••••••••"
+                       />
+                       <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          tabIndex={-1}
+                       >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                       </button>
+                   </div>
                 </div>
 
                 <button 

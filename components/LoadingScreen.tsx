@@ -2,6 +2,12 @@
 import React from 'react';
 import { Bot, Sparkles, Zap } from 'lucide-react';
 
+const AxisLogo = ({ size = 40, className = "" }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <path d="M12 2L2 21H7L12 11L17 21H22L12 2Z" />
+  </svg>
+);
+
 const LoadingScreen: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-[#0f172a] flex flex-col items-center justify-center z-[9999] overflow-hidden font-sans">
@@ -16,7 +22,9 @@ const LoadingScreen: React.FC = () => {
           <div className="absolute inset-0 bg-blue-500/20 rounded-3xl blur-2xl group-hover:bg-blue-500/30 transition-all duration-1000"></div>
           <div className="w-24 h-24 bg-white/5 backdrop-blur-2xl rounded-3xl border border-white/10 flex items-center justify-center shadow-2xl relative overflow-hidden">
              <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent opacity-50"></div>
-             <Bot size={40} className="text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)] relative z-10" />
+             
+             {/* AXIS LOGO */}
+             <AxisLogo size={48} className="text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)] relative z-10" />
              
              {/* Scanning Effect - Slower, smoother */}
              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-400/20 to-transparent translate-y-[-100%] animate-[scan_2.5s_ease-in-out_infinite]"></div>
@@ -26,7 +34,7 @@ const LoadingScreen: React.FC = () => {
         {/* Text Animations */}
         <div className="space-y-8">
           <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 tracking-tight">
-            COPILOT AI
+            AXIS AI
           </h1>
           
           <div className="flex flex-col items-center gap-4">
@@ -35,7 +43,7 @@ const LoadingScreen: React.FC = () => {
              </div>
              <div className="flex items-center gap-2">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] animate-pulse">
-                  Carregando Sistema
+                  Inicializando Sistema...
                 </p>
              </div>
           </div>

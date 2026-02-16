@@ -1,6 +1,6 @@
 {
-  "name": "Copilot-ai-gestao ( V2 )",
-  "display_name": "COPILOT AI - Gestão & Crescimento",
+  "name": "axis-ai-gestao",
+  "display_name": "AXIS AI • Gestão Inteligente",
   "description": "Uma plataforma inteligente para médicos e clínicas que transforma dados de marketing, vendas e financeiro em decisões estratégicas através de IA.",
   "requestFramePermissions": [
     "microphone"

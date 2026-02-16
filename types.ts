@@ -10,7 +10,8 @@ export enum AppSection {
   FINANCEIRO = 'financeiro',
   INTEGRACAO = 'integracao',
   GRAVADOR = 'gravador',
-  PERFIL = 'perfil'
+  PERFIL = 'perfil',
+  AXIS = 'axis' // Nova Seção
 }
 
 export interface DateRange {
