@@ -46,7 +46,6 @@ app.use((req, res, next) => {
 });
 
 // Serve arquivos estáticos do Build do React (Vite)
-// Isso é CRUCIAL para produção (Render)
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // ==============================================================================
@@ -62,7 +61,6 @@ app.post('/api/axis/chat', async (req, res) => {
 
         console.log("Axis: Processando mensagem...");
 
-        // Prompt Otimizado para Velocidade
         const systemPrompt = `
           Você é o AXIS, um assistente virtual ultra-rápido e eficiente.
           DIRETRIZES:
@@ -92,22 +90,31 @@ app.post('/api/axis/chat', async (req, res) => {
 });
 
 // ==============================================================================
-// GOOGLE ADS PROXY
+// GOOGLE ADS PROXY (DEBUGGING MODE)
 // ==============================================================================
 
 app.post('/api/google-ads', async (req, res) => {
     try {
         const { action, access_token, customer_id, date_range } = req.body;
-        const developer_token = GOOGLE_ADS_DEV_TOKEN;
+        
+        // Debug: Verificar se o token está carregando
+        if (!GOOGLE_ADS_DEV_TOKEN) {
+            console.error("ERRO CRÍTICO: VITE_GOOGLE_ADS_DEV_TOKEN não está definido nas variáveis de ambiente.");
+            return res.status(500).json({ error: 'Servidor mal configurado: Token de Desenvolvedor faltando.' });
+        }
 
-        if (!access_token) return res.status(400).json({ error: 'Missing access_token' });
-        if (!developer_token) return res.status(500).json({ error: 'Server misconfiguration: Missing developer_token' });
+        const developer_token = GOOGLE_ADS_DEV_TOKEN; 
+
+        if (!access_token) return res.status(400).json({ error: 'Faltando access_token (Login)' });
 
         const API_VERSION = 'v17';
         const BASE_URL = `https://googleads.googleapis.com/${API_VERSION}`;
 
+        // --- AÇÃO 1: LISTAR CONTAS ---
         if (action === 'list_customers') {
+            console.log("Iniciando busca de contas Google Ads...");
             const url = `${BASE_URL}/customers:listAccessibleCustomers`;
+            
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
@@ -117,12 +124,20 @@ app.post('/api/google-ads', async (req, res) => {
                 }
             });
 
+            const responseText = await response.text();
+            
             if (!response.ok) {
-                const errorText = await response.text();
-                return res.status(response.status).json({ error: `Google API Error: ${response.statusText}`, details: errorText });
+                console.error("Google Ads API Error Response:", responseText);
+                // Retorna o erro exato do Google para o frontend
+                return res.status(response.status).json({ 
+                    error: `Google API Error (${response.status})`, 
+                    details: responseText 
+                });
             }
 
-            const data = await response.json();
+            console.log("Google Ads Success Response:", responseText);
+            const data = JSON.parse(responseText);
+            
             const customers = (data.resourceNames || []).map((resourceName) => {
                 const id = resourceName.replace('customers/', '');
                 return {
@@ -133,11 +148,14 @@ app.post('/api/google-ads', async (req, res) => {
                     timeZone: 'America/Sao_Paulo'
                 };
             });
+
             return res.json({ customers });
         }
 
+        // --- AÇÃO 2: BUSCAR CAMPANHAS ---
         if (action === 'get_campaigns') {
             if (!customer_id) return res.status(400).json({ error: 'Missing customer_id' });
+
             const cleanCustomerId = customer_id.replace(/-/g, '');
             const url = `${BASE_URL}/customers/${cleanCustomerId}/googleAds:search`;
 
@@ -161,25 +179,31 @@ app.post('/api/google-ads', async (req, res) => {
             }
             query += ` LIMIT 50`;
 
+            // IMPORTANTE: Adiciona login-customer-id se estiver acessando via MCC, 
+            // mas para acesso direto simples, tentamos sem primeiro.
+            const headers = {
+                'Authorization': `Bearer ${access_token}`,
+                'developer-token': developer_token,
+                'Content-Type': 'application/json'
+            };
+
             const response = await fetch(url, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${access_token}`,
-                    'developer-token': developer_token,
-                    'Content-Type': 'application/json'
-                },
+                headers: headers,
                 body: JSON.stringify({ query })
             });
 
+            const responseText = await response.text();
+
             if (!response.ok) {
-                const errorText = await response.text();
-                if (errorText.includes("CUSTOMER_NOT_FOUND") || errorText.includes("NOT_ADS_USER")) {
+                console.error(`Erro buscando campanhas para ${cleanCustomerId}:`, responseText);
+                if (responseText.includes("CUSTOMER_NOT_FOUND") || responseText.includes("NOT_ADS_USER")) {
                    return res.status(403).json({ error: "Conta não encontrada ou sem permissão." });
                 }
-                return res.status(response.status).json({ error: "Erro ao buscar campanhas.", details: errorText });
+                return res.status(response.status).json({ error: "Erro ao buscar campanhas.", details: responseText });
             }
 
-            const data = await response.json();
+            const data = JSON.parse(responseText);
             return res.json({ results: data.results || [] });
         }
 
@@ -192,7 +216,7 @@ app.post('/api/google-ads', async (req, res) => {
 });
 
 // ==============================================================================
-// WHATSAPP ROUTES
+// WHATSAPP & OUTRAS ROTAS
 // ==============================================================================
 
 const evoRequest = async (endpoint, method = 'GET', body = null) => {
@@ -204,13 +228,11 @@ const evoRequest = async (endpoint, method = 'GET', body = null) => {
         };
         if (body) options.body = JSON.stringify(body);
         
-        // Remove trailing slashes from URL and leading from endpoint to avoid //
         const cleanUrl = EVO_URL.replace(/\/$/, '');
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         
         const response = await fetch(`${cleanUrl}${cleanEndpoint}`, options);
         
-        // Handle 404 from Evolution gracefully (instance not found)
         if (response.status === 404) {
             return { ok: false, status: 404, data: null };
         }
@@ -243,12 +265,7 @@ app.get('/api/whatsapp/status/:instanceName', async (req, res) => {
     try {
         const { instanceName } = req.params;
         const response = await evoRequest(`/instance/connectionState/${instanceName}`, 'GET');
-        
-        // Se a instância não existe (404 ou erro), retorna disconnected
-        if (!response.ok) {
-            return res.json({ status: 'disconnected' });
-        }
-
+        if (!response.ok) return res.json({ status: 'disconnected' });
         const state = response.data?.instance?.state || response.data?.state || 'disconnected';
         res.json({ status: state === 'open' ? 'connected' : state });
     } catch (e) {
@@ -271,10 +288,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     res.status(200).send('OK');
 });
 
-// ==============================================================================
-// SPA FALLBACK (Catch-All)
-// ==============================================================================
-// Qualquer rota não-API retorna o index.html do React
+// SPA Catch-all
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });

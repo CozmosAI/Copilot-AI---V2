@@ -1,3 +1,4 @@
+
 import { supabase } from '../lib/supabase';
 import { GoogleAdAccount } from '../types';
 
@@ -18,7 +19,9 @@ const handleApiResponse = async (response: Response) => {
   }
 
   if (!response.ok) {
-     throw new Error(data.error || `Erro do servidor: ${response.statusText}`);
+     // Se tiver detalhes do erro do Google, mostra eles
+     const detailMsg = data.details ? ` Detalhes: ${data.details}` : '';
+     throw new Error((data.error || `Erro do servidor: ${response.statusText}`) + detailMsg);
   }
 
   return data;
@@ -92,7 +95,7 @@ export const getGoogleCampaigns = async (customerId: string, accessToken: string
 
   } catch (error: any) {
     console.error("Service Error (Get Campaigns):", error.message);
-    // Retorna array vazio em caso de erro para não quebrar a tela de Marketing
+    // Retorna array vazio em caso de erro para não quebrar a tela de Marketing, mas loga o erro.
     return [];
   }
 };
