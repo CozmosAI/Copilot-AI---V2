@@ -32,6 +32,9 @@ const EVO_URL = (process.env.EVOLUTION_API_URL || '').replace(/\/$/, '');
 const EVO_KEY = process.env.EVOLUTION_GLOBAL_KEY;
 const APP_BASE_URL = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
 
+// --- GOOGLE ADS CONFIG ---
+const GOOGLE_ADS_DEV_TOKEN = process.env.VITE_GOOGLE_ADS_DEV_TOKEN;
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -93,7 +96,121 @@ app.post('/api/axis/chat', async (req, res) => {
 });
 
 // ==============================================================================
-// OUTRAS ROTAS (MANTIDAS)
+// GOOGLE ADS PROXY (IMPLEMENTAÇÃO REAL)
+// ==============================================================================
+
+app.post('/api/google-ads', async (req, res) => {
+    try {
+        const { action, access_token, customer_id, date_range } = req.body;
+        const developer_token = GOOGLE_ADS_DEV_TOKEN; // Pega do .env do servidor
+
+        if (!access_token) return res.status(400).json({ error: 'Missing access_token' });
+        if (!developer_token) return res.status(500).json({ error: 'Server misconfiguration: Missing developer_token' });
+
+        const API_VERSION = 'v17'; // Versão atualizada
+        const BASE_URL = `https://googleads.googleapis.com/${API_VERSION}`;
+
+        // --- AÇÃO 1: LISTAR CONTAS ---
+        if (action === 'list_customers') {
+            const url = `${BASE_URL}/customers:listAccessibleCustomers`;
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${access_token}`,
+                    'developer-token': developer_token,
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Google Ads List Error:", errorText);
+                return res.status(response.status).json({ error: `Google API Error: ${response.statusText}`, details: errorText });
+            }
+
+            const data = await response.json();
+            
+            // Formata a resposta para o frontend
+            const customers = (data.resourceNames || []).map((resourceName) => {
+                const id = resourceName.replace('customers/', '');
+                return {
+                    id: id,
+                    name: resourceName,
+                    descriptiveName: `Conta ${id}`, // A API listAccessibleCustomers não retorna nome, infelizmente
+                    currencyCode: 'BRL',
+                    timeZone: 'America/Sao_Paulo'
+                };
+            });
+
+            return res.json({ customers });
+        }
+
+        // --- AÇÃO 2: BUSCAR CAMPANHAS (SEARCH STREAM) ---
+        if (action === 'get_campaigns') {
+            if (!customer_id) return res.status(400).json({ error: 'Missing customer_id' });
+
+            const cleanCustomerId = customer_id.replace(/-/g, '');
+            const url = `${BASE_URL}/customers/${cleanCustomerId}/googleAds:search`;
+
+            // Query GAQL
+            let query = `
+                SELECT 
+                  campaign.id, 
+                  campaign.name, 
+                  campaign.status, 
+                  metrics.clicks, 
+                  metrics.impressions, 
+                  metrics.cost_micros, 
+                  metrics.conversions 
+                FROM campaign 
+                WHERE campaign.status != 'REMOVED' 
+            `;
+
+            if (date_range && date_range.start && date_range.end) {
+                query += ` AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'`;
+            } else {
+                query += ` AND segments.date DURING LAST_30_DAYS`;
+            }
+            
+            query += ` LIMIT 50`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${access_token}`,
+                    'developer-token': developer_token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Google Ads Search Error:", errorText);
+                
+                // Tratamento amigável
+                if (errorText.includes("CUSTOMER_NOT_FOUND") || errorText.includes("NOT_ADS_USER")) {
+                   return res.status(403).json({ error: "Conta não encontrada ou sem permissão. Verifique o ID." });
+                }
+                
+                return res.status(response.status).json({ error: "Erro ao buscar campanhas.", details: errorText });
+            }
+
+            const data = await response.json();
+            return res.json({ results: data.results || [] });
+        }
+
+        return res.status(400).json({ error: `Unknown action: ${action}` });
+
+    } catch (error) {
+        console.error("Internal Server Error (Google Ads):", error);
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+// ==============================================================================
+// OUTRAS ROTAS (WHATSAPP)
 // ==============================================================================
 
 const evoRequest = async (endpoint, method = 'GET', body = null) => {
@@ -148,12 +265,8 @@ app.post('/api/whatsapp/configure', async (req, res) => {
 });
 
 app.post('/api/webhook/whatsapp', async (req, res) => {
-    // Webhook simplificado para não quebrar, mas lógica principal está no Axis AI agora
+    // Webhook simplificado para não quebrar
     res.status(200).send('OK');
-});
-
-app.post('/api/google-ads', async (req, res) => {
-   res.status(501).json({error: "Not Implemented"}); 
 });
 
 app.listen(PORT, () => {
