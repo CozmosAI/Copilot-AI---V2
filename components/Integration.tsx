@@ -56,8 +56,12 @@ const Integration: React.FC = () => {
   const [importLoading, setImportLoading] = useState(false);
 
   // --- CHECK CONNECTION STATUS ON MOUNT ---
+  // CORREÇÃO: Só checa status se NÃO houver código OAuth na URL (evita race condition)
   useEffect(() => {
-      if (user) {
+      const params = new URLSearchParams(window.location.search);
+      const hasCode = params.get('code');
+
+      if (user && !hasCode) {
           checkGoogleAdsStatus(user.id).then(status => {
               if (status.connected) {
                   setGoogleAdsToken('backend-connected');
@@ -77,6 +81,7 @@ const Integration: React.FC = () => {
           const code = params.get('code');
           
           if (code && user) {
+              // Limpa a URL para evitar reprocessamento
               window.history.replaceState({}, document.title, window.location.pathname);
               
               setLoading('google-ads');
