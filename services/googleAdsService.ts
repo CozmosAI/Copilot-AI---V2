@@ -1,101 +1,96 @@
 
 import { supabase } from '../lib/supabase';
-import { GoogleAdAccount } from '../types';
 
-/**
- * Helper para tratar a resposta do servidor com segurança.
- * Evita o erro "Unexpected end of JSON input" lendo como texto primeiro.
- */
-const handleApiResponse = async (response: Response) => {
-  const text = await response.text();
-  
-  let data;
-  try {
-    // Tenta converter o texto para JSON. Se for vazio, vira objeto vazio.
-    data = text ? JSON.parse(text) : {};
-  } catch (e) {
-    console.error("Non-JSON response received:", text);
-    throw new Error(`Erro de comunicação com o servidor (${response.status}): A resposta não é válida.`);
-  }
-
-  if (!response.ok) {
-     // Se tiver detalhes do erro do Google, mostra eles
-     const detailMsg = data.details ? ` Detalhes: ${data.details}` : '';
-     throw new Error((data.error || `Erro do servidor: ${response.statusText}`) + detailMsg);
-  }
-
-  return data;
-};
-
-/**
- * Inicia o fluxo de Login com Google Ads.
- */
-export const signInWithGoogleAds = async () => {
-  if (!supabase) return;
-
-  const returnUrl = window.location.origin + window.location.pathname;
-  localStorage.setItem('auth_intent', 'google_ads');
-
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      scopes: 'https://www.googleapis.com/auth/adwords',
-      redirectTo: returnUrl,
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
-    },
-  });
-
-  if (error) throw error;
-  return data;
-};
-
-/**
- * Busca a lista de contas via Backend Interno (/api/google-ads).
- */
-export const getAccessibleCustomers = async (accessToken: string, _developerToken?: string): Promise<GoogleAdAccount[]> => {
-  try {
-    const response = await fetch('/api/google-ads', {
+// Helper para chamadas ao backend
+const apiCall = async (endpoint: string, body: any) => {
+    const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'list_customers',
-            access_token: accessToken
-        })
+        body: JSON.stringify(body)
     });
-
-    const data = await handleApiResponse(response);
-    return data.customers || [];
-  } catch (err: any) {
-    console.error("Service Error (List Customers):", err.message);
-    throw err;
-  }
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Erro na API');
+    return data;
 };
 
 /**
- * Busca campanhas via Backend Interno (/api/google-ads).
+ * Passo 1: Obter URL de Autorização
  */
-export const getGoogleCampaigns = async (customerId: string, accessToken: string, _developerToken?: string, dateRange?: { start: string, end: string }) => {
-  try {
-    const response = await fetch('/api/google-ads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'get_campaigns',
-            customer_id: customerId,
-            access_token: accessToken,
+export const initiateGoogleAdsAuth = async () => {
+    const redirectUri = window.location.origin;
+    const response = await fetch(`/api/auth/google-ads/url?redirect_uri=${encodeURIComponent(redirectUri)}`);
+    const data = await response.json();
+    
+    if (data.url) {
+        window.location.href = data.url;
+    } else {
+        throw new Error("Não foi possível gerar URL de login.");
+    }
+};
+
+/**
+ * Passo 2: Trocar o 'code' por tokens
+ */
+export const exchangeCodeForToken = async (code: string, userId: string) => {
+    const redirectUri = window.location.origin;
+    return apiCall('/api/auth/google-ads/exchange', {
+        code,
+        redirect_uri: redirectUri,
+        user_id: userId
+    });
+};
+
+/**
+ * Passo 2.5: Confirmar conta selecionada
+ */
+export const selectGoogleAdsAccount = async (userId: string, accountId: string, accountName: string) => {
+    return apiCall('/api/auth/google-ads/select-account', {
+        user_id: userId,
+        customer_id: accountId,
+        customer_name: accountName
+    });
+};
+
+/**
+ * Passo 3: Buscar Campanhas
+ */
+export const getGoogleCampaigns = async (userId: string, dateRange?: { start: string, end: string }) => {
+    try {
+        const data = await apiCall('/api/google-ads/campaigns', {
+            user_id: userId,
             date_range: dateRange
-        })
-    });
-
-    const data = await handleApiResponse(response);
-    return data.results || [];
-
-  } catch (error: any) {
-    console.error("Service Error (Get Campaigns):", error.message);
-    // Retorna array vazio em caso de erro para não quebrar a tela de Marketing, mas loga o erro.
-    return [];
-  }
+        });
+        
+        return (data.results || []).map((row: any) => ({
+            name: row.campaign.name,
+            platform: 'google',
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            status: row.campaign.status
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar campanhas:", error);
+        return [];
+    }
 };
+
+/**
+ * Check Status: Verifica se está conectado no backend
+ */
+export const checkGoogleAdsStatus = async (userId: string) => {
+    try {
+        const response = await fetch(`/api/google-ads/status/${userId}`);
+        return await response.json();
+    } catch (e) {
+        return { connected: false };
+    }
+};
+
+// Deprecated
+export const signInWithGoogleAds = async () => {
+    console.warn("Use initiateGoogleAdsAuth() agora.");
+    return initiateGoogleAdsAuth();
+};
+export const getAccessibleCustomers = async () => { return []; }
