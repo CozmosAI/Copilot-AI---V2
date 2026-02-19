@@ -13,7 +13,8 @@ const safeFetch = async (url: string, options: any) => {
         response = await fetch(url, options);
     } catch (error) {
         console.error("Network/Connection Error:", error);
-        throw new Error("Falha de conexão com o servidor. Verifique se o backend está rodando.");
+        // Retorna um objeto de erro "fake" para ser tratado abaixo
+        return { ok: false, error: "Falha na conexão" };
     }
 
     const text = await response.text();
@@ -23,22 +24,24 @@ const safeFetch = async (url: string, options: any) => {
         data = text ? JSON.parse(text) : {};
     } catch (error) {
         console.error(`Invalid JSON response from ${url}:`, text);
-        throw new Error(`Resposta inválida do servidor (Status ${response.status}).`);
+        // Se a resposta não for JSON (ex: 404 HTML), retorna erro genérico
+        return { ok: false, error: `Resposta inválida (${response.status})` };
     }
 
     if (!response.ok) {
-        throw new Error(data.error || data.message || `Erro ${response.status} do servidor.`);
+        // Se a API retornou erro mas em JSON
+        return { ok: false, ...data };
     }
     
     return data;
 };
 
-// Helper para limpar nome de instância (Remove acentos, espaços e caracteres especiais)
+// Helper para limpar nome de instância
 const sanitizeInstanceName = (name: string): string => {
     return name
-        .normalize("NFD") // Separa acentos das letras
-        .replace(/[\u0300-\u036f]/g, "") // Remove acentos
-        .replace(/[^a-zA-Z0-9]/g, "") // Mantém apenas letras e números
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "")
         .toLowerCase();
 };
 
@@ -46,60 +49,60 @@ const sanitizeInstanceName = (name: string): string => {
  * 1. Iniciar conexão (Chama o N8N)
  */
 export const initInstance = async (userId: string, clinicName: string, phoneNumber?: string) => {
-    // ADICIONADO FALLBACK MANUALMENTE PARA GARANTIR FUNCIONAMENTO
     const n8nUrl = (import.meta as any).env.VITE_N8N_WEBHOOK_URL || 'https://task-dev-01-n8n.8ypyjm.easypanel.host/webhook/criar-instancia';
     
-    if (!n8nUrl) {
-        console.error("VITE_N8N_WEBHOOK_URL não definida no .env");
-        throw new Error("URL de conexão (N8N) não configurada.");
-    }
+    if (!n8nUrl) throw new Error("URL de conexão (N8N) não configurada.");
 
-    // CRÍTICO: Sanitiza o nome antes de enviar para garantir que vire um ID válido
-    // Ex: "Minha Clínica" -> "minhaclinica"
-    // Se o nome ficar vazio após limpar, usa 'copilot' + parte do ID
     let safeName = sanitizeInstanceName(clinicName);
     if (safeName.length < 3) {
         safeName = `copilot${sanitizeInstanceName(userId.split('-')[0])}`;
     }
 
-    console.log(`[WhatsappService] Iniciando instância com ID Técnico: ${safeName}`);
+    console.log(`[WhatsappService] Iniciando instância: ${safeName}`);
 
-    // Chama o Webhook do N8N enviando o NOME LIMPO
     const result = await safeFetch(n8nUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             userId, 
-            clinicName: safeName, // Envia o nome limpo para o N8N criar a instância corretamente
-            originalName: clinicName, // Envia o original caso precise para log
+            clinicName: safeName, 
+            originalName: clinicName,
             phoneNumber 
         })
     });
 
-    // Retorna o resultado garantindo que o frontend saiba o nome técnico usado
+    if (result.ok === false) {
+        throw new Error(result.error || "Erro ao conectar via N8N");
+    }
+
     return {
         ...result,
         instanceName: safeName 
     };
 };
 
-// 2. Verificar Status Real (Via Backend -> Evolution)
+// 2. Verificar Status Real (Via Backend)
 export const checkStatus = async (instanceName: string) => {
-    // Garante que estamos checando o nome limpo
     const safeName = sanitizeInstanceName(instanceName);
     
     try {
         const data = await safeFetch(`/api/whatsapp/status/${safeName}`, {
             method: 'GET'
         });
-        return data; // Retorna { status: 'connected' | 'connecting' | ... }
+        
+        // Se houve erro na requisição (ex: 404), assume desconectado para não quebrar a UI
+        if (data.ok === false || !data.status) {
+            return { status: 'disconnected' };
+        }
+        
+        return data; 
     } catch (error) {
         console.warn(`Erro ao checar status de ${safeName}:`, error);
-        return { status: 'UNKNOWN' };
+        return { status: 'disconnected' };
     }
 };
 
-// 3. Configurar Webhook da Instância (Crucial para o CRM funcionar)
+// 3. Configurar Webhook
 export const configureInstance = async (instanceName: string, userId: string) => {
     const safeName = sanitizeInstanceName(instanceName);
     return safeFetch(`/api/whatsapp/configure`, {
@@ -126,7 +129,6 @@ export const sendMessage = async (instanceName: string, phone: string, text: str
 
 // 5. Logout
 export const logoutInstance = async (userId: string, currentInstanceName?: string) => {
-    // Tenta usar o nome atual ou gera o padrão baseado no ID
     const instanceName = currentInstanceName 
         ? sanitizeInstanceName(currentInstanceName)
         : `copilot${sanitizeInstanceName(userId.split('-')[0])}`;

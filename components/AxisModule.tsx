@@ -59,7 +59,6 @@ const playGeminiAudio = async (base64Audio: string, onStart: () => void, onEnd: 
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         const audioContext = new AudioContext({ sampleRate: 24000 });
         
-        // Garante que o contexto está rodando (browsers bloqueiam autoplay)
         if (audioContext.state === 'suspended') {
             await audioContext.resume();
         }
@@ -178,7 +177,7 @@ const AxisModule: React.FC = () => {
 
   const handleProcessIntent = async (userMessage: string) => {
     setMode('processing');
-    setTranscript('Pensando...'); // Feedback imediato visual
+    setTranscript('Pensando...');
     try {
         const res = await fetch('/api/axis/chat', {
             method: 'POST',

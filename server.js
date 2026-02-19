@@ -45,8 +45,12 @@ app.use((req, res, next) => {
     next();
 });
 
+// Serve arquivos estáticos do Build do React (Vite)
+// Isso é CRUCIAL para produção (Render)
+app.use(express.static(path.join(__dirname, 'dist')));
+
 // ==============================================================================
-// AXIS AI ENDPOINT (OTIMIZADO - SEM DATABASE)
+// AXIS AI ENDPOINT
 // ==============================================================================
 
 app.post('/api/axis/chat', async (req, res) => {
@@ -58,36 +62,28 @@ app.post('/api/axis/chat', async (req, res) => {
 
         console.log("Axis: Processando mensagem...");
 
-        // Prompt Otimizado para Velocidade e Conversa Natural
+        // Prompt Otimizado para Velocidade
         const systemPrompt = `
           Você é o AXIS, um assistente virtual ultra-rápido e eficiente.
-          
           DIRETRIZES:
           1. Responda APENAS o necessário. Seja extremamente conciso.
-          2. Use linguagem natural falada (pt-BR). Evite listas ou formatação complexa.
-          3. Não invente dados. Se não souber, diga que não tem acesso a essa informação agora.
-          4. Seu objetivo é manter uma conversa fluida por voz. Respostas curtas são melhores.
+          2. Use linguagem natural falada (pt-BR).
+          3. Não invente dados.
         `;
 
-        // Chamada Gemini (Usando Flash para menor latência)
         const response = await aiClient.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: [
                 { role: 'user', parts: [{ text: systemPrompt + "\n\nUsuário diz: " + message }] }
             ],
             config: {
-                maxOutputTokens: 150, // Limita tamanho da resposta para ser rápido
+                maxOutputTokens: 150,
                 temperature: 0.7
             }
         });
 
         const aiText = response.response.text();
-        console.log("Axis Resposta:", aiText);
-
-        return res.json({
-            response: aiText,
-            dataQueried: false
-        });
+        return res.json({ response: aiText, dataQueried: false });
 
     } catch (error) {
         console.error('AXIS AI Error:', error);
@@ -96,24 +92,22 @@ app.post('/api/axis/chat', async (req, res) => {
 });
 
 // ==============================================================================
-// GOOGLE ADS PROXY (IMPLEMENTAÇÃO REAL)
+// GOOGLE ADS PROXY
 // ==============================================================================
 
 app.post('/api/google-ads', async (req, res) => {
     try {
         const { action, access_token, customer_id, date_range } = req.body;
-        const developer_token = GOOGLE_ADS_DEV_TOKEN; // Pega do .env do servidor
+        const developer_token = GOOGLE_ADS_DEV_TOKEN;
 
         if (!access_token) return res.status(400).json({ error: 'Missing access_token' });
         if (!developer_token) return res.status(500).json({ error: 'Server misconfiguration: Missing developer_token' });
 
-        const API_VERSION = 'v17'; // Versão atualizada
+        const API_VERSION = 'v17';
         const BASE_URL = `https://googleads.googleapis.com/${API_VERSION}`;
 
-        // --- AÇÃO 1: LISTAR CONTAS ---
         if (action === 'list_customers') {
             const url = `${BASE_URL}/customers:listAccessibleCustomers`;
-            
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
@@ -125,35 +119,28 @@ app.post('/api/google-ads', async (req, res) => {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error("Google Ads List Error:", errorText);
                 return res.status(response.status).json({ error: `Google API Error: ${response.statusText}`, details: errorText });
             }
 
             const data = await response.json();
-            
-            // Formata a resposta para o frontend
             const customers = (data.resourceNames || []).map((resourceName) => {
                 const id = resourceName.replace('customers/', '');
                 return {
                     id: id,
                     name: resourceName,
-                    descriptiveName: `Conta ${id}`, // A API listAccessibleCustomers não retorna nome, infelizmente
+                    descriptiveName: `Conta ${id}`,
                     currencyCode: 'BRL',
                     timeZone: 'America/Sao_Paulo'
                 };
             });
-
             return res.json({ customers });
         }
 
-        // --- AÇÃO 2: BUSCAR CAMPANHAS (SEARCH STREAM) ---
         if (action === 'get_campaigns') {
             if (!customer_id) return res.status(400).json({ error: 'Missing customer_id' });
-
             const cleanCustomerId = customer_id.replace(/-/g, '');
             const url = `${BASE_URL}/customers/${cleanCustomerId}/googleAds:search`;
 
-            // Query GAQL
             let query = `
                 SELECT 
                   campaign.id, 
@@ -172,7 +159,6 @@ app.post('/api/google-ads', async (req, res) => {
             } else {
                 query += ` AND segments.date DURING LAST_30_DAYS`;
             }
-            
             query += ` LIMIT 50`;
 
             const response = await fetch(url, {
@@ -187,13 +173,9 @@ app.post('/api/google-ads', async (req, res) => {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error("Google Ads Search Error:", errorText);
-                
-                // Tratamento amigável
                 if (errorText.includes("CUSTOMER_NOT_FOUND") || errorText.includes("NOT_ADS_USER")) {
-                   return res.status(403).json({ error: "Conta não encontrada ou sem permissão. Verifique o ID." });
+                   return res.status(403).json({ error: "Conta não encontrada ou sem permissão." });
                 }
-                
                 return res.status(response.status).json({ error: "Erro ao buscar campanhas.", details: errorText });
             }
 
@@ -210,7 +192,7 @@ app.post('/api/google-ads', async (req, res) => {
 });
 
 // ==============================================================================
-// OUTRAS ROTAS (WHATSAPP)
+// WHATSAPP ROUTES
 // ==============================================================================
 
 const evoRequest = async (endpoint, method = 'GET', body = null) => {
@@ -221,8 +203,18 @@ const evoRequest = async (endpoint, method = 'GET', body = null) => {
             headers: { 'Content-Type': 'application/json', 'apikey': EVO_KEY }
         };
         if (body) options.body = JSON.stringify(body);
-        const url = `${EVO_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
-        const response = await fetch(url, options);
+        
+        // Remove trailing slashes from URL and leading from endpoint to avoid //
+        const cleanUrl = EVO_URL.replace(/\/$/, '');
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        
+        const response = await fetch(`${cleanUrl}${cleanEndpoint}`, options);
+        
+        // Handle 404 from Evolution gracefully (instance not found)
+        if (response.status === 404) {
+            return { ok: false, status: 404, data: null };
+        }
+
         const data = await response.json().catch(() => ({}));
         return { ok: response.ok, status: response.status, data };
     } catch (error) {
@@ -248,10 +240,21 @@ app.post('/api/whatsapp/logout', async (req, res) => {
 });
 
 app.get('/api/whatsapp/status/:instanceName', async (req, res) => {
-    const { instanceName } = req.params;
-    const response = await evoRequest(`/instance/connectionState/${instanceName}`, 'GET');
-    const state = response.data?.instance?.state || response.data?.state || 'disconnected';
-    res.json({ status: state === 'open' ? 'connected' : state });
+    try {
+        const { instanceName } = req.params;
+        const response = await evoRequest(`/instance/connectionState/${instanceName}`, 'GET');
+        
+        // Se a instância não existe (404 ou erro), retorna disconnected
+        if (!response.ok) {
+            return res.json({ status: 'disconnected' });
+        }
+
+        const state = response.data?.instance?.state || response.data?.state || 'disconnected';
+        res.json({ status: state === 'open' ? 'connected' : state });
+    } catch (e) {
+        console.error("Erro rota status:", e);
+        res.status(500).json({ status: 'disconnected', error: e.message });
+    }
 });
 
 app.post('/api/whatsapp/configure', async (req, res) => {
@@ -265,8 +268,15 @@ app.post('/api/whatsapp/configure', async (req, res) => {
 });
 
 app.post('/api/webhook/whatsapp', async (req, res) => {
-    // Webhook simplificado para não quebrar
     res.status(200).send('OK');
+});
+
+// ==============================================================================
+// SPA FALLBACK (Catch-All)
+// ==============================================================================
+// Qualquer rota não-API retorna o index.html do React
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(PORT, () => {

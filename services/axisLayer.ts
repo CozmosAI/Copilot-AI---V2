@@ -231,7 +231,7 @@ export class AxisSpeechRecognizer {
   private resetSilenceTimer() {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     
-    // REDUZIDO PARA 800ms para resposta mais rápida
+    // 800ms de silêncio para considerar o fim da fala
     this.silenceTimer = setTimeout(() => {
       if (this.currentTranscript.trim().length > 0 && !this.isProcessingSilence) {
         this.isProcessingSilence = true;
