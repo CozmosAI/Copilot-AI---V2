@@ -12,10 +12,10 @@ import Profile from './components/Profile';
 import Recorder from './components/Recorder';
 import AxisModule from './components/AxisModule'; // Importado
 import LoadingScreen from './components/LoadingScreen';
-import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, WhatsappConfig, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
+import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
 import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { checkStatus, configureInstance } from './services/whatsappService';
+// import { checkStatus, configureInstance } from './services/whatsappService'; // REMOVIDO
 
 // Logo AXIS para tela de login
 const AxisLogo = ({ size = 32, className = "" }: { size?: number, className?: string }) => (
@@ -52,12 +52,12 @@ interface AppContextType {
   googleCalendarToken: string | null;
   googleAdsToken: string | null;
   googleSheetsToken: string | null;
-  whatsappConfig: WhatsappConfig | null;
+  // whatsappConfig: WhatsappConfig | null; // REMOVIDO
   
   setGoogleCalendarToken: (token: string | null) => void;
   setGoogleAdsToken: (token: string | null) => void;
   setGoogleSheetsToken: (token: string | null) => void;
-  setWhatsappConfig: (config: WhatsappConfig | null) => void;
+  // setWhatsappConfig: (config: WhatsappConfig | null) => void; // REMOVIDO
   toggleIntegration: (id: string) => void;
   
   refreshGoogleCredentials: () => Promise<void>;
@@ -182,8 +182,9 @@ const App: React.FC = () => {
   const [googleCalendarToken, setGoogleCalendarToken] = useState<string | null>(null);
   const [googleAdsToken, setGoogleAdsToken] = useState<string | null>(localStorage.getItem('google_ads_token'));
   const [googleSheetsToken, setGoogleSheetsToken] = useState<string | null>(localStorage.getItem('google_sheets_token'));
-  const [whatsappConfig, setWhatsappConfigState] = useState<WhatsappConfig | null>(null);
+  // const [whatsappConfig, setWhatsappConfigState] = useState<WhatsappConfig | null>(null); // REMOVIDO
 
+  /* REMOVIDO
   const setWhatsappConfig = (config: WhatsappConfig | null) => {
     setWhatsappConfigState(config);
     if (config) {
@@ -192,10 +193,11 @@ const App: React.FC = () => {
       localStorage.removeItem('whatsapp_config');
     }
   };
+  */
 
   const [integrations, setIntegrations] = useState<Record<string, boolean>>({
     'google-ads': !!googleAdsToken, 
-    'wpp': !!whatsappConfig?.isConnected, 
+    'wpp': false, // !!whatsappConfig?.isConnected, // REMOVIDO
     'sheets': !!googleSheetsToken, 
     'calendar': !!googleCalendarToken, 
     'crm': false
@@ -207,9 +209,9 @@ const App: React.FC = () => {
       'google-ads': !!googleAdsToken,
       'calendar': !!googleCalendarToken,
       'sheets': !!googleSheetsToken,
-      'wpp': !!whatsappConfig?.isConnected
+      'wpp': false // !!whatsappConfig?.isConnected // REMOVIDO
     }));
-  }, [googleAdsToken, googleCalendarToken, googleSheetsToken, whatsappConfig]);
+  }, [googleAdsToken, googleCalendarToken, googleSheetsToken]); // whatsappConfig removido
 
   // Data Fetching
   const fetchFinancials = useCallback(async () => {
@@ -246,6 +248,7 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   }, [user]);
 
+  /* REMOVIDO
   const restoreWhatsappConnection = async (userId: string, clinic: string) => {
       try {
           const { data } = await supabase.from('whatsapp_instances').select('*').eq('user_id', userId).maybeSingle();
@@ -263,6 +266,7 @@ const App: React.FC = () => {
           }
       } catch (err) { console.error(err); }
   };
+  */
 
   const refreshGoogleCredentials = async () => {
       if (!user) return;
@@ -288,6 +292,7 @@ const App: React.FC = () => {
              setAiConfig(prev => ({...prev, ...newProfile.ai_config}));
          }
       })
+      /* REMOVIDO
       .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_instances', filter: `user_id=eq.${user.id}` }, (payload) => {
           const newData = payload.new as any;
           if (newData && newData.status === 'connected') {
@@ -296,6 +301,7 @@ const App: React.FC = () => {
               setWhatsappConfigState(null);
           }
       })
+      */
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -342,7 +348,7 @@ const App: React.FC = () => {
                 });
               }
           } catch(err) { console.error(err); }
-          await restoreWhatsappConnection(userId, 'Minha Clínica');
+          // await restoreWhatsappConnection(userId, 'Minha Clínica'); // REMOVIDO
           const authIntent = localStorage.getItem('auth_intent');
           if (session.provider_token) {
              if (authIntent === 'google_ads') {
@@ -362,7 +368,7 @@ const App: React.FC = () => {
              }
           }
        } else {
-          setUser(null); setFinancialEntries([]); setLeads([]); setAppointments([]); setWhatsappConfig(null); setGoogleCalendarToken(null);
+          setUser(null); setFinancialEntries([]); setLeads([]); setAppointments([]); /* setWhatsappConfig(null); */ setGoogleCalendarToken(null);
        }
        setAuthLoading(false);
     };
@@ -389,7 +395,7 @@ const App: React.FC = () => {
 
   const logout = async () => { 
     try { await supabase!.auth.signOut(); } catch (e) { } 
-    finally { localStorage.clear(); setGoogleAdsToken(null); setGoogleCalendarToken(null); setGoogleSheetsToken(null); setWhatsappConfig(null); setUser(null); setIsAuthenticated(false); }
+    finally { localStorage.clear(); setGoogleAdsToken(null); setGoogleCalendarToken(null); setGoogleSheetsToken(null); /* setWhatsappConfig(null); */ setUser(null); setIsAuthenticated(false); }
   };
 
   // CRUD Implementations
@@ -534,7 +540,7 @@ const App: React.FC = () => {
     <AppContext.Provider value={{ 
         user, updateUser, isAuthenticated, login, signUp, logout, integrations, 
         googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
-        whatsappConfig, setWhatsappConfig, toggleIntegration, refreshGoogleCredentials, 
+        /* whatsappConfig, setWhatsappConfig, */ toggleIntegration, refreshGoogleCredentials, 
         dateFilter, setDateFilter, metrics: consolidatedMetrics, 
         financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, 
         leads, addLead, updateLead, appointments, addAppointment, updateAppointment,

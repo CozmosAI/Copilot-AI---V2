@@ -9,7 +9,7 @@ import { useApp } from '../App';
 import { initiateGoogleAdsAuth, exchangeCodeForToken, selectGoogleAdsAccount, checkGoogleAdsStatus } from '../services/googleAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
-import { initInstance, logoutInstance, checkStatus, configureInstance } from '../services/whatsappService';
+// import { initInstance, logoutInstance, checkStatus, configureInstance } from '../services/whatsappService'; // REMOVIDO
 import { supabase } from '../lib/supabase';
 
 const GoogleIcon = ({ size = 20 }: { size?: number }) => (
@@ -25,7 +25,7 @@ const Integration: React.FC = () => {
   const { 
     googleCalendarToken, googleAdsToken, setGoogleAdsToken, setGoogleCalendarToken, 
     googleSheetsToken, setGoogleSheetsToken, 
-    whatsappConfig, setWhatsappConfig,
+    // whatsappConfig, setWhatsappConfig, // REMOVIDO
     user 
   } = useApp();
   
@@ -36,7 +36,8 @@ const Integration: React.FC = () => {
   const [availableAccounts, setAvailableAccounts] = useState<any[]>([]);
   const [accountName, setAccountName] = useState<string>('');
 
-  // States WhatsApp
+  // States WhatsApp (REMOVIDO)
+  /*
   const [wppQr, setWppQr] = useState<string | null>(null);
   const [wppPairingCode, setWppPairingCode] = useState<string | null>(null);
   const [wppStatus, setWppStatus] = useState<'IDLE' | 'CONNECTING' | 'CONNECTED' | 'QRCODE' | 'PAIRING' | 'DISCONNECTED'>('IDLE');
@@ -46,6 +47,7 @@ const Integration: React.FC = () => {
 
   // Polling Ref
   const pollingIntervalRef = useRef<any>(null);
+  */
 
   // Sheets States
   const [spreadsheets, setSpreadsheets] = useState<any[]>([]);
@@ -125,7 +127,8 @@ const Integration: React.FC = () => {
       }
   };
 
-  // Restante dos useEffects (WhatsApp, etc)
+  // Restante dos useEffects (WhatsApp, etc) - REMOVIDO
+  /*
   useEffect(() => {
      if (whatsappConfig?.isConnected) {
          setWppStatus('CONNECTED');
@@ -160,8 +163,10 @@ const Integration: React.FC = () => {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
     }
   }, [wppStatus, tempInstanceName, user, setWhatsappConfig]);
+  */
 
   // Handlers
+  /* REMOVIDO
   const handleWppConnect = async () => { 
     if (!user) return;
     setWppStatus('CONNECTING'); setLoading('wpp'); setWppError(''); setWppQr(null); setWppPairingCode(null);
@@ -194,6 +199,7 @@ const Integration: React.FC = () => {
       setWhatsappConfig(null); setWppStatus('IDLE'); setWppQr(null); setWppPairingCode(null); setWppPhone('');
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
   };
+  */
   
   const handleGoogleLogin = async () => { 
       setLoading('google-ads'); 
@@ -267,7 +273,7 @@ const Integration: React.FC = () => {
             { id: 'google-ads', label: 'Google Ads', active: !!googleAdsToken, icon: <GoogleIcon size={18} /> },
             { id: 'calendar', label: 'G. Calendar', active: !!googleCalendarToken, icon: <Calendar size={18} className={!!googleCalendarToken ? 'text-amber-500' : ''} /> },
             { id: 'sheets', label: 'G. Sheets', active: !!googleSheetsToken, icon: <FileSpreadsheet size={18} className={!!googleSheetsToken ? 'text-emerald-500' : ''} /> },
-            { id: 'wpp', label: 'WhatsApp', active: !!whatsappConfig?.isConnected, icon: <MessageCircle size={18} className={!!whatsappConfig?.isConnected ? 'text-emerald-500' : ''} /> },
+            // { id: 'wpp', label: 'WhatsApp', active: !!whatsappConfig?.isConnected, icon: <MessageCircle size={18} className={!!whatsappConfig?.isConnected ? 'text-emerald-500' : ''} /> }, // REMOVIDO
         ].map((item) => (
             <div key={item.id} className={`p-4 rounded-2xl border flex items-center justify-between transition-all ${item.active ? 'bg-emerald-50/50 border-emerald-100 shadow-sm' : 'bg-white border-slate-100 opacity-60 grayscale-[0.5]'}`}>
                 <div className="flex items-center gap-3"><div className={`p-2 rounded-xl ${item.active ? 'bg-white shadow-sm' : 'bg-slate-50 text-slate-400'}`}>{item.icon}</div><div><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{item.label}</p><p className={`text-xs font-black ${item.active ? 'text-emerald-600' : 'text-slate-400'}`}>{item.active ? 'Conectado' : 'Pendente'}</p></div></div>
@@ -279,9 +285,9 @@ const Integration: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         
-        {/* WHATSAPP CARD */}
+        {/* WHATSAPP CARD (REMOVIDO) */}
+        {/*
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all relative overflow-hidden ${whatsappConfig?.isConnected ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
-            {/* ... Conteúdo do Card WhatsApp (Mantido) ... */}
             <div className="flex justify-between items-start mb-4">
               <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MessageCircle size={24} className="text-emerald-600"/></div>
               {whatsappConfig?.isConnected ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Ativo</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
@@ -309,6 +315,7 @@ const Integration: React.FC = () => {
                </div>
             )}
         </div>
+        */}
         
         {/* GOOGLE ADS CARD */}
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleAdsToken ? 'border-emerald-100 ring-1 ring-emerald-50 col-span-1 md:col-span-2' : 'border-slate-200 hover:border-navy'}`}>

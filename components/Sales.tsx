@@ -7,7 +7,7 @@ import {
   Mail, Link2, Tag, FileText, Activity, GripHorizontal, Edit2, Check, Trash2
 } from 'lucide-react';
 import { analyzeLeadConversation } from '../services/geminiService';
-import { sendMessage } from '../services/whatsappService';
+// import { sendMessage } from '../services/whatsappService'; // REMOVIDO
 import { useApp } from '../App';
 import { Lead, ChatMessage } from '../types';
 import { supabase } from '../lib/supabase';
@@ -33,7 +33,7 @@ const DEFAULT_COLUMNS: KanbanColumnData[] = [
 ];
 
 const Sales: React.FC = () => {
-  const { leads, addLead, updateLead, addFinancialEntry, user, whatsappConfig } = useApp();
+  const { leads, addLead, updateLead, addFinancialEntry, user /*, whatsappConfig */ } = useApp(); // whatsappConfig REMOVIDO
   
   // View State
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
@@ -173,11 +173,18 @@ const Sales: React.FC = () => {
       e.preventDefault();
       if (!activeLead || !messageText.trim()) return;
       const text = messageText; setMessageText(''); setSendingMsg(true);
+      
+      // Lógica simplificada: Sempre abre o link do WhatsApp Web/App
+      window.open(`https://wa.me/55${activeLead.phone}?text=${encodeURIComponent(text)}`, '_blank'); 
+      setSendingMsg(false);
+
+      /* LÓGICA ANTIGA REMOVIDA
       if (whatsappConfig?.isConnected && whatsappConfig.instanceName) {
           try { await sendMessage(whatsappConfig.instanceName, activeLead.phone, text); } catch { alert('Erro API.'); } finally { setSendingMsg(false); }
       } else {
           window.open(`https://wa.me/55${activeLead.phone}?text=${encodeURIComponent(text)}`, '_blank'); setSendingMsg(false);
       }
+      */
   };
 
   const handleAnalyzeLead = async () => {

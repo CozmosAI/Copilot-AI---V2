@@ -1,4 +1,4 @@
-
+/*
 export interface WhatsappConfig {
   instanceName: string;
   isConnected: boolean;
@@ -45,9 +45,9 @@ const sanitizeInstanceName = (name: string): string => {
         .toLowerCase();
 };
 
-/**
- * 1. Iniciar conexão (Chama o N8N)
- */
+
+// 1. Iniciar conexão (Chama o N8N)
+
 export const initInstance = async (userId: string, clinicName: string, phoneNumber?: string) => {
     const n8nUrl = (import.meta as any).env.VITE_N8N_WEBHOOK_URL || 'https://task-dev-01-n8n.8ypyjm.easypanel.host/webhook/criar-instancia';
     
@@ -139,3 +139,5 @@ export const logoutInstance = async (userId: string, currentInstanceName?: strin
         body: JSON.stringify({ userId, instanceName })
     });
 };
+*/
+export {}; // Export vazio para não quebrar imports se houver algum sobrando (mas já removi todos)

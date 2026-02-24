@@ -357,7 +357,88 @@ app.post('/api/google/refresh', async (req, res) => {
 
 // ... (Resto das rotas do AXIS, WhatsApp e Catch-all mantidas)
 
-app.post('/api/axis/chat', async (req, res) => { /* ... código existente mantido ... */ });
+// Mock do Context Builder (Simulando Drizzle/Neon)
+async function buildClinicContext(clinicId) {
+  return {
+    financeiro: {
+      receitaMes: "R$ 145.000,00",
+      lucroLiquido: "R$ 42.000,00",
+      meta: "85%",
+      pendencias: 3
+    },
+    marketing: {
+      leadsHoje: 12,
+      campanhaAtiva: "Botox Week",
+      custoPorLead: "R$ 15,40"
+    },
+    agenda: {
+      ocupacaoHoje: "78%",
+      proximaVaga: "14:30",
+      faltasOntem: 2
+    },
+    vendas: {
+      conversasAtivas: 24,
+      taxaConversao: "18%"
+    }
+  };
+}
+
+app.post('/api/axis/chat', async (req, res) => {
+    try {
+        const { message, clinicId, context } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Mensagem vazia' });
+        }
+
+        if (!aiClient) {
+             return res.status(500).json({ response: "IA não configurada (API Key ausente)." });
+        }
+
+        // 1. Buscar dados reais (Context Augmentation)
+        const dbData = await buildClinicContext(clinicId || 'demo');
+
+        // 2. Construir System Prompt
+        const systemPrompt = `
+          Você é o AXIS, o Conselheiro de Inteligência Artificial da Clínica.
+          Você tem acesso em tempo real a todos os dados.
+          
+          DADOS ATUAIS DO SISTEMA:
+          ${JSON.stringify(dbData, null, 2)}
+          
+          CONTEXTO DO USUÁRIO:
+          ${JSON.stringify(context || {})}
+
+          DIRETRIZES:
+          1. Responda sempre em Português Brasileiro.
+          2. Seja extremamente conciso (máximo 3 frases curtas). É uma conversa por voz.
+          3. Cite números reais fornecidos acima para fundamentar sua resposta.
+          4. Seja estratégico e proativo. Sugira uma ação se houver problemas (ex: faltas, leads baixos).
+          5. Não use formatação markdown complexa (negrito, listas), use texto corrido natural para fala.
+        `;
+
+        // 3. Chamada Gemini
+        const response = await aiClient.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [{ role: "user", parts: [{ text: message }] }],
+            config: {
+                systemInstruction: systemPrompt
+            }
+        });
+
+        const aiResponse = response.text;
+
+        res.json({
+            response: aiResponse,
+            dataQueried: Object.keys(dbData),
+            actions: []
+        });
+
+    } catch (error) {
+        console.error('AXIS AI Error:', error);
+        res.status(500).json({ response: "Desculpe, perdi a conexão com a base de dados. Tente novamente." });
+    }
+});
 // ... (Evolution API requests mantidos) ...
 
 app.get('*', (req, res) => {
