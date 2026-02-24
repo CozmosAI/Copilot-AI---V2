@@ -119,7 +119,11 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
             }
         });
 
-        if (!listResp.ok) throw new Error("Erro ao listar customers");
+        if (!listResp.ok) {
+            const errorBody = await listResp.json();
+            console.error('Google listAccessibleCustomers error:', JSON.stringify(errorBody));
+            throw new Error('Google API error: ' + JSON.stringify(errorBody));
+        }
         
         const listData = await listResp.json();
         const resourceNames = listData.resourceNames || [];
