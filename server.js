@@ -110,7 +110,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
         if (dbError) throw new Error("Erro ao salvar tokens: " + dbError.message);
 
         // 3. Listar Contas Acessíveis
-        const listUrl = `https://googleads.googleapis.com/v17/customers:listAccessibleCustomers`;
+        const listUrl = 'https://googleads.googleapis.com/v17/customers:listAccessibleCustomers';
         const listResp = await fetch(listUrl, {
             method: 'GET',
             headers: {
