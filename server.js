@@ -110,7 +110,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
         if (dbError) throw new Error("Erro ao salvar tokens: " + dbError.message);
 
         // 3. Listar Contas Acessíveis
-        const listUrl = 'https://googleads.googleapis.com/v17/customers:listAccessibleCustomers';
+        const listUrl = 'https://googleads.googleapis.com/v23/customers:listAccessibleCustomers';
         const listResp = await fetch(listUrl, {
             method: 'GET',
             headers: {
@@ -140,7 +140,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
             const customerId = resourceName.replace('customers/', '');
             try {
                 const query = `SELECT customer.descriptive_name, customer.id FROM customer LIMIT 1`;
-                const searchResp = await fetch(`https://googleads.googleapis.com/v17/customers/${customerId}/googleAds:search`, {
+                const searchResp = await fetch(`https://googleads.googleapis.com/v23/customers/${customerId}/googleAds:search`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${access_token}`,
@@ -316,7 +316,7 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
             AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
 
-        const adsResp = await fetch(`https://googleads.googleapis.com/v17/customers/${cleanId}/googleAds:search`, {
+        const adsResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
