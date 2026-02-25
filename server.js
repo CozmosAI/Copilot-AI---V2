@@ -119,13 +119,20 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
             }
         });
 
+        const rawText = await listResp.text();
+        console.log('listAccessibleCustomers raw response:', rawText);
+        let listData;
+        try {
+            listData = JSON.parse(rawText);
+        } catch(e) {
+            throw new Error('Google retornou resposta inválida: ' + rawText.substring(0, 200));
+        }
+
         if (!listResp.ok) {
-            const errorBody = await listResp.json();
-            console.error('Google listAccessibleCustomers error:', JSON.stringify(errorBody));
-            throw new Error('Google API error: ' + JSON.stringify(errorBody));
+            console.error('Google listAccessibleCustomers error:', JSON.stringify(listData));
+            throw new Error('Google API error: ' + JSON.stringify(listData));
         }
         
-        const listData = await listResp.json();
         const resourceNames = listData.resourceNames || [];
 
         // Helper para buscar nome da conta
