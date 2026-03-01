@@ -332,7 +332,36 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
             return res.status(400).json(adsData.error);
         }
 
-        res.json({ results: adsData.results || [] });
+        const results = adsData.results || [];
+
+        // --- MELHORIA: VERIFICAR SE É CONTA MCC SE NÃO HOUVER CAMPANHAS ---
+        if (results.length === 0) {
+             try {
+                const mccQuery = `SELECT customer.manager, customer.descriptive_name FROM customer LIMIT 1`;
+                const mccResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'developer-token': GOOGLE_ADS_DEV_TOKEN,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: mccQuery })
+                });
+                const mccData = await mccResp.json();
+                const isManager = mccData.results?.[0]?.customer?.manager;
+
+                if (isManager) {
+                    return res.status(400).json({ 
+                        error: 'Esta é uma conta gerenciadora (MCC). Selecione uma conta cliente para ver campanhas.' 
+                    });
+                }
+             } catch (e) {
+                 console.error("Erro ao verificar MCC:", e);
+                 // Ignora erro aqui e retorna vazio mesmo
+             }
+        }
+
+        res.json({ results });
 
     } catch (error) {
         console.error("Ads Fetch Error:", error);

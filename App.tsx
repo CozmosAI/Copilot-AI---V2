@@ -64,6 +64,7 @@ interface AppContextType {
 
   dateFilter: DateRange;
   setDateFilter: (label: string) => void;
+  setCustomDateRange: (start: string, end: string) => void;
   metrics: ConsolidatedMetrics;
   
   financialEntries: FinancialEntry[];
@@ -514,6 +515,7 @@ const App: React.FC = () => {
   }, [dateFilter, financialEntries, leads, appointments, user?.ticketValue]);
 
   const setDateFilter = (label: string) => setInternalDateFilter(calculateRange(label));
+  const setCustomDateRange = (start: string, end: string) => setInternalDateFilter({ start, end, label: 'Custom' });
   const toggleIntegration = (id: string) => setIntegrations(prev => ({ ...prev, [id]: !prev[id] }));
 
   // Render Optimized
@@ -541,7 +543,7 @@ const App: React.FC = () => {
         user, updateUser, isAuthenticated, login, signUp, logout, integrations, 
         googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
         /* whatsappConfig, setWhatsappConfig, */ toggleIntegration, refreshGoogleCredentials, 
-        dateFilter, setDateFilter, metrics: consolidatedMetrics, 
+        dateFilter, setDateFilter, setCustomDateRange, metrics: consolidatedMetrics, 
         financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, 
         leads, addLead, updateLead, appointments, addAppointment, updateAppointment,
         teamMembers, addTeamMember, removeTeamMember,

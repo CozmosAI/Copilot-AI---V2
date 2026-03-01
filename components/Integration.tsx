@@ -333,6 +333,7 @@ const Integration: React.FC = () => {
                             {accountName && <p className="text-[9px] text-emerald-600 truncate max-w-[150px]">{accountName}</p>}
                         </div>
                    </div>
+                   <button onClick={handleGoogleLogin} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-all"><RefreshCw size={12} /> Trocar Conta</button>
                    <button onClick={handleGoogleLogout} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><LogOut size={12} /> Desconectar</button>
                </div>
             ) : (

@@ -12,7 +12,7 @@ import { useApp } from '../App';
 import { getGoogleCampaigns } from '../services/googleAdsService';
 
 const Marketing: React.FC = () => {
-  const { dateFilter, setDateFilter, googleAdsToken, metrics, user } = useApp();
+  const { dateFilter, setCustomDateRange, googleAdsToken, metrics, user } = useApp();
   const [loading, setLoading] = useState(false);
   const [platformFilter, setPlatformFilter] = useState<'all' | 'google' | 'offline'>('all');
   const [realGoogleCampaigns, setRealGoogleCampaigns] = useState<any[]>([]);
@@ -39,7 +39,7 @@ const Marketing: React.FC = () => {
         }
     };
     fetchGoogleData();
-  }, [isConnected, user, dateFilter]);
+  }, [isConnected, user, dateFilter.start, dateFilter.end]); // Dependência explícita nas datas
 
   // --- CONSOLIDAÇÃO DE DADOS (API + FINANCEIRO) ---
   const campaigns = useMemo(() => {
@@ -82,10 +82,25 @@ const Marketing: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="flex items-center space-x-1 bg-white p-1 rounded-xl shadow-sm border border-slate-200">
-          {['Hoje', '7 dias', '30 dias', 'Este Ano'].map((t) => (
-            <button key={t} onClick={() => setDateFilter(t)} className={`px-4 py-1.5 text-[10px] font-bold rounded-lg uppercase transition-all ${t === dateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{t}</button>
-          ))}
+        
+        {/* SELETOR DE DATA (CALENDÁRIO) */}
+        <div className="flex items-center space-x-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200">
+            <div className="flex items-center gap-2 px-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">Período:</span>
+                <input 
+                    type="date" 
+                    value={dateFilter.start} 
+                    onChange={(e) => setCustomDateRange(e.target.value, dateFilter.end)}
+                    className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-navy transition-colors cursor-pointer"
+                />
+                <span className="text-[10px] text-slate-300 font-bold">-</span>
+                <input 
+                    type="date" 
+                    value={dateFilter.end} 
+                    onChange={(e) => setCustomDateRange(dateFilter.start, e.target.value)}
+                    className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-navy transition-colors cursor-pointer"
+                />
+            </div>
         </div>
       </header>
 
