@@ -307,10 +307,126 @@ app.get('/api/google-ads/status/:userId', async (req, res) => {
 // ==============================================================================
 // 3. BUSCAR DADOS (Usando Token do Banco)
 // ==============================================================================
+
+// Helper para validar e renovar token
+async function getValidAccessToken(user_id) {
+    // 1. Buscar credenciais no banco
+    const { data: integration, error } = await supabase
+        .from('google_ads_integrations')
+        .select('*')
+        .eq('user_id', user_id)
+        .single();
+
+    if (error || !integration) throw new Error('Integração não encontrada.');
+    
+    if (integration.status === 'pending_selection') {
+        throw new Error('Seleção de conta pendente.');
+    }
+
+    let accessToken = integration.access_token;
+    const refreshToken = integration.refresh_token;
+    const customerId = integration.customer_id;
+    const managerId = integration.manager_id;
+
+    if (!customerId) throw new Error('Nenhuma conta de anúncios vinculada.');
+
+    // 2. Verificar Validade e Renovar se necessário
+    if (Date.now() > (integration.token_expires_at - 60000)) { // 1 min de margem
+        console.log("Token vencido. Renovando...");
+        const refreshResp = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: GOOGLE_CLIENT_ID,
+                client_secret: GOOGLE_CLIENT_SECRET,
+                refresh_token: refreshToken,
+                grant_type: 'refresh_token'
+            })
+        });
+
+        const refreshData = await refreshResp.json();
+        if (refreshData.error) {
+            await supabase.from('google_ads_integrations').update({ status: 'error' }).eq('user_id', user_id);
+            throw new Error('Falha ao renovar token. Reconecte a conta.');
+        }
+
+        accessToken = refreshData.access_token;
+        const newExpiry = Date.now() + (refreshData.expires_in * 1000);
+
+        await supabase.from('google_ads_integrations').update({
+            access_token: accessToken,
+            token_expires_at: newExpiry,
+            status: 'active'
+        }).eq('user_id', user_id);
+    }
+
+    const cleanId = customerId.replace(/-/g, '');
+    
+    // Headers padrão para chamadas
+    const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'developer-token': GOOGLE_ADS_DEV_TOKEN,
+        'Content-Type': 'application/json'
+    };
+
+    if (managerId) {
+        headers['login-customer-id'] = managerId;
+    }
+
+    return { accessToken, cleanId, headers, managerId };
+}
+
+// Helper para executar query no Google Ads
+async function executeGoogleAdsQuery(user_id, query, checkMcc = false) {
+    const { cleanId, headers, managerId } = await getValidAccessToken(user_id);
+
+    const adsResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ query })
+    });
+
+    const adsData = await adsResp.json();
+    
+    if (adsData.error) {
+        // Tratamento específico para erro de MCC
+        if (adsData.error.message.includes('REQUESTED_METRICS_FOR_MANAGER') && !managerId) {
+             throw new Error('Esta é uma conta gerenciadora (MCC). Por favor, desconecte e selecione uma conta cliente.');
+        }
+        console.error('Google Ads Query Error:', JSON.stringify(adsData.error));
+        throw new Error(adsData.error.message || JSON.stringify(adsData.error));
+    }
+
+    const results = adsData.results || [];
+
+    // Verificação extra de MCC se solicitado (apenas para queries que podem retornar vazio em MCC)
+    if (checkMcc && results.length === 0 && !managerId) {
+         try {
+            const mccQuery = `SELECT customer.manager FROM customer LIMIT 1`;
+            const mccResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({ query: mccQuery })
+            });
+            const mccData = await mccResp.json();
+            const isManager = mccData.results?.[0]?.customer?.manager;
+
+            if (isManager) {
+                throw new Error('Esta é uma conta gerenciadora (MCC). Selecione uma conta cliente para ver campanhas.');
+            }
+         } catch (e) {
+             if (e.message.includes('MCC')) throw e;
+             console.error("Erro ao verificar MCC:", e);
+         }
+    }
+
+    return results;
+}
+
+// Rota: Campanhas (Mantida e refatorada)
 app.post('/api/google-ads/campaigns', async (req, res) => {
     let { user_id, date_range } = req.body;
 
-    // --- CORREÇÃO SOLICITADA: FALLBACK DE DATA ---
     if (!date_range || !date_range.start || !date_range.end) {
         const end = new Date().toISOString().split('T')[0];
         const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -318,58 +434,6 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
     }
 
     try {
-        // 1. Buscar credenciais no banco
-        const { data: integration, error } = await supabase
-            .from('google_ads_integrations')
-            .select('*')
-            .eq('user_id', user_id)
-            .single();
-
-        if (error || !integration) return res.status(404).json({ error: 'Integração não encontrada.' });
-        
-        if (integration.status === 'pending_selection') {
-            return res.status(400).json({ error: 'Seleção de conta pendente.' });
-        }
-
-        let accessToken = integration.access_token;
-        const refreshToken = integration.refresh_token;
-        const customerId = integration.customer_id;
-        const managerId = integration.manager_id; // Pega o manager_id se existir
-
-        if (!customerId) return res.status(400).json({ error: 'Nenhuma conta de anúncios vinculada.' });
-
-        // 2. Verificar Validade e Renovar se necessário
-        if (Date.now() > (integration.token_expires_at - 60000)) { // 1 min de margem
-            console.log("Token vencido. Renovando...");
-            const refreshResp = await fetch('https://oauth2.googleapis.com/token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                    client_id: GOOGLE_CLIENT_ID,
-                    client_secret: GOOGLE_CLIENT_SECRET,
-                    refresh_token: refreshToken,
-                    grant_type: 'refresh_token'
-                })
-            });
-
-            const refreshData = await refreshResp.json();
-            if (refreshData.error) {
-                await supabase.from('google_ads_integrations').update({ status: 'error' }).eq('user_id', user_id);
-                return res.status(401).json({ error: 'Falha ao renovar token. Reconecte a conta.' });
-            }
-
-            accessToken = refreshData.access_token;
-            const newExpiry = Date.now() + (refreshData.expires_in * 1000);
-
-            await supabase.from('google_ads_integrations').update({
-                access_token: accessToken,
-                token_expires_at: newExpiry,
-                status: 'active'
-            }).eq('user_id', user_id);
-        }
-
-        // 3. Fazer a chamada real ao Google Ads
-        const cleanId = customerId.replace(/-/g, '');
         const query = `
             SELECT 
                 campaign.id, 
@@ -384,57 +448,114 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
             AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
 
-        const adsResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'developer-token': GOOGLE_ADS_DEV_TOKEN,
-                'Content-Type': 'application/json',
-                'login-customer-id': managerId || customerId // Header crítico para MCC
-            },
-            body: JSON.stringify({ query })
-        });
-
-        const adsData = await adsResp.json();
-        
-        if (adsData.error) {
-            console.error('Google Ads campaigns error:', JSON.stringify(adsData.error));
-            return res.status(400).json({ error: adsData.error.message || JSON.stringify(adsData.error) });
-        }
-
-        const results = adsData.results || [];
-
-        // --- MELHORIA: VERIFICAR SE É CONTA MCC SE NÃO HOUVER CAMPANHAS ---
-        if (results.length === 0) {
-             try {
-                const mccQuery = `SELECT customer.manager, customer.descriptive_name FROM customer LIMIT 1`;
-                const mccResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'developer-token': GOOGLE_ADS_DEV_TOKEN,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ query: mccQuery })
-                });
-                const mccData = await mccResp.json();
-                const isManager = mccData.results?.[0]?.customer?.manager;
-
-                if (isManager) {
-                    return res.status(400).json({ 
-                        error: 'Esta é uma conta gerenciadora (MCC). Selecione uma conta cliente para ver campanhas.' 
-                    });
-                }
-             } catch (e) {
-                 console.error("Erro ao verificar MCC:", e);
-                 // Ignora erro aqui e retorna vazio mesmo
-             }
-        }
-
+        const results = await executeGoogleAdsQuery(user_id, query, true);
         res.json({ results });
 
     } catch (error) {
         console.error("Ads Fetch Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: Overview (Gráfico)
+app.post('/api/google-ads/overview', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const query = `
+            SELECT 
+                segments.date, 
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros, 
+                metrics.conversions 
+            FROM campaign 
+            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query);
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: Ad Groups
+app.post('/api/google-ads/ad-groups', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const query = `
+            SELECT 
+                ad_group.id, 
+                ad_group.name, 
+                ad_group.status, 
+                campaign.name, 
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros, 
+                metrics.conversions 
+            FROM ad_group 
+            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query);
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: Keywords
+app.post('/api/google-ads/keywords', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const query = `
+            SELECT 
+                ad_group_criterion.keyword.text, 
+                ad_group_criterion.keyword.match_type, 
+                ad_group_criterion.status, 
+                ad_group_criterion.quality_info.quality_score, 
+                campaign.name, 
+                ad_group.name, 
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros, 
+                metrics.conversions 
+            FROM keyword_view 
+            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query);
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: Ads
+app.post('/api/google-ads/ads', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const query = `
+            SELECT 
+                ad_group_ad.ad.id, 
+                ad_group_ad.ad.responsive_search_ad.headlines, 
+                ad_group_ad.status, 
+                campaign.name, 
+                ad_group.name, 
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros 
+            FROM ad_group_ad 
+            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query);
+        res.json({ results });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });

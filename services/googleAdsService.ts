@@ -73,6 +73,7 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
         });
         
         return (data.results || []).map((row: any) => ({
+            id: row.campaign.id,
             name: row.campaign.name,
             platform: 'google',
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
@@ -83,6 +84,81 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
         }));
     } catch (error) {
         console.error("Erro ao buscar campanhas:", error);
+        return [];
+    }
+};
+
+export const getGoogleOverview = async (userId: string, dateRange?: { start: string, end: string }) => {
+    try {
+        const data = await apiCall('/api/google-ads/overview', { user_id: userId, date_range: dateRange });
+        return (data.results || []).map((row: any) => ({
+            date: row.segments.date,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            conversions: parseFloat(row.metrics.conversions) || 0
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar overview:", error);
+        return [];
+    }
+};
+
+export const getGoogleAdGroups = async (userId: string, dateRange?: { start: string, end: string }) => {
+    try {
+        const data = await apiCall('/api/google-ads/ad-groups', { user_id: userId, date_range: dateRange });
+        return (data.results || []).map((row: any) => ({
+            id: row.adGroup.id,
+            name: row.adGroup.name,
+            campaignName: row.campaign.name,
+            status: row.adGroup.status,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            conversions: parseFloat(row.metrics.conversions) || 0
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar ad groups:", error);
+        return [];
+    }
+};
+
+export const getGoogleKeywords = async (userId: string, dateRange?: { start: string, end: string }) => {
+    try {
+        const data = await apiCall('/api/google-ads/keywords', { user_id: userId, date_range: dateRange });
+        return (data.results || []).map((row: any) => ({
+            text: row.adGroupCriterion.keyword.text,
+            matchType: row.adGroupCriterion.keyword.matchType,
+            status: row.adGroupCriterion.status,
+            qualityScore: row.adGroupCriterion.qualityInfo?.qualityScore || '-',
+            campaignName: row.campaign.name,
+            adGroupName: row.adGroup.name,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            conversions: parseFloat(row.metrics.conversions) || 0
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar keywords:", error);
+        return [];
+    }
+};
+
+export const getGoogleAds = async (userId: string, dateRange?: { start: string, end: string }) => {
+    try {
+        const data = await apiCall('/api/google-ads/ads', { user_id: userId, date_range: dateRange });
+        return (data.results || []).map((row: any) => ({
+            id: row.adGroupAd.ad.id,
+            headlines: row.adGroupAd.ad.responsiveSearchAd?.headlines?.map((h: any) => h.text).join(' | ') || 'Anúncio Gráfico/Outro',
+            status: row.adGroupAd.status,
+            campaignName: row.campaign.name,
+            adGroupName: row.adGroup.name,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar ads:", error);
         return [];
     }
 };
