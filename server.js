@@ -439,6 +439,7 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
                 campaign.id, 
                 campaign.name, 
                 campaign.status, 
+                campaign.advertising_channel_type,
                 metrics.clicks, 
                 metrics.impressions, 
                 metrics.cost_micros, 
@@ -459,10 +460,12 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
 
 // Rota: Overview (Gráfico)
 app.post('/api/google-ads/overview', async (req, res) => {
-    const { user_id, date_range } = req.body;
+    const { user_id, date_range, campaign_id } = req.body;
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        // Se vier campaign_id no body, filtra por campanha
+        const campaignFilter = campaign_id ? `AND campaign.id = ${campaign_id}` : '';
         const query = `
             SELECT 
                 segments.date, 
@@ -472,6 +475,7 @@ app.post('/api/google-ads/overview', async (req, res) => {
                 metrics.conversions 
             FROM campaign 
             WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            ${campaignFilter}
         `;
         const results = await executeGoogleAdsQuery(user_id, query);
         res.json({ results });

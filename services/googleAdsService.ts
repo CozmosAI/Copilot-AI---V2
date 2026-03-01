@@ -76,6 +76,7 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
             id: row.campaign.id,
             name: row.campaign.name,
             platform: 'google',
+            type: row.campaign.advertisingChannelType, // Novo campo
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,
@@ -88,9 +89,13 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
     }
 };
 
-export const getGoogleOverview = async (userId: string, dateRange?: { start: string, end: string }) => {
+export const getGoogleOverview = async (userId: string, dateRange?: { start: string, end: string }, campaignId?: string) => {
     try {
-        const data = await apiCall('/api/google-ads/overview', { user_id: userId, date_range: dateRange });
+        const data = await apiCall('/api/google-ads/overview', { 
+            user_id: userId, 
+            date_range: dateRange,
+            campaign_id: campaignId // Novo parâmetro
+        });
         return (data.results || []).map((row: any) => ({
             date: row.segments.date,
             clicks: parseInt(row.metrics.clicks) || 0,
