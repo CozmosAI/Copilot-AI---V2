@@ -139,7 +139,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
         const fetchCustomerName = async (resourceName) => {
             const customerId = resourceName.replace('customers/', '');
             try {
-                const query = `SELECT customer.descriptive_name, customer.id FROM customer LIMIT 1`;
+                const query = `SELECT customer.descriptive_name, customer.id, customer.manager FROM customer LIMIT 1`;
                 const searchResp = await fetch(`https://googleads.googleapis.com/v23/customers/${customerId}/googleAds:search`, {
                     method: 'POST',
                     headers: {
@@ -150,10 +150,12 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
                     body: JSON.stringify({ query })
                 });
                 const searchData = await searchResp.json();
-                const name = searchData.results?.[0]?.customer?.descriptiveName || `Conta ${customerId}`;
-                return { id: customerId, name: name };
+                const customer = searchData.results?.[0]?.customer;
+                const name = customer?.descriptiveName || `Conta ${customerId}`;
+                const isManager = customer?.manager || false;
+                return { id: customerId, name: name, isManager: isManager };
             } catch (e) {
-                return { id: customerId, name: `Conta ${customerId} (Erro Nome)` };
+                return { id: customerId, name: `Conta ${customerId} (Erro Nome)`, isManager: false };
             }
         };
 
@@ -163,12 +165,17 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
         }
 
         if (resourceNames.length === 1) {
-            // Apenas 1 conta: Vincula Automaticamente
+            // Apenas 1 conta: Se for MCC, retorna para seleção. Se for cliente, vincula.
             const accountInfo = await fetchCustomerName(resourceNames[0]);
             
+            if (accountInfo.isManager) {
+                 return res.json({ success: true, mode: 'selection_required', accounts: [accountInfo] });
+            }
+
             await supabase.from('google_ads_integrations').update({
                 customer_id: accountInfo.id,
                 customer_name: accountInfo.name,
+                manager_id: null, // Garante que limpa se não for MCC
                 status: 'active'
             }).eq('user_id', user_id);
 
@@ -196,7 +203,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
 // 2.1 FINALIZAR SELEÇÃO DE CONTA
 // ==============================================================================
 app.post('/api/auth/google-ads/select-account', async (req, res) => {
-    const { user_id, customer_id, customer_name } = req.body;
+    const { user_id, customer_id, customer_name, manager_id } = req.body;
 
     if (!user_id || !customer_id) return res.status(400).json({ error: 'Dados incompletos.' });
 
@@ -204,6 +211,7 @@ app.post('/api/auth/google-ads/select-account', async (req, res) => {
         const { error } = await supabase.from('google_ads_integrations').update({
             customer_id: customer_id,
             customer_name: customer_name,
+            manager_id: manager_id || null,
             status: 'active'
         }).eq('user_id', user_id);
 
@@ -211,6 +219,65 @@ app.post('/api/auth/google-ads/select-account', async (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==============================================================================
+// 2.1.5 LISTAR FILHOS DE MCC (Novo Endpoint)
+// ==============================================================================
+app.post('/api/google-ads/mcc-children', async (req, res) => {
+    const { user_id, manager_id } = req.body;
+
+    if (!user_id || !manager_id) return res.status(400).json({ error: 'Missing user_id or manager_id' });
+
+    try {
+        const { data: integration } = await supabase
+            .from('google_ads_integrations')
+            .select('access_token')
+            .eq('user_id', user_id)
+            .single();
+
+        if (!integration) return res.status(404).json({ error: 'Integration not found' });
+
+        const query = `
+            SELECT 
+                customer_client.client_customer, 
+                customer_client.descriptive_name, 
+                customer_client.manager, 
+                customer_client.id 
+            FROM customer_client 
+            WHERE customer_client.level <= 1 
+            AND customer_client.status = 'ENABLED'
+            AND customer_client.manager = false
+        `;
+
+        const searchResp = await fetch(`https://googleads.googleapis.com/v23/customers/${manager_id}/googleAds:search`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${integration.access_token}`,
+                'developer-token': GOOGLE_ADS_DEV_TOKEN,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query })
+        });
+
+        const searchData = await searchResp.json();
+        
+        if (searchData.error) {
+             throw new Error(searchData.error.message);
+        }
+
+        const children = (searchData.results || []).map(row => ({
+            id: row.customerClient.id,
+            name: row.customerClient.descriptiveName || `Conta ${row.customerClient.id}`,
+            isManager: row.customerClient.manager
+        }));
+
+        res.json({ children });
+
+    } catch (error) {
+        console.error("MCC Children Error:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -267,6 +334,7 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
         let accessToken = integration.access_token;
         const refreshToken = integration.refresh_token;
         const customerId = integration.customer_id;
+        const managerId = integration.manager_id; // Pega o manager_id se existir
 
         if (!customerId) return res.status(400).json({ error: 'Nenhuma conta de anúncios vinculada.' });
 
@@ -321,7 +389,8 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'developer-token': GOOGLE_ADS_DEV_TOKEN,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'login-customer-id': managerId || customerId // Header crítico para MCC
             },
             body: JSON.stringify({ query })
         });
@@ -329,7 +398,8 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
         const adsData = await adsResp.json();
         
         if (adsData.error) {
-            return res.status(400).json(adsData.error);
+            console.error('Google Ads campaigns error:', JSON.stringify(adsData.error));
+            return res.status(400).json({ error: adsData.error.message || JSON.stringify(adsData.error) });
         }
 
         const results = adsData.results || [];

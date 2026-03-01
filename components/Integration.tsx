@@ -6,7 +6,7 @@ import {
   Building2, ArrowRight
 } from 'lucide-react';
 import { useApp } from '../App';
-import { initiateGoogleAdsAuth, exchangeCodeForToken, selectGoogleAdsAccount, checkGoogleAdsStatus } from '../services/googleAdsService';
+import { initiateGoogleAdsAuth, exchangeCodeForToken, selectGoogleAdsAccount, checkGoogleAdsStatus, listMccChildren } from '../services/googleAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
 // import { initInstance, logoutInstance, checkStatus, configureInstance } from '../services/whatsappService'; // REMOVIDO
@@ -35,6 +35,7 @@ const Integration: React.FC = () => {
   const [showAccountSelector, setShowAccountSelector] = useState(false);
   const [availableAccounts, setAvailableAccounts] = useState<any[]>([]);
   const [accountName, setAccountName] = useState<string>('');
+  const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null);
 
   // States WhatsApp (REMOVIDO)
   /*
@@ -110,15 +111,34 @@ const Integration: React.FC = () => {
   }, [user]);
 
   // Handle Account Selection
-  const handleAccountSelect = async (accountId: string, accName: string) => {
+  const handleAccountSelect = async (accountId: string, accName: string, isManager: boolean) => {
       if (!user) return;
       setLoading('google-ads-select');
+
+      if (isManager) {
+          try {
+              const result = await listMccChildren(user.id, accountId);
+              if (result.children && result.children.length > 0) {
+                  setAvailableAccounts(result.children);
+                  setSelectedManagerId(accountId); // Store manager ID
+              } else {
+                  alert("Nenhuma conta cliente encontrada nesta MCC.");
+              }
+          } catch (error: any) {
+              alert("Erro ao listar contas da MCC: " + error.message);
+          } finally {
+              setLoading(null);
+          }
+          return;
+      }
+
       try {
-          await selectGoogleAdsAccount(user.id, accountId, accName);
+          await selectGoogleAdsAccount(user.id, accountId, accName, selectedManagerId || undefined);
           setGoogleAdsToken('backend-connected');
           localStorage.setItem('google_ads_token', 'backend-connected');
           setAccountName(accName);
           setShowAccountSelector(false);
+          setSelectedManagerId(null);
           alert(`Conta "${accName}" vinculada com sucesso!`);
       } catch (error: any) {
           alert("Erro ao selecionar conta: " + error.message);
@@ -245,14 +265,17 @@ const Integration: React.FC = () => {
                       {availableAccounts.map((acc) => (
                           <button 
                             key={acc.id} 
-                            onClick={() => handleAccountSelect(acc.id, acc.name)}
+                            onClick={() => handleAccountSelect(acc.id, acc.name, acc.isManager)}
                             disabled={loading === 'google-ads-select'}
                             className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-all group flex items-center justify-between"
                           >
                               <div className="flex items-center gap-3">
                                   <div className="p-2 bg-white border border-slate-100 rounded-lg text-slate-400 group-hover:text-blue-500"><Building2 size={20}/></div>
                                   <div>
-                                      <p className="text-sm font-bold text-navy">{acc.name}</p>
+                                      <p className="text-sm font-bold text-navy flex items-center gap-2">
+                                          {acc.name}
+                                          {acc.isManager && <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">MCC</span>}
+                                      </p>
                                       <p className="text-[10px] text-slate-400 font-mono">ID: {acc.id}</p>
                                   </div>
                               </div>

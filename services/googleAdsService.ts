@@ -43,11 +43,22 @@ export const exchangeCodeForToken = async (code: string, userId: string) => {
 /**
  * Passo 2.5: Confirmar conta selecionada
  */
-export const selectGoogleAdsAccount = async (userId: string, accountId: string, accountName: string) => {
+export const selectGoogleAdsAccount = async (userId: string, accountId: string, accountName: string, managerId?: string) => {
     return apiCall('/api/auth/google-ads/select-account', {
         user_id: userId,
         customer_id: accountId,
-        customer_name: accountName
+        customer_name: accountName,
+        manager_id: managerId
+    });
+};
+
+/**
+ * Passo 2.6: Listar filhos de MCC
+ */
+export const listMccChildren = async (userId: string, managerId: string) => {
+    return apiCall('/api/google-ads/mcc-children', {
+        user_id: userId,
+        manager_id: managerId
     });
 };
 

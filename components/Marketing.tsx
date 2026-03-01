@@ -16,13 +16,21 @@ const Marketing: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [platformFilter, setPlatformFilter] = useState<'all' | 'google' | 'offline'>('all');
   const [realGoogleCampaigns, setRealGoogleCampaigns] = useState<any[]>([]);
+  const lastFetchRef = React.useRef<{start: string, end: string} | null>(null);
 
   // Verificamos se há token (agora o token é um flag 'backend-connected' no frontend)
   const isConnected = !!googleAdsToken;
 
   useEffect(() => {
     const fetchGoogleData = async () => {
-        if (isConnected && user) {
+        if (isConnected && user && dateFilter.start && dateFilter.end) {
+             // Prevent duplicate fetch for same dates
+            if (lastFetchRef.current?.start === dateFilter.start && lastFetchRef.current?.end === dateFilter.end) {
+                return;
+            }
+            
+            lastFetchRef.current = { start: dateFilter.start, end: dateFilter.end };
+
             setLoading(true);
             try {
                 // Chama a API passando o ID do usuário (o backend resolve o token)
@@ -38,7 +46,10 @@ const Marketing: React.FC = () => {
             setRealGoogleCampaigns([]);
         }
     };
-    fetchGoogleData();
+    
+    const timeoutId = setTimeout(fetchGoogleData, 500);
+    return () => clearTimeout(timeoutId);
+
   }, [isConnected, user, dateFilter.start, dateFilter.end]); // Dependência explícita nas datas
 
   // --- CONSOLIDAÇÃO DE DADOS (API + FINANCEIRO) ---
