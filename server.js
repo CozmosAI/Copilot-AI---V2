@@ -440,10 +440,13 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
                 campaign.name, 
                 campaign.status, 
                 campaign.advertising_channel_type,
+                campaign_budget.amount_micros,
                 metrics.clicks, 
                 metrics.impressions, 
                 metrics.cost_micros, 
-                metrics.conversions 
+                metrics.conversions,
+                metrics.ctr,
+                metrics.average_cpc
             FROM campaign 
             WHERE campaign.status != 'REMOVED' 
             AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'

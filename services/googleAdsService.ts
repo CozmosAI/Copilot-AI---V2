@@ -76,11 +76,15 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
             id: row.campaign.id,
             name: row.campaign.name,
             platform: 'google',
-            type: row.campaign.advertisingChannelType, // Novo campo
+            type: row.campaign.advertisingChannelType,
+            budget: (parseInt(row.campaignBudget?.amountMicros) || 0) / 1000000,
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,
             conversions: parseFloat(row.metrics.conversions) || 0,
+            conversionsValue: parseFloat(row.metrics.conversionsValue) || 0,
+            ctr: parseFloat(row.metrics.ctr) || 0,
+            averageCpc: (parseInt(row.metrics.averageCpc) || 0) / 1000000,
             status: row.campaign.status
         }));
     } catch (error) {
@@ -101,7 +105,8 @@ export const getGoogleOverview = async (userId: string, dateRange?: { start: str
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
-            conversions: parseFloat(row.metrics.conversions) || 0
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            conversionsValue: parseFloat(row.metrics.conversionsValue) || 0
         }));
     } catch (error) {
         console.error("Erro ao buscar overview:", error);
@@ -120,7 +125,8 @@ export const getGoogleAdGroups = async (userId: string, dateRange?: { start: str
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
-            conversions: parseFloat(row.metrics.conversions) || 0
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            conversionsValue: parseFloat(row.metrics.conversionsValue) || 0
         }));
     } catch (error) {
         console.error("Erro ao buscar ad groups:", error);
@@ -141,7 +147,8 @@ export const getGoogleKeywords = async (userId: string, dateRange?: { start: str
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
-            conversions: parseFloat(row.metrics.conversions) || 0
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            conversionsValue: parseFloat(row.metrics.conversionsValue) || 0
         }));
     } catch (error) {
         console.error("Erro ao buscar keywords:", error);
