@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
+import puppeteer from 'puppeteer';
 
 // Carrega variáveis de ambiente
 dotenv.config();
@@ -309,7 +310,7 @@ app.get('/api/google-ads/status/:userId', async (req, res) => {
 // ==============================================================================
 
 // Helper para validar e renovar token
-async function getValidAccessToken(user_id) {
+async function getValidAccessToken(user_id, overrideCustomerId = null) {
     // 1. Buscar credenciais no banco
     const { data: integration, error } = await supabase
         .from('google_ads_integrations')
@@ -325,8 +326,10 @@ async function getValidAccessToken(user_id) {
 
     let accessToken = integration.access_token;
     const refreshToken = integration.refresh_token;
-    const customerId = integration.customer_id;
-    const managerId = integration.manager_id;
+    
+    // Default: Usar a conta vinculada no banco
+    let customerId = integration.customer_id;
+    let managerId = integration.manager_id;
 
     if (!customerId) throw new Error('Nenhuma conta de anúncios vinculada.');
 
@@ -360,6 +363,12 @@ async function getValidAccessToken(user_id) {
         }).eq('user_id', user_id);
     }
 
+    // Lógica de Override (MCC View)
+    if (overrideCustomerId) {
+        managerId = customerId;
+        customerId = overrideCustomerId;
+    }
+
     const cleanId = customerId.replace(/-/g, '');
     
     // Headers padrão para chamadas
@@ -370,15 +379,15 @@ async function getValidAccessToken(user_id) {
     };
 
     if (managerId) {
-        headers['login-customer-id'] = managerId;
+        headers['login-customer-id'] = managerId.replace(/-/g, '');
     }
 
     return { accessToken, cleanId, headers, managerId };
 }
 
 // Helper para executar query no Google Ads
-async function executeGoogleAdsQuery(user_id, query, checkMcc = false) {
-    const { cleanId, headers, managerId } = await getValidAccessToken(user_id);
+async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerId = null) {
+    const { cleanId, headers, managerId } = await getValidAccessToken(user_id, customerId);
 
     const adsResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
         method: 'POST',
@@ -400,7 +409,7 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false) {
     const results = adsData.results || [];
 
     // Verificação extra de MCC se solicitado (apenas para queries que podem retornar vazio em MCC)
-    if (checkMcc && results.length === 0 && !managerId) {
+    if (checkMcc && results.length === 0 && !managerId && !customerId) {
          try {
             const mccQuery = `SELECT customer.manager FROM customer LIMIT 1`;
             const mccResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
@@ -425,7 +434,7 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false) {
 
 // Rota: Campanhas (Mantida e refatorada)
 app.post('/api/google-ads/campaigns', async (req, res) => {
-    let { user_id, date_range } = req.body;
+    let { user_id, date_range, compare_start, compare_end, customer_id } = req.body;
 
     if (!date_range || !date_range.start || !date_range.end) {
         const end = new Date().toISOString().split('T')[0];
@@ -433,27 +442,41 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
         date_range = { start, end };
     }
 
-    try {
-        const query = `
-            SELECT 
-                campaign.id, 
-                campaign.name, 
-                campaign.status, 
-                campaign.advertising_channel_type,
-                campaign_budget.amount_micros,
-                metrics.clicks, 
-                metrics.impressions, 
-                metrics.cost_micros, 
-                metrics.conversions,
-                metrics.ctr,
-                metrics.average_cpc
-            FROM campaign 
-            WHERE campaign.status != 'REMOVED' 
-            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
-        `;
+    const buildQuery = (start, end) => `
+        SELECT 
+            campaign.id, 
+            campaign.name, 
+            campaign.status, 
+            campaign.advertising_channel_type,
+            campaign_budget.amount_micros,
+            metrics.clicks, 
+            metrics.impressions, 
+            metrics.cost_micros, 
+            metrics.conversions,
+            metrics.conversions_value,
+            metrics.ctr,
+            metrics.average_cpc
+        FROM campaign 
+        WHERE campaign.status != 'REMOVED' 
+        AND segments.date BETWEEN '${start}' AND '${end}'
+    `;
 
-        const results = await executeGoogleAdsQuery(user_id, query, true);
-        res.json({ results });
+    try {
+        const currentQuery = buildQuery(date_range.start, date_range.end);
+        
+        const promises = [executeGoogleAdsQuery(user_id, currentQuery, true, customer_id)];
+        
+        if (compare_start && compare_end) {
+            const compareQuery = buildQuery(compare_start, compare_end);
+            promises.push(executeGoogleAdsQuery(user_id, compareQuery, true, customer_id));
+        }
+
+        const [currentResults, compareResults] = await Promise.all(promises);
+        
+        res.json({ 
+            results: currentResults,
+            comparison: compareResults || [] 
+        });
 
     } catch (error) {
         console.error("Ads Fetch Error:", error);
@@ -463,25 +486,39 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
 
 // Rota: Overview (Gráfico)
 app.post('/api/google-ads/overview', async (req, res) => {
-    const { user_id, date_range, campaign_id } = req.body;
+    const { user_id, date_range, campaign_id, compare_start, compare_end, customer_id } = req.body;
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        // Se vier campaign_id no body, filtra por campanha
         const campaignFilter = campaign_id ? `AND campaign.id = ${campaign_id}` : '';
-        const query = `
+        
+        const buildQuery = (start, end) => `
             SELECT 
                 segments.date, 
                 metrics.clicks, 
                 metrics.impressions, 
                 metrics.cost_micros, 
-                metrics.conversions 
+                metrics.conversions,
+                metrics.conversions_value
             FROM campaign 
-            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE segments.date BETWEEN '${start}' AND '${end}'
             ${campaignFilter}
         `;
-        const results = await executeGoogleAdsQuery(user_id, query);
-        res.json({ results });
+
+        const currentQuery = buildQuery(date_range.start, date_range.end);
+        const promises = [executeGoogleAdsQuery(user_id, currentQuery, false, customer_id)];
+
+        if (compare_start && compare_end) {
+            const compareQuery = buildQuery(compare_start, compare_end);
+            promises.push(executeGoogleAdsQuery(user_id, compareQuery, false, customer_id));
+        }
+
+        const [currentResults, compareResults] = await Promise.all(promises);
+
+        res.json({ 
+            results: currentResults,
+            comparison: compareResults || []
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -489,7 +526,7 @@ app.post('/api/google-ads/overview', async (req, res) => {
 
 // Rota: Ad Groups
 app.post('/api/google-ads/ad-groups', async (req, res) => {
-    const { user_id, date_range } = req.body;
+    const { user_id, date_range, customer_id } = req.body;
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
@@ -506,7 +543,7 @@ app.post('/api/google-ads/ad-groups', async (req, res) => {
             FROM ad_group 
             WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
-        const results = await executeGoogleAdsQuery(user_id, query);
+        const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -515,7 +552,7 @@ app.post('/api/google-ads/ad-groups', async (req, res) => {
 
 // Rota: Keywords
 app.post('/api/google-ads/keywords', async (req, res) => {
-    const { user_id, date_range } = req.body;
+    const { user_id, date_range, customer_id } = req.body;
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
@@ -534,7 +571,7 @@ app.post('/api/google-ads/keywords', async (req, res) => {
             FROM keyword_view 
             WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
-        const results = await executeGoogleAdsQuery(user_id, query);
+        const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -543,7 +580,7 @@ app.post('/api/google-ads/keywords', async (req, res) => {
 
 // Rota: Ads
 app.post('/api/google-ads/ads', async (req, res) => {
-    const { user_id, date_range } = req.body;
+    const { user_id, date_range, customer_id } = req.body;
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
@@ -560,10 +597,398 @@ app.post('/api/google-ads/ads', async (req, res) => {
             FROM ad_group_ad 
             WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
-        const results = await executeGoogleAdsQuery(user_id, query);
+        const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: Asset Groups (P-MAX)
+app.post('/api/google-ads/asset-groups', async (req, res) => {
+    const { user_id, date_range, campaign_id, customer_id } = req.body;
+    if (!user_id || !date_range || !campaign_id) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const query = `
+            SELECT 
+                asset_group.id, 
+                asset_group.name, 
+                asset_group.status, 
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros, 
+                metrics.conversions,
+                metrics.conversions_value
+            FROM asset_group 
+            WHERE campaign.id = ${campaign_id}
+            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: Search Terms (NOVA)
+app.post('/api/google-ads/search-terms', async (req, res) => {
+    const { user_id, date_range, customer_id } = req.body;
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const query = `
+            SELECT 
+                search_term_view.search_term, 
+                campaign.name, 
+                ad_group.name,
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros,
+                metrics.conversions, 
+                metrics.ctr
+            FROM search_term_view
+            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            AND metrics.impressions > 0
+            ORDER BY metrics.cost_micros DESC
+            LIMIT 100
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Rota: MCC Overview (NOVA)
+app.post('/api/google-ads/mcc-overview', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        // Query executada no nível do MCC (sem customer_id override, usa o do banco)
+        const query = `
+            SELECT 
+                customer_client.descriptive_name, 
+                customer_client.id, 
+                metrics.cost_micros, 
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.conversions,
+                metrics.conversions_value
+            FROM customer_client 
+            WHERE customer_client.level <= 1 
+            AND customer_client.status = 'ENABLED'
+            AND customer_client.manager = false
+            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        
+        // Esta query deve rodar na conta MCC, então não passamos customer_id override
+        const results = await executeGoogleAdsQuery(user_id, query);
+        
+        const formattedResults = results.map(row => ({
+            account_name: row.customerClient.descriptiveName,
+            customer_id: row.customerClient.id,
+            cost: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            conversions_value: parseFloat(row.metrics.conversionsValue) || 0
+        }));
+
+        res.json({ results: formattedResults });
+
+    } catch (error) {
+        console.error("MCC Overview Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==============================================================================
+// 4. SISTEMA DE ALERTAS
+// ==============================================================================
+app.post('/api/google-ads/check-alerts', async (req, res) => {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+
+    try {
+        const alerts = [];
+        const { cleanId, headers } = await getValidAccessToken(user_id);
+
+        // 1. Orçamento Diário vs Gasto Hoje
+        const budgetQuery = `
+            SELECT 
+                campaign.id, 
+                campaign.name, 
+                campaign_budget.amount_micros, 
+                metrics.cost_micros 
+            FROM campaign 
+            WHERE segments.date = 'TODAY' 
+            AND campaign.status = 'ENABLED'
+        `;
+        
+        try {
+            const budgetResults = await executeGoogleAdsQuery(user_id, budgetQuery);
+            budgetResults.forEach(row => {
+                const budget = parseInt(row.campaignBudget.amountMicros || '0');
+                const cost = parseInt(row.metrics.costMicros || '0');
+                
+                if (budget > 0 && cost > (budget * 0.9)) {
+                    const percent = Math.round((cost / budget) * 100);
+                    alerts.push({
+                        id: `budget-${row.campaign.id}`,
+                        type: 'budget_warning',
+                        severity: percent >= 100 ? 'high' : 'medium',
+                        message: `A campanha "${row.campaign.name}" consumiu ${percent}% do orçamento diário.`
+                    });
+                }
+            });
+        } catch (e) {
+            console.error("Erro ao verificar orçamentos:", e);
+        }
+
+        // 2. CPL últimos 7 dias vs 7 dias anteriores
+        // Datas
+        const today = new Date();
+        const formatDate = (d) => d.toISOString().split('T')[0];
+        
+        const last7End = new Date(today); last7End.setDate(today.getDate() - 1);
+        const last7Start = new Date(today); last7Start.setDate(today.getDate() - 7);
+        
+        const prev7End = new Date(today); prev7End.setDate(today.getDate() - 8);
+        const prev7Start = new Date(today); prev7Start.setDate(today.getDate() - 14);
+
+        const cplQuery = (start, end) => `
+            SELECT 
+                metrics.cost_micros, 
+                metrics.conversions 
+            FROM customer 
+            WHERE segments.date BETWEEN '${formatDate(start)}' AND '${formatDate(end)}'
+        `;
+
+        try {
+            const [currentStats, prevStats] = await Promise.all([
+                executeGoogleAdsQuery(user_id, cplQuery(last7Start, last7End)),
+                executeGoogleAdsQuery(user_id, cplQuery(prev7Start, prev7End))
+            ]);
+
+            const calcCPA = (rows) => {
+                const cost = rows.reduce((acc, r) => acc + parseInt(r.metrics.costMicros || '0'), 0);
+                const conv = rows.reduce((acc, r) => acc + parseFloat(r.metrics.conversions || '0'), 0);
+                return conv > 0 ? (cost / conv) / 1000000 : 0;
+            };
+
+            const currentCPA = calcCPA(currentStats);
+            const prevCPA = calcCPA(prevStats);
+
+            if (prevCPA > 0 && currentCPA > (prevCPA * 1.2)) {
+                const increase = Math.round(((currentCPA - prevCPA) / prevCPA) * 100);
+                alerts.push({
+                    id: 'cpl-warning',
+                    type: 'cpl_warning',
+                    severity: 'medium',
+                    message: `O Custo por Lead (CPL) aumentou ${increase}% nos últimos 7 dias (R$ ${currentCPA.toFixed(2)}) vs período anterior.`
+                });
+            }
+        } catch (e) {
+            console.error("Erro ao verificar CPL:", e);
+        }
+
+        // 3. Campanhas Pausadas nas últimas 24h
+        const pausedQuery = `
+            SELECT 
+                change_event.change_time, 
+                change_event.new_resource,
+                change_event.campaign
+            FROM change_event 
+            WHERE change_event.change_resource_type = 'CAMPAIGN' 
+            AND change_event.resource_change_operation = 'UPDATE' 
+            AND change_event.changed_fields CONTAINS 'status' 
+            AND change_event.change_time DURING LAST_24_HOURS
+            LIMIT 50
+        `;
+
+        try {
+            const pausedResults = await executeGoogleAdsQuery(user_id, pausedQuery);
+            
+            pausedResults.forEach(row => {
+                // Verifica se o novo status é PAUSED
+                // newResource é um objeto Campaign
+                if (row.changeEvent.newResource.campaign.status === 'PAUSED') {
+                    const name = row.changeEvent.newResource.campaign.name || 'Campanha';
+                    alerts.push({
+                        id: `paused-${row.changeEvent.changeTime}`,
+                        type: 'status_change',
+                        severity: 'high',
+                        message: `A campanha "${name}" foi pausada nas últimas 24h.`
+                    });
+                }
+            });
+        } catch (e) {
+            console.error("Erro ao verificar campanhas pausadas:", e);
+            // change_event pode falhar dependendo das permissões ou tipo de conta, não bloqueamos o resto
+        }
+
+        res.json({ alerts });
+
+    } catch (error) {
+        console.error("Alert Check Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==============================================================================
+// 5. GERAR RELATÓRIO PDF
+// ==============================================================================
+app.post('/api/google-ads/generate-report', async (req, res) => {
+    const { 
+        client_name, 
+        agency_name, 
+        date_range, 
+        logo_url, 
+        kpis, 
+        campaigns, 
+        chart_image 
+    } = req.body;
+
+    try {
+        const browser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+
+        // Formata valores monetários
+        const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+        const formatNumber = (val) => new Intl.NumberFormat('pt-BR').format(val);
+
+        const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body { font-family: 'Helvetica', sans-serif; color: #1e293b; padding: 40px; }
+                .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
+                .logo { max-height: 60px; }
+                .title { font-size: 24px; font-weight: bold; color: #0f172a; }
+                .subtitle { font-size: 14px; color: #64748b; margin-top: 5px; }
+                .meta { text-align: right; }
+                .meta-item { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+                
+                .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 40px; }
+                .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; }
+                .kpi-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px; }
+                .kpi-value { font-size: 20px; font-weight: bold; color: #0f172a; margin-top: 5px; }
+                
+                .section-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-left: 4px solid #3b82f6; padding-left: 10px; }
+                
+                .chart-container { margin-bottom: 40px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center; }
+                .chart-img { max-width: 100%; height: auto; }
+                
+                table { w-full; border-collapse: collapse; width: 100%; font-size: 12px; }
+                th { text-align: left; background: #f1f5f9; padding: 10px; border-bottom: 2px solid #e2e8f0; color: #475569; font-weight: 600; }
+                td { padding: 10px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+                tr:last-child td { border-bottom: none; }
+                
+                .footer { margin-top: 60px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div>
+                    ${logo_url ? `<img src="${logo_url}" class="logo" />` : `<div class="title">${agency_name || 'Agência'}</div>`}
+                    <div class="subtitle">Relatório de Performance Google Ads</div>
+                </div>
+                <div class="meta">
+                    <div class="meta-item"><strong>Cliente:</strong> ${client_name || 'N/A'}</div>
+                    <div class="meta-item"><strong>Período:</strong> ${date_range.start} a ${date_range.end}</div>
+                    <div class="meta-item"><strong>Gerado em:</strong> ${new Date().toLocaleDateString('pt-BR')}</div>
+                </div>
+            </div>
+
+            <div class="section-title">Resumo de KPIs</div>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Investimento</div>
+                    <div class="kpi-value">${kpis.cost}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Impressões</div>
+                    <div class="kpi-value">${kpis.impressions}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Cliques</div>
+                    <div class="kpi-value">${kpis.clicks}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Conversões</div>
+                    <div class="kpi-value">${kpis.conversions}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">CTR</div>
+                    <div class="kpi-value">${kpis.ctr}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">CPC Médio</div>
+                    <div class="kpi-value">${kpis.cpc}</div>
+                </div>
+            </div>
+
+            ${chart_image ? `
+            <div class="section-title">Evolução Diária</div>
+            <div class="chart-container">
+                <img src="${chart_image}" class="chart-img" />
+            </div>
+            ` : ''}
+
+            <div class="section-title">Detalhamento por Campanha</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Campanha</th>
+                        <th>Status</th>
+                        <th>Impr.</th>
+                        <th>Cliques</th>
+                        <th>Custo</th>
+                        <th>Conv.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${campaigns.map(c => `
+                    <tr>
+                        <td>${c.name}</td>
+                        <td>${c.status}</td>
+                        <td>${formatNumber(c.impressions)}</td>
+                        <td>${formatNumber(c.clicks)}</td>
+                        <td>${formatCurrency(c.cost)}</td>
+                        <td>${formatNumber(c.conversions)}</td>
+                    </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+
+            <div class="footer">
+                Relatório gerado automaticamente por ${agency_name || 'Sistema de Gestão'}.
+            </div>
+        </body>
+        </html>
+        `;
+
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+
+        await browser.close();
+
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Length': pdfBuffer.length,
+        });
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error("PDF Generation Error:", error);
+        res.status(500).json({ error: 'Falha ao gerar relatório PDF: ' + error.message });
     }
 });
 

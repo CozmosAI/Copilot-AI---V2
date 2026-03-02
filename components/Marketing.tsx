@@ -3,14 +3,17 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
-  ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save
+  ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save, Bell,
+  FileUp, Download
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, Brush, ComposedChart, Bar
 } from 'recharts';
+import html2canvas from 'html2canvas';
 import { useApp } from '../App';
 import { 
-    getGoogleCampaigns, getGoogleOverview, getGoogleAdGroups, getGoogleKeywords, getGoogleAds 
+  getGoogleCampaigns, getGoogleOverview, getGoogleAdGroups, getGoogleKeywords, getGoogleAds, getGoogleAssetGroups,
+  getGoogleMccOverview, getGoogleSearchTerms
 } from '../services/googleAdsService';
 
 // --- TYPES ---
@@ -28,6 +31,13 @@ interface CustomMetric {
     multiplier?: number;
     format: MetricFormat;
     color: string;
+}
+
+interface Alert {
+    id: string;
+    type: 'budget_warning' | 'cpl_warning' | 'status_change';
+    severity: 'high' | 'medium' | 'low';
+    message: string;
 }
 
 type SortConfig = { key: string; direction: 'asc' | 'desc' } | null;
@@ -50,7 +60,7 @@ const DEFAULT_METRIC_STYLES: Record<string, { label: string, color: string, axis
 const Marketing: React.FC = () => {
   const { dateFilter, setCustomDateRange, googleAdsToken, metrics, user } = useApp();
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adgroups' | 'keywords' | 'ads'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adgroups' | 'keywords' | 'ads' | 'assetgroups' | 'searchterms' | 'accounts'>('overview');
   
   // Data States
   const [overviewData, setOverviewData] = useState<any[]>([]);
@@ -58,7 +68,37 @@ const Marketing: React.FC = () => {
   const [adGroups, setAdGroups] = useState<any[]>([]);
   const [keywords, setKeywords] = useState<any[]>([]);
   const [ads, setAds] = useState<any[]>([]);
+  const [assetGroups, setAssetGroups] = useState<any[]>([]);
+  const [searchTerms, setSearchTerms] = useState<any[]>([]);
+  const [mccAccounts, setMccAccounts] = useState<any[]>([]);
+  const [isMccUser, setIsMccUser] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [selectedAccountName, setSelectedAccountName] = useState<string>('');
+  const [searchTermFilter, setSearchTermFilter] = useState('');
   
+  // Comparison State
+  const [isCompareEnabled, setIsCompareEnabled] = useState(false);
+  const [compareDateFilter, setCompareDateFilter] = useState({ 
+      start: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], 
+      end: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] 
+  });
+  const [campaignsComparison, setCampaignsComparison] = useState<any[]>([]);
+  const [overviewComparison, setOverviewComparison] = useState<any[]>([]);
+
+  // Alerts State
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
+
+  // Report State
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [reportConfig, setReportConfig] = useState({
+      clientName: '',
+      agencyName: '',
+      logoUrl: ''
+  });
+  const chartRef = useRef<HTMLDivElement>(null);
+
   // Filters & UI State
   const [selectedMetrics, setSelectedMetrics] = useState<MetricType[]>(['clicks', 'spend']);
   const [globalCampaignFilter, setGlobalCampaignFilter] = useState<string>(''); // ID da campanha
@@ -98,8 +138,40 @@ const Marketing: React.FC = () => {
       localStorage.setItem('googleAds_customMetrics', JSON.stringify(customMetrics));
   }, [customMetrics]);
 
-  const lastFetchRef = useRef<{start: string, end: string, campaignId: string} | null>(null);
+  const lastFetchRef = useRef<{start: string, end: string, campaignId: string, compareStart?: string, compareEnd?: string, isCompare?: boolean} | null>(null);
   const isConnected = !!googleAdsToken;
+
+  // --- ALERTS SYSTEM ---
+  useEffect(() => {
+      const fetchAlerts = async () => {
+          if (!user) return;
+          try {
+              const res = await fetch('/api/google-ads/check-alerts', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ user_id: user.id })
+              });
+              const data = await res.json();
+              if (data.alerts) {
+                  const dismissed = JSON.parse(localStorage.getItem('dismissedAlerts') || '[]');
+                  const newAlerts = data.alerts.filter((a: any) => !dismissed.includes(a.id));
+                  setAlerts(newAlerts);
+              }
+          } catch (e) {
+              console.error("Error fetching alerts", e);
+          }
+      };
+
+      fetchAlerts();
+      const interval = setInterval(fetchAlerts, 30 * 60 * 1000); // 30 mins
+      return () => clearInterval(interval);
+  }, [user]);
+
+  const dismissAlert = (id: string) => {
+      const dismissed = JSON.parse(localStorage.getItem('dismissedAlerts') || '[]');
+      localStorage.setItem('dismissedAlerts', JSON.stringify([...dismissed, id]));
+      setAlerts(prev => prev.filter(a => a.id !== id));
+  };
 
   // --- METRIC CALCULATION ---
   const calculateMetricValue = (metric: CustomMetric, dataPoint: any) => {
@@ -178,48 +250,75 @@ const Marketing: React.FC = () => {
 
   // --- FETCH DATA ---
   useEffect(() => {
-    const fetchGoogleData = async () => {
-        if (isConnected && user && dateFilter.start && dateFilter.end) {
-            // Prevent duplicate fetch
-            if (
-                lastFetchRef.current?.start === dateFilter.start && 
-                lastFetchRef.current?.end === dateFilter.end &&
-                lastFetchRef.current?.campaignId === globalCampaignFilter
-            ) {
-                return;
-            }
-            lastFetchRef.current = { start: dateFilter.start, end: dateFilter.end, campaignId: globalCampaignFilter };
+    const fetchData = async () => {
+        if (!user || !dateFilter.start || !dateFilter.end) return;
+        
+        setLoading(true);
+        try {
+            const compareRange = isCompareEnabled ? compareDateFilter : undefined;
+            const customerId = selectedAccountId || undefined;
 
-            setLoading(true);
-            try {
-                // Se tiver filtro global, passamos o ID para o overview para filtrar no backend
-                // Para as outras tabelas, filtramos no frontend pois já temos os dados (ou poderíamos filtrar no backend também se fosse muito dado)
-                // Aqui vamos buscar tudo e filtrar no frontend para tabelas, mas overview buscamos específico para ter o gráfico correto diário
-                
-                const [ov, cp, ag, kw, ad] = await Promise.all([
-                    getGoogleOverview(user.id, dateFilter, globalCampaignFilter),
-                    getGoogleCampaigns(user.id, dateFilter),
-                    getGoogleAdGroups(user.id, dateFilter),
-                    getGoogleKeywords(user.id, dateFilter),
-                    getGoogleAds(user.id, dateFilter)
-                ]);
-                
-                setOverviewData(ov.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-                setCampaigns(cp);
-                setAdGroups(ag);
-                setKeywords(kw);
-                setAds(ad);
-            } catch (error) {
-                console.error("Erro ao buscar dados:", error);
-            } finally {
-                setLoading(false);
+            // 1. Overview & Campaigns (Always fetch for summary)
+            const [overviewRes, campaignsRes] = await Promise.all([
+                getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, compareRange, customerId),
+                getGoogleCampaigns(user.id, dateFilter, compareRange, customerId)
+            ]);
+            
+            if ('current' in overviewRes) {
+                setOverviewData(overviewRes.current.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                setOverviewComparison(overviewRes.previous?.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()) || []);
+            } else {
+                setOverviewData((Array.isArray(overviewRes) ? overviewRes : []).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                setOverviewComparison([]);
             }
+
+            if ('current' in campaignsRes) {
+                setCampaigns(campaignsRes.current);
+                setCampaignsComparison(campaignsRes.previous || []);
+            } else {
+                setCampaigns(Array.isArray(campaignsRes) ? campaignsRes : []);
+                setCampaignsComparison([]);
+            }
+
+            // 2. Tab Specific Data
+            if (activeTab === 'adgroups') {
+                const res = await getGoogleAdGroups(user.id, dateFilter, customerId);
+                setAdGroups(res);
+            } else if (activeTab === 'keywords') {
+                const res = await getGoogleKeywords(user.id, dateFilter, customerId);
+                setKeywords(res);
+            } else if (activeTab === 'ads') {
+                const res = await getGoogleAds(user.id, dateFilter, customerId);
+                setAds(res);
+            } else if (activeTab === 'assetgroups' && globalCampaignFilter) {
+                const res = await getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, customerId);
+                setAssetGroups(res);
+            } else if (activeTab === 'searchterms') {
+                const res = await getGoogleSearchTerms(user.id, dateFilter, customerId);
+                setSearchTerms(res);
+            }
+            
+        } catch (error) {
+            console.error("Error fetching data:", error);
+        } finally {
+            setLoading(false);
         }
     };
-    
-    const timeoutId = setTimeout(fetchGoogleData, 500);
-    return () => clearTimeout(timeoutId);
-  }, [isConnected, user, dateFilter.start, dateFilter.end, globalCampaignFilter]);
+
+    fetchData();
+  }, [user, dateFilter, activeTab, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId]);
+
+  // MCC Check
+  useEffect(() => {
+      if (user && dateFilter.start && dateFilter.end) {
+          getGoogleMccOverview(user.id, dateFilter).then(accounts => {
+              if (accounts && accounts.length > 0) {
+                  setMccAccounts(accounts);
+                  setIsMccUser(true);
+              }
+          }).catch(err => console.error("MCC Check Error", err));
+      }
+  }, [user, dateFilter]);
 
   // --- FILTERED DATA (FRONTEND) ---
   const selectedCampaign = campaigns.find(c => c.id.toString() === globalCampaignFilter);
@@ -336,7 +435,163 @@ const Marketing: React.FC = () => {
       });
   }, [overviewData, customMetrics]);
 
+  const processedComparisonData = useMemo(() => {
+      return overviewComparison.map(day => {
+          const enhancedDay = { ...day };
+          customMetrics.forEach(metric => {
+              enhancedDay[metric.id] = calculateMetricValue(metric, day);
+          });
+          return enhancedDay;
+      });
+  }, [overviewComparison, customMetrics]);
+
   const periodTotals = useMemo(() => calculateTotals(overviewData), [overviewData]);
+  const periodTotalsComparison = useMemo(() => calculateTotals(overviewComparison), [overviewComparison]);
+
+  const chartData = useMemo(() => {
+      if (!isCompareEnabled) return processedOverviewData;
+      
+      const merged = [];
+      const maxLength = Math.max(processedOverviewData.length, processedComparisonData.length);
+      
+      for (let i = 0; i < maxLength; i++) {
+          const current = processedOverviewData[i] || {};
+          const previous = processedComparisonData[i] || {};
+          
+          const item: any = { ...current };
+          
+          // Add previous metrics with _prev suffix
+          Object.keys(previous).forEach(key => {
+              if (key !== 'date') {
+                  item[`${key}_prev`] = previous[key];
+              }
+          });
+          
+          item.compareDate = previous.date;
+          merged.push(item);
+      }
+      return merged;
+  }, [processedOverviewData, processedComparisonData, isCompareEnabled]);
+
+  const calculateVariation = (current: number, previous: number) => {
+      if (!previous || previous === 0) return 0;
+      return ((current - previous) / previous) * 100;
+  };
+
+  const renderVariation = (current: number, previous: number, inverse = false) => {
+      if (!isCompareEnabled || !previous) return null;
+      const variation = calculateVariation(current, previous);
+      if (variation === 0) return <span className="text-[9px] text-slate-300 font-bold ml-1">-</span>;
+      
+      const isPositive = variation > 0;
+      const isGood = inverse ? !isPositive : isPositive;
+      
+      const color = isGood ? 'text-emerald-600' : 'text-rose-600';
+      const Icon = isPositive ? ChevronUp : ChevronDown;
+      
+      return (
+          <div className={`flex items-center gap-0.5 ${color} text-[9px] font-bold mt-1`}>
+              <Icon size={10} strokeWidth={3} />
+              <span>{Math.abs(variation).toFixed(1)}%</span>
+              <span className="text-slate-400 font-medium ml-1 hidden xl:inline">vs anterior</span>
+          </div>
+      );
+  };
+
+  const renderCellWithVariation = (value: number, previousValue: number | undefined, format: MetricFormat, inverse = false) => {
+      const formatted = format === 'currency' ? formatCurrency(value) : format === 'percent' ? formatPercent(value) : formatNumber(value);
+      
+      if (!isCompareEnabled || previousValue === undefined) return formatted;
+      
+      const variation = calculateVariation(value, previousValue);
+      if (variation === 0) return formatted;
+      
+      const isPositive = variation > 0;
+      const isGood = inverse ? !isPositive : isPositive;
+      const color = isGood ? 'text-emerald-600' : 'text-rose-600';
+      const Icon = isPositive ? ChevronUp : ChevronDown;
+
+      return (
+          <div className="flex flex-col">
+              <span>{formatted}</span>
+              <div className={`flex items-center gap-0.5 ${color} text-[9px] font-bold`}>
+                  <Icon size={8} strokeWidth={3} />
+                  <span>{Math.abs(variation).toFixed(0)}%</span>
+              </div>
+          </div>
+      );
+  };
+
+  const filteredCampaignsComparison = useMemo(() => {
+      if (!globalCampaignFilter) return campaignsComparison;
+      return campaignsComparison.filter(c => c.id.toString() === globalCampaignFilter);
+  }, [campaignsComparison, globalCampaignFilter]);
+
+  const getPrevCampaign = (id: string) => campaignsComparison.find(c => c.id === id);
+
+  const handleExportReport = async () => {
+      setIsGeneratingReport(true);
+      try {
+          // 1. Capture Chart Image
+          let chartImage = '';
+          if (chartRef.current) {
+              const canvas = await html2canvas(chartRef.current, { scale: 2 });
+              chartImage = canvas.toDataURL('image/png');
+          }
+
+          // 2. Prepare Data Payload
+          const payload = {
+              client_name: reportConfig.clientName,
+              agency_name: reportConfig.agencyName,
+              date_range: dateFilter,
+              logo_url: reportConfig.logoUrl,
+              kpis: {
+                  cost: formatCurrency(periodTotals.spend),
+                  impressions: formatNumber(periodTotals.impressions),
+                  clicks: formatNumber(periodTotals.clicks),
+                  conversions: formatNumber(periodTotals.conversions),
+                  ctr: formatPercent(periodTotals.ctr),
+                  cpc: formatCurrency(periodTotals.cpc)
+              },
+              campaigns: campaigns.map(c => ({
+                  name: c.name,
+                  status: c.status,
+                  impressions: c.impressions,
+                  clicks: c.clicks,
+                  cost: c.spend,
+                  conversions: c.conversions
+              })),
+              chart_image: chartImage
+          };
+
+          // 3. Send to Backend
+          const response = await fetch('/api/google-ads/generate-report', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) throw new Error('Falha ao gerar relatório');
+
+          // 4. Download PDF
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Relatorio_GoogleAds_${dateFilter.start}_${dateFilter.end}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+
+          setIsReportModalOpen(false);
+      } catch (error) {
+          console.error("Erro ao exportar relatório:", error);
+          alert("Erro ao gerar relatório. Tente novamente.");
+      } finally {
+          setIsGeneratingReport(false);
+      }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -354,7 +609,78 @@ const Marketing: React.FC = () => {
             </div>
             </div>
             
-            <div className="flex items-center space-x-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200">
+            <div className="flex items-center gap-4">
+                {/* EXPORT REPORT */}
+                <button 
+                    onClick={() => setIsReportModalOpen(true)}
+                    className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-all hover:text-navy shadow-sm"
+                    title="Exportar Relatório PDF"
+                >
+                    <FileUp size={18} />
+                </button>
+
+                {/* ALERTS */}
+                <div className="relative">
+                    <button 
+                        onClick={() => setIsAlertOpen(!isAlertOpen)}
+                        className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 relative shadow-sm transition-all hover:shadow-md"
+                    >
+                        <Bell size={18} className="text-slate-600" />
+                        {alerts.length > 0 && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full border-2 border-white shadow-sm animate-pulse">
+                                {alerts.length}
+                            </span>
+                        )}
+                    </button>
+
+                    {isAlertOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 backdrop-blur-sm">
+                                <h3 className="text-xs font-bold text-navy uppercase tracking-wider flex items-center gap-2">
+                                    <Bell size={12} /> Notificações
+                                </h3>
+                                <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{alerts.length} novas</span>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                                {alerts.length === 0 ? (
+                                    <div className="p-8 text-center flex flex-col items-center gap-2">
+                                        <div className="w-8 h-8 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
+                                            <Bell size={14} />
+                                        </div>
+                                        <p className="text-slate-400 text-xs font-medium">Tudo tranquilo por aqui.</p>
+                                    </div>
+                                ) : (
+                                    alerts.map(alert => (
+                                        <div key={alert.id} className="p-3 border-b border-slate-50 hover:bg-slate-50 flex gap-3 group relative transition-colors">
+                                            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 shadow-sm ${
+                                                alert.severity === 'high' ? 'bg-rose-500 shadow-rose-200' : 
+                                                alert.severity === 'medium' ? 'bg-amber-500 shadow-amber-200' : 'bg-blue-500 shadow-blue-200'
+                                            }`} />
+                                            <div className="flex-1 pr-4">
+                                                <p className="text-xs text-slate-600 leading-relaxed font-medium">{alert.message}</p>
+                                                <span className="text-[9px] text-slate-400 font-bold mt-1.5 block uppercase tracking-wider flex items-center gap-1">
+                                                    {alert.type === 'budget_warning' && <DollarSign size={8} />}
+                                                    {alert.type === 'cpl_warning' && <TrendingUp size={8} />}
+                                                    {alert.type === 'status_change' && <AlertCircle size={8} />}
+                                                    {alert.type === 'budget_warning' ? 'Orçamento' : 
+                                                     alert.type === 'cpl_warning' ? 'Desempenho' : 'Status'}
+                                                </span>
+                                            </div>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); dismissAlert(alert.id); }}
+                                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-200 rounded-full text-slate-400 transition-all hover:text-rose-500"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex items-center space-x-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200">
                 <div className="flex items-center gap-2 px-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">Período:</span>
                     <input 
@@ -371,6 +697,41 @@ const Marketing: React.FC = () => {
                         className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-navy transition-colors cursor-pointer"
                     />
                 </div>
+
+                {/* Comparison Toggle */}
+                <div className="h-4 w-px bg-slate-200 mx-1" />
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <div className="relative">
+                        <input 
+                            type="checkbox" 
+                            checked={isCompareEnabled}
+                            onChange={(e) => setIsCompareEnabled(e.target.checked)}
+                            className="sr-only peer"
+                        />
+                        <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">Comparar</span>
+                </label>
+
+                {/* Comparison Date Picker */}
+                {isCompareEnabled && (
+                    <div className="flex items-center gap-2 px-2 border-l border-slate-200 ml-1 animate-in fade-in slide-in-from-right-4 duration-300">
+                        <input 
+                            type="date" 
+                            value={compareDateFilter.start} 
+                            onChange={(e) => setCompareDateFilter({...compareDateFilter, start: e.target.value})}
+                            className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer"
+                        />
+                        <span className="text-[10px] text-slate-300 font-bold">-</span>
+                        <input 
+                            type="date" 
+                            value={compareDateFilter.end} 
+                            onChange={(e) => setCompareDateFilter({...compareDateFilter, end: e.target.value})}
+                            className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer"
+                        />
+                    </div>
+                )}
+            </div>
             </div>
         </div>
 
@@ -399,9 +760,15 @@ const Marketing: React.FC = () => {
       <div className="flex overflow-x-auto pb-2 gap-2 border-b border-slate-200">
           {[
               { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
+              ...(isMccUser ? [{ id: 'accounts', label: 'Contas', icon: Users }] : []),
               { id: 'campaigns', label: 'Campanhas', icon: Layers },
-              { id: 'adgroups', label: 'Grupos de Anúncios', icon: Grid },
-              { id: 'keywords', label: 'Palavras-chave', icon: Type },
+              ...(campaignType === 'PERFORMANCE_MAX' ? [
+                  { id: 'assetgroups', label: 'Grupos de Recursos', icon: Grid }
+              ] : [
+                  { id: 'adgroups', label: 'Grupos de Anúncios', icon: Grid },
+                  { id: 'keywords', label: 'Palavras-chave', icon: Type },
+                  { id: 'searchterms', label: 'Termos de Busca', icon: Search }
+              ]),
               { id: 'ads', label: 'Anúncios', icon: MessageSquare },
           ].map(tab => (
               <button
@@ -422,6 +789,20 @@ const Marketing: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
+            {selectedAccountId && (
+                <div className="bg-indigo-600 text-white px-4 py-3 rounded-xl shadow-md shadow-indigo-200 text-xs font-bold uppercase tracking-widest flex justify-between items-center animate-in fade-in slide-in-from-top-4">
+                    <div className="flex items-center gap-2">
+                        <Users size={16} />
+                        <span>Visualizando conta: {selectedAccountName}</span>
+                    </div>
+                    <button 
+                        onClick={() => { setSelectedAccountId(null); setSelectedAccountName(''); }} 
+                        className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
+                    >
+                        <X size={12} /> Limpar Filtro
+                    </button>
+                </div>
+            )}
             
             {/* OVERVIEW TAB */}
             {activeTab === 'overview' && (
@@ -429,20 +810,23 @@ const Marketing: React.FC = () => {
                     {/* KPIs */}
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                         {[
-                            { label: 'Custo', value: formatCurrency(calculateTotals(overviewData).spend), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
-                            { label: 'Cliques', value: formatNumber(calculateTotals(overviewData).clicks), icon: MousePointer2, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-                            { label: 'Impressões', value: formatNumber(calculateTotals(overviewData).impressions), icon: Eye, color: 'text-purple-600', bg: 'bg-purple-50' },
-                            { label: 'CTR', value: formatPercent(calculateTotals(overviewData).ctr), icon: Target, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                            { label: 'CPC Médio', value: formatCurrency(calculateTotals(overviewData).cpc), icon: TrendingUp, color: 'text-amber-600', bg: 'bg-amber-50' },
-                            { label: 'Conversões', value: formatNumber(calculateTotals(overviewData).conversions), icon: Zap, color: 'text-rose-600', bg: 'bg-rose-50' },
-                            { label: 'Custo/Conv.', value: formatCurrency(calculateTotals(overviewData).costPerConv), icon: DollarSign, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+                            { label: 'Custo', value: formatCurrency(periodTotals.spend), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50', variation: renderVariation(periodTotals.spend, periodTotalsComparison.spend, true) },
+                            { label: 'Cliques', value: formatNumber(periodTotals.clicks), icon: MousePointer2, color: 'text-indigo-600', bg: 'bg-indigo-50', variation: renderVariation(periodTotals.clicks, periodTotalsComparison.clicks) },
+                            { label: 'Impressões', value: formatNumber(periodTotals.impressions), icon: Eye, color: 'text-purple-600', bg: 'bg-purple-50', variation: renderVariation(periodTotals.impressions, periodTotalsComparison.impressions) },
+                            { label: 'CTR', value: formatPercent(periodTotals.ctr), icon: Target, color: 'text-emerald-600', bg: 'bg-emerald-50', variation: renderVariation(periodTotals.ctr, periodTotalsComparison.ctr) },
+                            { label: 'CPC Médio', value: formatCurrency(periodTotals.cpc), icon: TrendingUp, color: 'text-amber-600', bg: 'bg-amber-50', variation: renderVariation(periodTotals.cpc, periodTotalsComparison.cpc, true) },
+                            { label: 'Conversões', value: formatNumber(periodTotals.conversions), icon: Zap, color: 'text-rose-600', bg: 'bg-rose-50', variation: renderVariation(periodTotals.conversions, periodTotalsComparison.conversions) },
+                            { label: 'Custo/Conv.', value: formatCurrency(periodTotals.costPerConv), icon: DollarSign, color: 'text-cyan-600', bg: 'bg-cyan-50', variation: renderVariation(periodTotals.costPerConv, periodTotalsComparison.costPerConv, true) },
                         ].map((kpi, idx) => (
                             <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between h-24">
                                 <div className="flex justify-between items-start">
                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{kpi.label}</span>
                                     <div className={`p-1.5 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon size={12} /></div>
                                 </div>
-                                <p className="text-sm font-black text-navy">{kpi.value}</p>
+                                <div>
+                                    <p className="text-sm font-black text-navy">{kpi.value}</p>
+                                    {kpi.variation}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -481,22 +865,22 @@ const Marketing: React.FC = () => {
                     </div>
 
                     {/* CHART */}
-                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <div ref={chartRef} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
                             <h3 className="text-sm font-bold text-navy uppercase tracking-widest">Desempenho no Período</h3>
-                            <div className="flex flex-wrap gap-3 items-center">
+                            <div className="flex flex-wrap gap-2 items-center">
                                 {Object.entries(metricStyles).map(([key, style]) => (
-                                    <div key={key} className={`flex items-center gap-2 p-1.5 rounded-lg border transition-all ${selectedMetrics.includes(key as MetricType) ? 'bg-slate-50 border-slate-200' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                                    <div key={key} className={`flex items-center gap-1.5 p-1 rounded-lg border transition-all ${selectedMetrics.includes(key as MetricType) ? 'bg-slate-50 border-slate-200' : 'border-transparent opacity-40 hover:opacity-100'}`}>
                                         <button 
                                             onClick={() => toggleMetric(key as MetricType)}
-                                            className={`text-[10px] font-bold uppercase transition-colors ${selectedMetrics.includes(key as MetricType) ? 'text-navy' : 'text-slate-400'}`}
+                                            className={`text-[9px] font-bold uppercase transition-colors ${selectedMetrics.includes(key as MetricType) ? 'text-navy' : 'text-slate-400'}`}
                                         >
                                             {style.label}
                                         </button>
                                         
                                         {selectedMetrics.includes(key as MetricType) && (
-                                            <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
-                                                <div className="relative w-4 h-4 rounded-full overflow-hidden cursor-pointer shadow-sm ring-1 ring-slate-200">
+                                            <div className="flex items-center gap-1 pl-1.5 border-l border-slate-200">
+                                                <div className="relative w-2 h-2 rounded-full overflow-hidden cursor-pointer shadow-sm ring-1 ring-slate-200">
                                                     <input 
                                                         type="color" 
                                                         value={style.color}
@@ -504,25 +888,16 @@ const Marketing: React.FC = () => {
                                                         className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] p-0 border-0 cursor-pointer"
                                                     />
                                                 </div>
-                                                <select 
-                                                    value={style.strokeDasharray}
-                                                    onChange={(e) => updateMetricStyle(key as MetricType, 'strokeDasharray', e.target.value)}
-                                                    className="text-[8px] bg-transparent border-none focus:ring-0 text-slate-500 cursor-pointer w-12"
-                                                >
-                                                    <option value="0">Sólida</option>
-                                                    <option value="5 5">Tracej.</option>
-                                                    <option value="1 1">Pontilh.</option>
-                                                </select>
                                             </div>
                                         )}
                                         {/* Delete button for custom metrics */}
                                         {customMetrics.some(m => m.id === key) && (
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteMetric(key); }}
-                                                className="ml-1 p-1 text-slate-300 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors"
+                                                className="ml-0.5 p-0.5 text-slate-300 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors"
                                                 title="Excluir métrica"
                                             >
-                                                <Trash2 size={10} />
+                                                <Trash2 size={8} />
                                             </button>
                                         )}
                                     </div>
@@ -530,15 +905,15 @@ const Marketing: React.FC = () => {
                                 
                                 <button 
                                     onClick={() => setIsMetricModalOpen(true)}
-                                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-navy hover:border-navy hover:bg-slate-50 transition-colors text-[10px] font-bold uppercase tracking-widest"
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-navy hover:border-navy hover:bg-slate-50 transition-colors text-[9px] font-bold uppercase tracking-widest"
                                 >
-                                    <Plus size={12} /> Criar Métrica
+                                    <Plus size={10} /> Criar
                                 </button>
                             </div>
                         </div>
-                        <div className="h-96">
+                        <div className="h-[220px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <ComposedChart data={processedOverviewData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis 
                                         dataKey="date" 
@@ -551,34 +926,84 @@ const Marketing: React.FC = () => {
                                     <YAxis yAxisId="left" orientation="left" hide />
                                     <YAxis yAxisId="right" orientation="right" hide />
                                     <Tooltip 
-                                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}
-                                        labelStyle={{ color: '#64748b', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px' }}
-                                        formatter={(value: number, name: string) => {
-                                            const key = Object.keys(metricStyles).find(k => metricStyles[k].label === name);
-                                            if (!key) return [value, name];
-                                            
-                                            const customMetric = customMetrics.find(m => m.id === key);
-                                            if (customMetric) return [formatMetricValue(value, customMetric.format), name];
-                                            
-                                            if (key === 'spend' || key === 'conversionsValue') return [formatCurrency(value), name];
-                                            return [formatNumber(value), name];
+                                        content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                                const currentItem = payload[0].payload;
+                                                return (
+                                                    <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                                            {new Date(label).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
+                                                            {isCompareEnabled && currentItem.compareDate && (
+                                                                <span className="ml-1 text-slate-300">vs {new Date(currentItem.compareDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}</span>
+                                                            )}
+                                                        </p>
+                                                        <div className="space-y-1">
+                                                            {payload.map((entry: any, index: number) => {
+                                                                if (entry.dataKey.endsWith('_prev')) return null; // Skip duplicate rendering in tooltip if handled customly, but here we let recharts handle it or filter?
+                                                                // Actually, let's render both current and prev if available
+                                                                
+                                                                const key = Object.keys(metricStyles).find(k => metricStyles[k].label === entry.name);
+                                                                const customMetric = key ? customMetrics.find(m => m.id === key) : null;
+                                                                
+                                                                const formatVal = (val: number) => customMetric 
+                                                                    ? formatMetricValue(val, customMetric.format)
+                                                                    : (key === 'spend' || key === 'conversionsValue' ? formatCurrency(val) : formatNumber(val));
+
+                                                                const currentVal = entry.value;
+                                                                const prevVal = currentItem[`${key}_prev`];
+                                                                
+                                                                return (
+                                                                    <div key={index} className="flex items-center justify-between gap-4 text-xs">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                                                                            <span className="text-slate-500 font-medium">{entry.name}:</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-navy font-bold">{formatVal(currentVal)}</span>
+                                                                            {isCompareEnabled && prevVal !== undefined && (
+                                                                                <span className="text-slate-400 text-[10px]">({formatVal(prevVal)})</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
                                         }}
                                     />
                                     {selectedMetrics.map(metric => (
-                                        <Line
-                                            key={metric}
-                                            yAxisId={metricStyles[metric].axisId}
-                                            type="monotone"
-                                            dataKey={metric}
-                                            name={metricStyles[metric].label}
-                                            stroke={metricStyles[metric].color}
-                                            strokeWidth={2}
-                                            strokeDasharray={metricStyles[metric].strokeDasharray}
-                                            dot={false}
-                                            activeDot={{ r: 6, strokeWidth: 0 }}
-                                        />
+                                        <React.Fragment key={metric}>
+                                            <Line
+                                                yAxisId={metricStyles[metric].axisId}
+                                                type="monotone"
+                                                dataKey={metric}
+                                                name={metricStyles[metric].label}
+                                                stroke={metricStyles[metric].color}
+                                                strokeWidth={1.5}
+                                                strokeDasharray={metricStyles[metric].strokeDasharray}
+                                                dot={false}
+                                                activeDot={{ r: 4, strokeWidth: 0 }}
+                                            />
+                                            {isCompareEnabled && (
+                                                <Line
+                                                    yAxisId={metricStyles[metric].axisId}
+                                                    type="monotone"
+                                                    dataKey={`${metric}_prev`}
+                                                    name={`${metricStyles[metric].label} (Anterior)`}
+                                                    stroke={metricStyles[metric].color}
+                                                    strokeWidth={1.5}
+                                                    strokeDasharray="3 3"
+                                                    strokeOpacity={0.5}
+                                                    dot={false}
+                                                    activeDot={false}
+                                                />
+                                            )}
+                                        </React.Fragment>
                                     ))}
-                                    <Brush dataKey="date" height={30} stroke="#cbd5e1" fill="#f8fafc" tickFormatter={() => ''} />
+                                    <Brush dataKey="date" height={20} stroke="#e2e8f0" fill="#f8fafc" tickFormatter={() => ''} />
                                 </ComposedChart>
                             </ResponsiveContainer>
                         </div>
@@ -614,22 +1039,96 @@ const Marketing: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {sortData(filteredCampaigns).map((c, i) => (
-                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy group-hover:text-blue-600 transition-colors">{c.name}</td>
-                                        <td className="px-6 py-4">{renderStatusBadge(c.status)}</td>
-                                        <td className="px-6 py-4 text-[10px] text-slate-500 uppercase">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(c.impressions)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(c.clicks)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((c.clicks / c.impressions) * 100 || 0)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(c.spend / c.clicks || 0)}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(c.spend)}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(c.conversions)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((c.conversions / c.clicks) * 100 || 0)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(c.conversions > 0 ? c.spend / c.conversions : 0)}</td>
+                                {sortData(filteredCampaigns).map((c, i) => {
+                                    const prev = getPrevCampaign(c.id);
+                                    return (
+                                        <tr key={i} className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
+                                            <td className="px-6 py-4 text-xs font-bold text-navy group-hover:text-blue-600 transition-colors">{c.name}</td>
+                                            <td className="px-6 py-4">{renderStatusBadge(c.status)}</td>
+                                            <td className="px-6 py-4 text-[10px] text-slate-500 uppercase">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.impressions, prev?.impressions, 'number')}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
+                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
+                                            {customMetrics.map(m => (
+                                                <td key={m.id} className="px-6 py-4 text-xs font-bold text-navy border-l border-slate-50">
+                                                    {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot className="bg-slate-50 border-t border-slate-100">
+                                <tr>
+                                    <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={3}>Totais</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}</td>
+                                    <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}</td>
+                                    <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).conversions, calculateTotals(filteredCampaignsComparison).conversions, 'number')}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}</td>
+                                    {customMetrics.map(m => (
+                                        <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
+                                            {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* ASSET GROUPS TAB */}
+            {activeTab === 'assetgroups' && (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    {[
+                                        { k: 'name', l: 'Grupo de Recursos' }, { k: 'status', l: 'Status' },
+                                        { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' },
+                                        { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
+                                        { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
+                                    ].map(h => (
+                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
+                                            <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                        </th>
+                                    ))}
+                                    {customMetrics.map(m => (
+                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors border-l border-slate-100">
+                                            <div className="flex items-center gap-1">
+                                                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
+                                                {m.name} {renderSortIcon(m.id)}
+                                            </div>
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {sortData(assetGroups).map((ag, i) => (
+                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{ag.name}</td>
+                                        <td className="px-6 py-4">{renderStatusBadge(ag.status)}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ag.impressions)}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ag.clicks)}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(ag.spend)}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(ag.conversions)}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ag.conversions / ag.clicks) * 100 || 0)}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</td>
                                         {customMetrics.map(m => (
                                             <td key={m.id} className="px-6 py-4 text-xs font-bold text-navy border-l border-slate-50">
-                                                {formatMetricValue(calculateMetricValue(m, c), m.format)}
+                                                {formatMetricValue(calculateMetricValue(m, ag), m.format)}
                                             </td>
                                         ))}
                                     </tr>
@@ -637,18 +1136,18 @@ const Marketing: React.FC = () => {
                             </tbody>
                             <tfoot className="bg-slate-50 border-t border-slate-100">
                                 <tr>
-                                    <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={3}>Totais</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(filteredCampaigns).impressions)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(filteredCampaigns).clicks)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(filteredCampaigns).ctr)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(filteredCampaigns).cpc)}</td>
-                                    <td className="px-6 py-4 text-xs font-black text-navy">{formatCurrency(calculateTotals(filteredCampaigns).spend)}</td>
-                                    <td className="px-6 py-4 text-xs font-black text-navy">{formatNumber(calculateTotals(filteredCampaigns).conversions)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(filteredCampaigns).costPerConv)}</td>
+                                    <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={2}>Totais</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(assetGroups).impressions)}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(assetGroups).clicks)}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(assetGroups).ctr)}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(assetGroups).cpc)}</td>
+                                    <td className="px-6 py-4 text-xs font-black text-navy">{formatCurrency(calculateTotals(assetGroups).spend)}</td>
+                                    <td className="px-6 py-4 text-xs font-black text-navy">{formatNumber(calculateTotals(assetGroups).conversions)}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(assetGroups).clicks > 0 ? (calculateTotals(assetGroups).conversions / calculateTotals(assetGroups).clicks) * 100 : 0)}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(assetGroups).costPerConv)}</td>
                                     {customMetrics.map(m => (
                                         <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
-                                            {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredCampaigns)), m.format)}
+                                            {formatMetricValue(calculateMetricValue(m, calculateTotals(assetGroups)), m.format)}
                                         </td>
                                     ))}
                                 </tr>
@@ -860,6 +1359,212 @@ const Marketing: React.FC = () => {
 
         </div>
       )}
+      {/* REPORT MODAL */}
+      {isReportModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><FileUp size={20} /></div>
+                          <h3 className="text-lg font-bold text-navy">Exportar Relatório PDF</h3>
+                      </div>
+                      <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-navy transition-colors"><X size={20} /></button>
+                  </div>
+                  
+                  <div className="p-6 space-y-6">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Nome do Cliente</label>
+                          <input 
+                              type="text" 
+                              value={reportConfig.clientName}
+                              onChange={(e) => setReportConfig({...reportConfig, clientName: e.target.value})}
+                              placeholder="Ex: Clínica Sorriso"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Nome da Agência (Opcional)</label>
+                          <input 
+                              type="text" 
+                              value={reportConfig.agencyName}
+                              onChange={(e) => setReportConfig({...reportConfig, agencyName: e.target.value})}
+                              placeholder="Ex: Minha Agência"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Logo URL (Opcional)</label>
+                          <input 
+                              type="text" 
+                              value={reportConfig.logoUrl}
+                              onChange={(e) => setReportConfig({...reportConfig, logoUrl: e.target.value})}
+                              placeholder="https://..."
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                          />
+                      </div>
+                      
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          <h4 className="text-xs font-bold text-navy uppercase tracking-widest mb-2">Resumo do Relatório</h4>
+                          <div className="text-[10px] text-slate-500 space-y-1">
+                              <p>• Período: <span className="font-bold text-navy">{new Date(dateFilter.start).toLocaleDateString('pt-BR')} a {new Date(dateFilter.end).toLocaleDateString('pt-BR')}</span></p>
+                              <p>• Campanhas: <span className="font-bold text-navy">{campaigns.length}</span></p>
+                              <p>• Gráfico de Evolução: <span className="font-bold text-navy">Incluído</span></p>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+                      <button 
+                          onClick={() => setIsReportModalOpen(false)}
+                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-navy uppercase tracking-widest transition-colors"
+                          disabled={isGeneratingReport}
+                      >
+                          Cancelar
+                      </button>
+                      <button 
+                          onClick={handleExportReport}
+                          disabled={isGeneratingReport}
+                          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold uppercase tracking-widest shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                      >
+                          {isGeneratingReport ? (
+                              <><Loader2 size={14} className="animate-spin" /> Gerando...</>
+                          ) : (
+                              <><Download size={14} /> Baixar PDF</>
+                          )}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+            {/* ACCOUNTS TAB (MCC) */}
+            {activeTab === 'accounts' && (
+                <div className="space-y-6">
+                    {/* Consolidated KPIs */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Custo</span>
+                            <p className="text-xl font-black text-navy">{formatCurrency(mccAccounts.reduce((acc, curr) => acc + curr.cost, 0))}</p>
+                        </div>
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Cliques</span>
+                            <p className="text-xl font-black text-navy">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.clicks, 0))}</p>
+                        </div>
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Conversões</span>
+                            <p className="text-xl font-black text-navy">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.conversions, 0))}</p>
+                        </div>
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Contas Ativas</span>
+                            <p className="text-xl font-black text-navy">{mccAccounts.length}</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                             <h3 className="text-sm font-bold text-navy uppercase tracking-widest">Contas Gerenciadas</h3>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        <th className="p-4">Conta</th>
+                                        <th className="p-4 text-right">Custo</th>
+                                        <th className="p-4 text-right">Cliques</th>
+                                        <th className="p-4 text-right">Impressões</th>
+                                        <th className="p-4 text-right">Conversões</th>
+                                        <th className="p-4 text-right">CPL</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="text-xs font-medium text-slate-600 divide-y divide-slate-50">
+                                    {mccAccounts.map(acc => (
+                                        <tr 
+                                            key={acc.customer_id} 
+                                            onClick={() => {
+                                                setSelectedAccountId(acc.customer_id);
+                                                setSelectedAccountName(acc.account_name);
+                                                setActiveTab('overview');
+                                            }}
+                                            className={`hover:bg-indigo-50/50 transition-colors cursor-pointer ${selectedAccountId === acc.customer_id ? 'bg-indigo-50' : ''}`}
+                                        >
+                                            <td className="p-4 font-bold text-navy">{acc.account_name}</td>
+                                            <td className="p-4 text-right">{formatCurrency(acc.cost)}</td>
+                                            <td className="p-4 text-right">{formatNumber(acc.clicks)}</td>
+                                            <td className="p-4 text-right">{formatNumber(acc.impressions)}</td>
+                                            <td className="p-4 text-right">{formatNumber(acc.conversions)}</td>
+                                            <td className="p-4 text-right">{acc.conversions > 0 ? formatCurrency(acc.cost / acc.conversions) : '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SEARCH TERMS TAB */}
+            {activeTab === 'searchterms' && (
+                <div className="space-y-6">
+                    {/* Filters */}
+                    <div className="flex items-center gap-4 bg-white p-2 rounded-xl border border-slate-200 w-full md:w-fit">
+                        <div className="p-2 bg-slate-50 rounded-lg text-slate-400"><Search size={16}/></div>
+                        <input 
+                            type="text" 
+                            placeholder="Filtrar termos..." 
+                            value={searchTermFilter}
+                            onChange={(e) => setSearchTermFilter(e.target.value)}
+                            className="bg-transparent text-sm font-medium text-navy focus:outline-none w-full md:min-w-[300px]"
+                        />
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        <th className="p-4">Termo de Busca</th>
+                                        <th className="p-4">Campanha / Grupo</th>
+                                        <th className="p-4 text-right">Cliques</th>
+                                        <th className="p-4 text-right">Impr.</th>
+                                        <th className="p-4 text-right">Custo</th>
+                                        <th className="p-4 text-right">Conv.</th>
+                                        <th className="p-4 text-right">CTR</th>
+                                        <th className="p-4 text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="text-xs font-medium text-slate-600 divide-y divide-slate-50">
+                                    {searchTerms
+                                        .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
+                                        .map((term, idx) => (
+                                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4 font-bold text-navy">{term.searchTerm}</td>
+                                            <td className="p-4">
+                                                <div className="text-navy">{term.campaignName}</div>
+                                                <div className="text-[10px] text-slate-400">{term.adGroupName}</div>
+                                            </td>
+                                            <td className="p-4 text-right">{formatNumber(term.clicks)}</td>
+                                            <td className="p-4 text-right">{formatNumber(term.impressions)}</td>
+                                            <td className="p-4 text-right">{formatCurrency(term.spend)}</td>
+                                            <td className="p-4 text-right">{formatNumber(term.conversions)}</td>
+                                            <td className="p-4 text-right">{formatPercent(term.ctr)}</td>
+                                            <td className="p-4 text-center">
+                                                {term.conversions > 0 ? (
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-600 uppercase tracking-wide">Convertido</span>
+                                                ) : term.spend > 50 ? ( // Threshold for potential negative
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold bg-rose-100 text-rose-600 uppercase tracking-wide">Potencial Negativa</span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500 uppercase tracking-wide">-</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
       {/* METRIC CREATOR MODAL */}
       {isMetricModalOpen && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">

@@ -65,14 +65,22 @@ export const listMccChildren = async (userId: string, managerId: string) => {
 /**
  * Passo 3: Buscar Campanhas
  */
-export const getGoogleCampaigns = async (userId: string, dateRange?: { start: string, end: string }) => {
+export const getGoogleCampaigns = async (userId: string, dateRange?: { start: string, end: string }, compareDateRange?: { start: string, end: string }, customerId?: string) => {
     try {
-        const data = await apiCall('/api/google-ads/campaigns', {
+        const body: any = {
             user_id: userId,
-            date_range: dateRange
-        });
+            date_range: dateRange,
+            customer_id: customerId
+        };
+
+        if (compareDateRange?.start && compareDateRange?.end) {
+            body.compare_start = compareDateRange.start;
+            body.compare_end = compareDateRange.end;
+        }
+
+        const data = await apiCall('/api/google-ads/campaigns', body);
         
-        return (data.results || []).map((row: any) => ({
+        const processRows = (rows: any[]) => (rows || []).map((row: any) => ({
             id: row.campaign.id,
             name: row.campaign.name,
             platform: 'google',
@@ -87,20 +95,38 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
             averageCpc: (parseInt(row.metrics.averageCpc) || 0) / 1000000,
             status: row.campaign.status
         }));
+
+        if (data.comparison) {
+            return {
+                current: processRows(data.results),
+                previous: processRows(data.comparison)
+            };
+        }
+
+        return processRows(data.results);
     } catch (error) {
         console.error("Erro ao buscar campanhas:", error);
         return [];
     }
 };
 
-export const getGoogleOverview = async (userId: string, dateRange?: { start: string, end: string }, campaignId?: string) => {
+export const getGoogleOverview = async (userId: string, dateRange?: { start: string, end: string }, campaignId?: string, compareDateRange?: { start: string, end: string }, customerId?: string) => {
     try {
-        const data = await apiCall('/api/google-ads/overview', { 
+        const body: any = { 
             user_id: userId, 
             date_range: dateRange,
-            campaign_id: campaignId // Novo parâmetro
-        });
-        return (data.results || []).map((row: any) => ({
+            campaign_id: campaignId,
+            customer_id: customerId
+        };
+
+        if (compareDateRange?.start && compareDateRange?.end) {
+            body.compare_start = compareDateRange.start;
+            body.compare_end = compareDateRange.end;
+        }
+
+        const data = await apiCall('/api/google-ads/overview', body);
+
+        const processRows = (rows: any[]) => (rows || []).map((row: any) => ({
             date: row.segments.date,
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,
@@ -108,15 +134,24 @@ export const getGoogleOverview = async (userId: string, dateRange?: { start: str
             conversions: parseFloat(row.metrics.conversions) || 0,
             conversionsValue: parseFloat(row.metrics.conversionsValue) || 0
         }));
+
+        if (data.comparison) {
+            return {
+                current: processRows(data.results),
+                previous: processRows(data.comparison)
+            };
+        }
+
+        return processRows(data.results);
     } catch (error) {
         console.error("Erro ao buscar overview:", error);
         return [];
     }
 };
 
-export const getGoogleAdGroups = async (userId: string, dateRange?: { start: string, end: string }) => {
+export const getGoogleAdGroups = async (userId: string, dateRange?: { start: string, end: string }, customerId?: string) => {
     try {
-        const data = await apiCall('/api/google-ads/ad-groups', { user_id: userId, date_range: dateRange });
+        const data = await apiCall('/api/google-ads/ad-groups', { user_id: userId, date_range: dateRange, customer_id: customerId });
         return (data.results || []).map((row: any) => ({
             id: row.adGroup.id,
             name: row.adGroup.name,
@@ -134,9 +169,9 @@ export const getGoogleAdGroups = async (userId: string, dateRange?: { start: str
     }
 };
 
-export const getGoogleKeywords = async (userId: string, dateRange?: { start: string, end: string }) => {
+export const getGoogleKeywords = async (userId: string, dateRange?: { start: string, end: string }, customerId?: string) => {
     try {
-        const data = await apiCall('/api/google-ads/keywords', { user_id: userId, date_range: dateRange });
+        const data = await apiCall('/api/google-ads/keywords', { user_id: userId, date_range: dateRange, customer_id: customerId });
         return (data.results || []).map((row: any) => ({
             text: row.adGroupCriterion.keyword.text,
             matchType: row.adGroupCriterion.keyword.matchType,
@@ -156,9 +191,9 @@ export const getGoogleKeywords = async (userId: string, dateRange?: { start: str
     }
 };
 
-export const getGoogleAds = async (userId: string, dateRange?: { start: string, end: string }) => {
+export const getGoogleAds = async (userId: string, dateRange?: { start: string, end: string }, customerId?: string) => {
     try {
-        const data = await apiCall('/api/google-ads/ads', { user_id: userId, date_range: dateRange });
+        const data = await apiCall('/api/google-ads/ads', { user_id: userId, date_range: dateRange, customer_id: customerId });
         return (data.results || []).map((row: any) => ({
             id: row.adGroupAd.ad.id,
             headlines: row.adGroupAd.ad.responsiveSearchAd?.headlines?.map((h: any) => h.text).join(' | ') || 'Anúncio Gráfico/Outro',
@@ -171,6 +206,66 @@ export const getGoogleAds = async (userId: string, dateRange?: { start: string, 
         }));
     } catch (error) {
         console.error("Erro ao buscar ads:", error);
+        return [];
+    }
+};
+
+export const getGoogleAssetGroups = async (userId: string, dateRange: { start: string, end: string }, campaignId: string, customerId?: string) => {
+    try {
+        const data = await apiCall('/api/google-ads/asset-groups', { 
+            user_id: userId, 
+            date_range: dateRange,
+            campaign_id: campaignId,
+            customer_id: customerId
+        });
+        return (data.results || []).map((row: any) => ({
+            id: row.assetGroup.id,
+            name: row.assetGroup.name,
+            status: row.assetGroup.status,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            conversionsValue: parseFloat(row.metrics.conversionsValue) || 0
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar asset groups:", error);
+        return [];
+    }
+};
+
+export const getGoogleSearchTerms = async (userId: string, dateRange: { start: string, end: string }, customerId?: string) => {
+    try {
+        const data = await apiCall('/api/google-ads/search-terms', { 
+            user_id: userId, 
+            date_range: dateRange,
+            customer_id: customerId
+        });
+        return (data.results || []).map((row: any) => ({
+            searchTerm: row.searchTermView.searchTerm,
+            campaignName: row.campaign.name,
+            adGroupName: row.adGroup.name,
+            clicks: parseInt(row.metrics.clicks) || 0,
+            impressions: parseInt(row.metrics.impressions) || 0,
+            spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            ctr: parseFloat(row.metrics.ctr) || 0
+        }));
+    } catch (error) {
+        console.error("Erro ao buscar search terms:", error);
+        return [];
+    }
+};
+
+export const getGoogleMccOverview = async (userId: string, dateRange: { start: string, end: string }) => {
+    try {
+        const data = await apiCall('/api/google-ads/mcc-overview', { 
+            user_id: userId, 
+            date_range: dateRange
+        });
+        return data.results || [];
+    } catch (error) {
+        console.error("Erro ao buscar MCC overview:", error);
         return [];
     }
 };
