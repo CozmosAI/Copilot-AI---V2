@@ -666,35 +666,77 @@ app.post('/api/google-ads/mcc-overview', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        // Query executada no nível do MCC (sem customer_id override, usa o do banco)
-        const query = `
+        // 1. Busca a lista de contas filhas do MCC
+        const accountsQuery = `
             SELECT 
+                customer_client.client_customer, 
                 customer_client.descriptive_name, 
-                customer_client.id, 
+                customer_client.id
+            FROM customer_client
+            WHERE customer_client.level = 1
+            AND customer_client.status = 'ENABLED'
+            AND customer_client.manager = false
+        `;
+        
+        const accountsResults = await executeGoogleAdsQuery(user_id, accountsQuery);
+        
+        if (!accountsResults || accountsResults.length === 0) {
+            return res.json({ results: [] });
+        }
+
+        // 2. Para cada conta filha, faz uma query separada de métricas
+        const formattedResults = [];
+        
+        const metricsQuery = `
+            SELECT 
                 metrics.cost_micros, 
                 metrics.clicks, 
                 metrics.impressions, 
                 metrics.conversions,
                 metrics.conversions_value
-            FROM customer_client 
-            WHERE customer_client.level <= 1 
-            AND customer_client.status = 'ENABLED'
-            AND customer_client.manager = false
-            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            FROM customer
+            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
-        
-        // Esta query deve rodar na conta MCC, então não passamos customer_id override
-        const results = await executeGoogleAdsQuery(user_id, query);
-        
-        const formattedResults = results.map(row => ({
-            account_name: row.customerClient.descriptiveName,
-            customer_id: row.customerClient.id,
-            cost: (parseInt(row.metrics.costMicros) || 0) / 1000000,
-            clicks: parseInt(row.metrics.clicks) || 0,
-            impressions: parseInt(row.metrics.impressions) || 0,
-            conversions: parseFloat(row.metrics.conversions) || 0,
-            conversions_value: parseFloat(row.metrics.conversionsValue) || 0
-        }));
+
+        // Executa as queries em paralelo para todas as contas filhas
+        const metricsPromises = accountsResults.map(async (accountRow) => {
+            const customerId = accountRow.customerClient.id;
+            const accountName = accountRow.customerClient.descriptiveName;
+            
+            try {
+                const metricsResult = await executeGoogleAdsQuery(user_id, metricsQuery, false, customerId);
+                
+                if (metricsResult && metricsResult.length > 0) {
+                    const row = metricsResult[0];
+                    formattedResults.push({
+                        account_name: accountName,
+                        customer_id: customerId,
+                        cost: (parseInt(row.metrics.costMicros) || 0) / 1000000,
+                        clicks: parseInt(row.metrics.clicks) || 0,
+                        impressions: parseInt(row.metrics.impressions) || 0,
+                        conversions: parseFloat(row.metrics.conversions) || 0,
+                        conversions_value: parseFloat(row.metrics.conversionsValue) || 0
+                    });
+                } else {
+                    // Conta sem dados no período
+                    formattedResults.push({
+                        account_name: accountName,
+                        customer_id: customerId,
+                        cost: 0, clicks: 0, impressions: 0, conversions: 0, conversions_value: 0
+                    });
+                }
+            } catch (err) {
+                console.error(`Erro ao buscar métricas para conta ${customerId}:`, err.message);
+                // Adiciona com zeros em caso de erro (ex: falta de permissão)
+                formattedResults.push({
+                    account_name: accountName,
+                    customer_id: customerId,
+                    cost: 0, clicks: 0, impressions: 0, conversions: 0, conversions_value: 0
+                });
+            }
+        });
+
+        await Promise.all(metricsPromises);
 
         res.json({ results: formattedResults });
 
@@ -716,6 +758,7 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
         const { cleanId, headers } = await getValidAccessToken(user_id);
 
         // 1. Orçamento Diário vs Gasto Hoje
+        const todayStr = new Date().toISOString().split('T')[0];
         const budgetQuery = `
             SELECT 
                 campaign.id, 
@@ -723,7 +766,7 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
                 campaign_budget.amount_micros, 
                 metrics.cost_micros 
             FROM campaign 
-            WHERE segments.date = 'TODAY' 
+            WHERE segments.date = '${todayStr}' 
             AND campaign.status = 'ENABLED'
         `;
         
@@ -804,6 +847,7 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
             WHERE change_event.change_resource_type = 'CAMPAIGN' 
             AND change_event.resource_change_operation = 'UPDATE' 
             AND change_event.changed_fields CONTAINS 'status' 
+            AND campaign.status = 'PAUSED'
             AND change_event.change_time DURING LAST_24_HOURS
             LIMIT 50
         `;
