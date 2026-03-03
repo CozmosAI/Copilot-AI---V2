@@ -631,6 +631,33 @@ app.post('/api/google-ads/asset-groups', async (req, res) => {
     }
 });
 
+// Rota: PMAX Assets
+app.post('/api/google-ads/pmax-assets', async (req, res) => {
+    const { user_id, date_range, campaign_id, customer_id } = req.body;
+    if (!user_id || !date_range || !campaign_id) return res.status(400).json({ error: 'Missing params' });
+
+    try {
+        const campaignResourceName = `customers/${customer_id}/campaigns/${campaign_id}`;
+        const query = `
+            SELECT 
+                asset.name, 
+                asset.type, 
+                asset.text_asset.text,
+                asset_group_asset.field_type, 
+                asset_group.name,
+                metrics.impressions, 
+                metrics.clicks
+            FROM asset_group_asset
+            WHERE asset_group.campaign = '${campaignResourceName}'
+            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+        `;
+        const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Rota: Search Terms (NOVA)
 app.post('/api/google-ads/search-terms', async (req, res) => {
     const { user_id, date_range, customer_id } = req.body;
@@ -846,8 +873,6 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
             FROM change_event 
             WHERE change_event.change_resource_type = 'CAMPAIGN' 
             AND change_event.resource_change_operation = 'UPDATE' 
-            AND change_event.changed_fields CONTAINS 'status' 
-            AND campaign.status = 'PAUSED'
             AND change_event.change_time DURING LAST_24_HOURS
             LIMIT 50
         `;
@@ -856,9 +881,9 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
             const pausedResults = await executeGoogleAdsQuery(user_id, pausedQuery);
             
             pausedResults.forEach(row => {
-                // Verifica se o novo status é PAUSED
-                // newResource é um objeto Campaign
-                if (row.changeEvent.newResource.campaign.status === 'PAUSED') {
+                // Verifica se o novo status é PAUSED e se o campo status foi alterado
+                const changedFields = row.changeEvent.changedFields?.paths || [];
+                if (changedFields.includes('status') && row.changeEvent.newResource.campaign.status === 'PAUSED') {
                     const name = row.changeEvent.newResource.campaign.name || 'Campanha';
                     alerts.push({
                         id: `paused-${row.changeEvent.changeTime}`,

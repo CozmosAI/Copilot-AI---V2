@@ -13,7 +13,7 @@ import html2canvas from 'html2canvas';
 import { useApp } from '../App';
 import { 
   getGoogleCampaigns, getGoogleOverview, getGoogleAdGroups, getGoogleKeywords, getGoogleAds, getGoogleAssetGroups,
-  getGoogleMccOverview, getGoogleSearchTerms
+  getGoogleMccOverview, getGoogleSearchTerms, getGooglePmaxAssets
 } from '../services/googleAdsService';
 
 // --- TYPES ---
@@ -70,6 +70,7 @@ const Marketing: React.FC = () => {
   const [ads, setAds] = useState<any[]>([]);
   const [assetGroups, setAssetGroups] = useState<any[]>([]);
   const [searchTerms, setSearchTerms] = useState<any[]>([]);
+  const [pmaxAssets, setPmaxAssets] = useState<any[]>([]);
   const [mccAccounts, setMccAccounts] = useState<any[]>([]);
   const [isMccUser, setIsMccUser] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -249,26 +250,68 @@ const Marketing: React.FC = () => {
   }, [campaigns, globalCampaignFilter, daysInPeriod]);
 
   // --- FETCH DATA ---
+  const cacheRef = useRef<Record<string, any>>({});
+
+  // Clear cache when filters that affect all data change
+  useEffect(() => {
+      cacheRef.current = {};
+  }, [dateFilter.start, dateFilter.end, isCompareEnabled, compareDateFilter.start, compareDateFilter.end, selectedAccountId]);
+
   useEffect(() => {
     const fetchData = async () => {
         if (!user || !dateFilter.start || !dateFilter.end) return;
         
-        setLoading(true);
+        const customerId = selectedAccountId || 'default';
+        const compareKey = isCompareEnabled ? `${compareDateFilter.start}_${compareDateFilter.end}` : 'none';
+        const baseCacheKey = `${dateFilter.start}_${dateFilter.end}_${customerId}_${compareKey}`;
+        
         try {
-            const compareRange = isCompareEnabled ? compareDateFilter : undefined;
-            const customerId = selectedAccountId || undefined;
+            const promises = [];
+            let overviewRes = cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`];
+            let campaignsRes = cacheRef.current[`${baseCacheKey}_campaigns`];
+            let adGroupsRes = cacheRef.current[`${baseCacheKey}_adgroups`];
+            let keywordsRes = cacheRef.current[`${baseCacheKey}_keywords`];
+            let adsRes = cacheRef.current[`${baseCacheKey}_ads`];
+            let searchTermsRes = cacheRef.current[`${baseCacheKey}_searchterms`];
+            let assetGroupsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] : [];
+            let pmaxAssetsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] : [];
 
-            // 1. Overview & Campaigns (Always fetch for summary)
-            const [overviewRes, campaignsRes] = await Promise.all([
-                getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, compareRange, customerId),
-                getGoogleCampaigns(user.id, dateFilter, compareRange, customerId)
-            ]);
-            
+            if (!overviewRes) {
+                promises.push(getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { overviewRes = res; cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`] = res; }));
+            }
+            if (!campaignsRes) {
+                promises.push(getGoogleCampaigns(user.id, dateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { campaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; }));
+            }
+            if (!adGroupsRes) {
+                promises.push(getGoogleAdGroups(user.id, dateFilter, selectedAccountId || undefined).then(res => { adGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; }));
+            }
+            if (!keywordsRes) {
+                promises.push(getGoogleKeywords(user.id, dateFilter, selectedAccountId || undefined).then(res => { keywordsRes = res; cacheRef.current[`${baseCacheKey}_keywords`] = res; }));
+            }
+            if (!adsRes) {
+                promises.push(getGoogleAds(user.id, dateFilter, selectedAccountId || undefined).then(res => { adsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; }));
+            }
+            if (!searchTermsRes) {
+                promises.push(getGoogleSearchTerms(user.id, dateFilter, selectedAccountId || undefined).then(res => { searchTermsRes = res; cacheRef.current[`${baseCacheKey}_searchterms`] = res; }));
+            }
+            if (globalCampaignFilter && !assetGroupsRes) {
+                promises.push(getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; }));
+            }
+            if (globalCampaignFilter && !pmaxAssetsRes) {
+                promises.push(getGooglePmaxAssets(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; }));
+            }
+
+            if (promises.length > 0) {
+                setLoading(true);
+                await Promise.all(promises);
+            }
+
+            // Set states
             if ('current' in overviewRes) {
-                setOverviewData(overviewRes.current.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-                setOverviewComparison(overviewRes.previous?.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()) || []);
+                setOverviewData([...overviewRes.current].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                setOverviewComparison([...(overviewRes.previous || [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
             } else {
-                setOverviewData((Array.isArray(overviewRes) ? overviewRes : []).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                setOverviewData([...(Array.isArray(overviewRes) ? overviewRes : [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
                 setOverviewComparison([]);
             }
 
@@ -280,23 +323,12 @@ const Marketing: React.FC = () => {
                 setCampaignsComparison([]);
             }
 
-            // 2. Tab Specific Data
-            if (activeTab === 'adgroups') {
-                const res = await getGoogleAdGroups(user.id, dateFilter, customerId);
-                setAdGroups(res);
-            } else if (activeTab === 'keywords') {
-                const res = await getGoogleKeywords(user.id, dateFilter, customerId);
-                setKeywords(res);
-            } else if (activeTab === 'ads') {
-                const res = await getGoogleAds(user.id, dateFilter, customerId);
-                setAds(res);
-            } else if (activeTab === 'assetgroups' && globalCampaignFilter) {
-                const res = await getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, customerId);
-                setAssetGroups(res);
-            } else if (activeTab === 'searchterms') {
-                const res = await getGoogleSearchTerms(user.id, dateFilter, customerId);
-                setSearchTerms(res);
-            }
+            setAdGroups(adGroupsRes);
+            setKeywords(keywordsRes);
+            setAds(adsRes);
+            setSearchTerms(searchTermsRes);
+            setAssetGroups(globalCampaignFilter ? assetGroupsRes : []);
+            setPmaxAssets(globalCampaignFilter ? pmaxAssetsRes : []);
             
         } catch (error) {
             console.error("Error fetching data:", error);
@@ -306,7 +338,7 @@ const Marketing: React.FC = () => {
     };
 
     fetchData();
-  }, [user, dateFilter, activeTab, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId]);
+  }, [user, dateFilter, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId]);
 
   // MCC Check
   useEffect(() => {
@@ -1324,37 +1356,83 @@ const Marketing: React.FC = () => {
 
             {/* ADS TAB */}
             {activeTab === 'ads' && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 border-b border-slate-100">
-                                <tr>
-                                    {[
-                                        { k: 'headlines', l: 'Anúncio (Títulos)' }, { k: 'campaignName', l: 'Campanha' }, { k: 'adGroupName', l: 'Grupo' },
-                                        { k: 'status', l: 'Status' }, { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' }
-                                    ].map(h => (
-                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
-                                            <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {sortData(filteredAds).map((ad, i) => (
-                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-6 py-4 text-xs text-navy max-w-xs truncate" title={ad.headlines}>{ad.headlines}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-500">{ad.campaignName}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-500">{ad.adGroupName}</td>
-                                        <td className="px-6 py-4">{renderStatusBadge(ad.status)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ad.impressions)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ad.clicks)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ad.clicks / ad.impressions) * 100 || 0)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <>
+                    {campaignType === 'PERFORMANCE_MAX' ? (
+                        <div className="space-y-8">
+                            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-8 text-center">
+                                <InfoMessage title="Recursos Performance Max" message="Campanhas P-MAX não possuem anúncios tradicionais. O Google combina os recursos abaixo para criar anúncios dinâmicos em todas as redes." />
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {[
+                                    { title: 'Títulos', filter: (a: any) => a.fieldType?.includes('HEADLINE') },
+                                    { title: 'Descrições', filter: (a: any) => a.fieldType?.includes('DESCRIPTION') },
+                                    { title: 'Imagens', filter: (a: any) => a.type === 'IMAGE' || a.fieldType?.includes('IMAGE') || a.fieldType?.includes('LOGO') },
+                                    { title: 'Vídeos', filter: (a: any) => a.type === 'YOUTUBE_VIDEO' || a.fieldType?.includes('VIDEO') }
+                                ].map(category => {
+                                    const assets = pmaxAssets.filter(category.filter);
+                                    return (
+                                        <div key={category.title} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                                            <h3 className="text-lg font-bold text-navy mb-4 flex items-center gap-2">
+                                                {category.title} <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{assets.length}</span>
+                                            </h3>
+                                            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                                                {assets.length === 0 ? (
+                                                    <p className="text-sm text-slate-400 italic">Nenhum recurso encontrado.</p>
+                                                ) : (
+                                                    assets.map((asset, i) => (
+                                                        <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center gap-4">
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-sm font-medium text-navy truncate" title={asset.name}>{asset.name}</p>
+                                                                <p className="text-[10px] text-slate-500 uppercase mt-1">{asset.fieldType?.replace(/_/g, ' ')}</p>
+                                                            </div>
+                                                            <div className="text-right shrink-0">
+                                                                <p className="text-xs font-bold text-navy">{formatNumber(asset.impressions)} impr.</p>
+                                                                <p className="text-[10px] text-slate-500">{formatNumber(asset.clicks)} cliques</p>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 border-b border-slate-100">
+                                        <tr>
+                                            {[
+                                                { k: 'headlines', l: 'Anúncio (Títulos)' }, { k: 'campaignName', l: 'Campanha' }, { k: 'adGroupName', l: 'Grupo' },
+                                                { k: 'status', l: 'Status' }, { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' }
+                                            ].map(h => (
+                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
+                                                    <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {sortData(filteredAds).map((ad, i) => (
+                                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="px-6 py-4 text-xs text-navy max-w-xs truncate" title={ad.headlines}>{ad.headlines}</td>
+                                                <td className="px-6 py-4 text-xs text-slate-500">{ad.campaignName}</td>
+                                                <td className="px-6 py-4 text-xs text-slate-500">{ad.adGroupName}</td>
+                                                <td className="px-6 py-4">{renderStatusBadge(ad.status)}</td>
+                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ad.impressions)}</td>
+                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ad.clicks)}</td>
+                                                <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ad.clicks / ad.impressions) * 100 || 0)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
 
         </div>
