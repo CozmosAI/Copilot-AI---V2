@@ -234,21 +234,22 @@ export const getGoogleAssetGroups = async (userId: string, dateRange: { start: s
     }
 };
 
-export const getGooglePmaxAssets = async (userId: string, dateRange: { start: string, end: string }, campaignId: string, customerId?: string) => {
+export const getGooglePmaxAssets = async (userId: string, campaignId: string, customerId?: string) => {
     try {
         const data = await apiCall('/api/google-ads/pmax-assets', { 
             user_id: userId, 
-            date_range: dateRange,
             campaign_id: campaignId,
             customer_id: customerId
         });
         return (data.results || []).map((row: any) => ({
             name: row.asset.name || row.asset.textAsset?.text || 'Recurso sem nome',
+            text: row.asset.textAsset?.text,
             type: row.asset.type,
             fieldType: row.assetGroupAsset.fieldType,
+            status: row.assetGroupAsset.status,
             assetGroupName: row.assetGroup.name,
-            impressions: parseInt(row.metrics.impressions) || 0,
-            clicks: parseInt(row.metrics.clicks) || 0
+            imageUrl: row.asset.imageAsset?.fullSize?.url,
+            videoId: row.asset.youtubeVideoAsset?.youtubeVideoId
         }));
     } catch (error) {
         console.error("Erro ao buscar recursos pmax:", error);

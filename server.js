@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
-import puppeteer from 'puppeteer';
+import PDFDocument from 'pdfkit';
 
 // Carrega variáveis de ambiente
 dotenv.config();
@@ -633,23 +633,25 @@ app.post('/api/google-ads/asset-groups', async (req, res) => {
 
 // Rota: PMAX Assets
 app.post('/api/google-ads/pmax-assets', async (req, res) => {
-    const { user_id, date_range, campaign_id, customer_id } = req.body;
-    if (!user_id || !date_range || !campaign_id) return res.status(400).json({ error: 'Missing params' });
+    const { user_id, campaign_id, customer_id } = req.body;
+    if (!user_id || !campaign_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
         const campaignResourceName = `customers/${customer_id}/campaigns/${campaign_id}`;
         const query = `
             SELECT 
                 asset.name, 
-                asset.type, 
-                asset.text_asset.text,
+                asset.resource_name, 
+                asset.type,
+                asset.text_asset.text, 
+                asset.image_asset.full_size.url,
+                asset.youtube_video_asset.youtube_video_id,
                 asset_group_asset.field_type, 
-                asset_group.name,
-                metrics.impressions, 
-                metrics.clicks
+                asset_group_asset.status,
+                asset_group.name, 
+                asset_group.status
             FROM asset_group_asset
             WHERE asset_group.campaign = '${campaignResourceName}'
-            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
         `;
         const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
@@ -921,139 +923,124 @@ app.post('/api/google-ads/generate-report', async (req, res) => {
     } = req.body;
 
     try {
-        const browser = await puppeteer.launch({
-            headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        const doc = new PDFDocument({ margin: 50 });
+        const chunks = [];
+        
+        doc.on('data', chunk => chunks.push(chunk));
+        doc.on('end', () => {
+            const pdfBuffer = Buffer.concat(chunks);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', 'attachment; filename=relatorio.pdf');
+            res.send(pdfBuffer);
         });
-        const page = await browser.newPage();
 
         // Formata valores monetários
         const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
         const formatNumber = (val) => new Intl.NumberFormat('pt-BR').format(val);
 
-        const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body { font-family: 'Helvetica', sans-serif; color: #1e293b; padding: 40px; }
-                .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
-                .logo { max-height: 60px; }
-                .title { font-size: 24px; font-weight: bold; color: #0f172a; }
-                .subtitle { font-size: 14px; color: #64748b; margin-top: 5px; }
-                .meta { text-align: right; }
-                .meta-item { font-size: 12px; color: #64748b; margin-bottom: 4px; }
-                
-                .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 40px; }
-                .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; }
-                .kpi-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px; }
-                .kpi-value { font-size: 20px; font-weight: bold; color: #0f172a; margin-top: 5px; }
-                
-                .section-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-left: 4px solid #3b82f6; padding-left: 10px; }
-                
-                .chart-container { margin-bottom: 40px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center; }
-                .chart-img { max-width: 100%; height: auto; }
-                
-                table { w-full; border-collapse: collapse; width: 100%; font-size: 12px; }
-                th { text-align: left; background: #f1f5f9; padding: 10px; border-bottom: 2px solid #e2e8f0; color: #475569; font-weight: 600; }
-                td { padding: 10px; border-bottom: 1px solid #e2e8f0; color: #334155; }
-                tr:last-child td { border-bottom: none; }
-                
-                .footer { margin-top: 60px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <div>
-                    ${logo_url ? `<img src="${logo_url}" class="logo" />` : `<div class="title">${agency_name || 'Agência'}</div>`}
-                    <div class="subtitle">Relatório de Performance Google Ads</div>
-                </div>
-                <div class="meta">
-                    <div class="meta-item"><strong>Cliente:</strong> ${client_name || 'N/A'}</div>
-                    <div class="meta-item"><strong>Período:</strong> ${date_range.start} a ${date_range.end}</div>
-                    <div class="meta-item"><strong>Gerado em:</strong> ${new Date().toLocaleDateString('pt-BR')}</div>
-                </div>
-            </div>
+        // Header
+        doc.fontSize(24).font('Helvetica-Bold').fillColor('#0f172a').text(agency_name || 'Agência', { align: 'left' });
+        doc.fontSize(14).font('Helvetica').fillColor('#64748b').text('Relatório de Performance Google Ads', { align: 'left' });
+        doc.moveDown(1);
+        
+        // Meta info
+        doc.fontSize(12).fillColor('#64748b');
+        doc.text(`Cliente: ${client_name || 'N/A'}`, { align: 'right' });
+        doc.text(`Período: ${date_range.start} a ${date_range.end}`, { align: 'right' });
+        doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, { align: 'right' });
+        
+        doc.moveDown(2);
+        doc.moveTo(50, doc.y).lineTo(550, doc.y).strokeColor('#e2e8f0').stroke();
+        doc.moveDown(2);
 
-            <div class="section-title">Resumo de KPIs</div>
-            <div class="kpi-grid">
-                <div class="kpi-card">
-                    <div class="kpi-label">Investimento</div>
-                    <div class="kpi-value">${kpis.cost}</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-label">Impressões</div>
-                    <div class="kpi-value">${kpis.impressions}</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-label">Cliques</div>
-                    <div class="kpi-value">${kpis.clicks}</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-label">Conversões</div>
-                    <div class="kpi-value">${kpis.conversions}</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-label">CTR</div>
-                    <div class="kpi-value">${kpis.ctr}</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-label">CPC Médio</div>
-                    <div class="kpi-value">${kpis.cpc}</div>
-                </div>
-            </div>
+        // KPIs Section
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#3b82f6').text('Resumo de KPIs');
+        doc.moveDown(1);
 
-            ${chart_image ? `
-            <div class="section-title">Evolução Diária</div>
-            <div class="chart-container">
-                <img src="${chart_image}" class="chart-img" />
-            </div>
-            ` : ''}
+        const kpiY = doc.y;
+        const colWidth = 160;
+        
+        // Row 1
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('INVESTIMENTO', 50, kpiY);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(kpis.cost, 50, kpiY + 15);
+        
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('IMPRESSÕES', 50 + colWidth, kpiY);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(kpis.impressions, 50 + colWidth, kpiY + 15);
+        
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('CLIQUES', 50 + colWidth * 2, kpiY);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(kpis.clicks, 50 + colWidth * 2, kpiY + 15);
 
-            <div class="section-title">Detalhamento por Campanha</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Campanha</th>
-                        <th>Status</th>
-                        <th>Impr.</th>
-                        <th>Cliques</th>
-                        <th>Custo</th>
-                        <th>Conv.</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${campaigns.map(c => `
-                    <tr>
-                        <td>${c.name}</td>
-                        <td>${c.status}</td>
-                        <td>${formatNumber(c.impressions)}</td>
-                        <td>${formatNumber(c.clicks)}</td>
-                        <td>${formatCurrency(c.cost)}</td>
-                        <td>${formatNumber(c.conversions)}</td>
-                    </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+        // Row 2
+        const kpiY2 = kpiY + 50;
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('CONVERSÕES', 50, kpiY2);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(kpis.conversions, 50, kpiY2 + 15);
+        
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('CTR', 50 + colWidth, kpiY2);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(kpis.ctr, 50 + colWidth, kpiY2 + 15);
+        
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748b').text('CPC MÉDIO', 50 + colWidth * 2, kpiY2);
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text(kpis.cpc, 50 + colWidth * 2, kpiY2 + 15);
 
-            <div class="footer">
-                Relatório gerado automaticamente por ${agency_name || 'Sistema de Gestão'}.
-            </div>
-        </body>
-        </html>
-        `;
+        doc.moveDown(4);
 
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        // Campaigns Table
+        doc.x = 50;
+        doc.y = kpiY2 + 60;
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#3b82f6').text('Detalhamento por Campanha');
+        doc.moveDown(1);
 
-        await browser.close();
+        const tableTop = doc.y;
+        const cols = [
+            { x: 50, w: 150, label: 'Campanha' },
+            { x: 200, w: 70, label: 'Status' },
+            { x: 270, w: 70, label: 'Impr.' },
+            { x: 340, w: 70, label: 'Cliques' },
+            { x: 410, w: 70, label: 'Custo' },
+            { x: 480, w: 70, label: 'Conv.' }
+        ];
 
-        res.set({
-            'Content-Type': 'application/pdf',
-            'Content-Length': pdfBuffer.length,
+        // Table Header
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#475569');
+        cols.forEach(col => {
+            doc.text(col.label, col.x, tableTop);
         });
-        res.send(pdfBuffer);
+        
+        doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).strokeColor('#e2e8f0').stroke();
+        
+        // Table Rows
+        let rowY = tableTop + 25;
+        doc.font('Helvetica').fillColor('#334155');
+        
+        campaigns.forEach((c, i) => {
+            if (rowY > 700) {
+                doc.addPage();
+                rowY = 50;
+            }
+            
+            // Truncate campaign name if too long
+            let campName = c.name;
+            if (campName.length > 25) campName = campName.substring(0, 22) + '...';
+            
+            doc.text(campName, cols[0].x, rowY);
+            doc.text(c.status, cols[1].x, rowY);
+            doc.text(formatNumber(c.impressions), cols[2].x, rowY);
+            doc.text(formatNumber(c.clicks), cols[3].x, rowY);
+            doc.text(formatCurrency(c.cost), cols[4].x, rowY);
+            doc.text(formatNumber(c.conversions), cols[5].x, rowY);
+            
+            rowY += 20;
+            doc.moveTo(50, rowY - 5).lineTo(550, rowY - 5).strokeColor('#f1f5f9').stroke();
+        });
+
+        // Footer
+        doc.fontSize(10).fillColor('#94a3b8').text(
+            `Relatório gerado automaticamente por ${agency_name || 'Sistema de Gestão'}.`,
+            50,
+            750,
+            { align: 'center' }
+        );
+
+        doc.end();
 
     } catch (error) {
         console.error("PDF Generation Error:", error);

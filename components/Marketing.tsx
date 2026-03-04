@@ -298,7 +298,7 @@ const Marketing: React.FC = () => {
                 promises.push(getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; }));
             }
             if (globalCampaignFilter && !pmaxAssetsRes) {
-                promises.push(getGooglePmaxAssets(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; }));
+                promises.push(getGooglePmaxAssets(user.id, globalCampaignFilter, selectedAccountId || undefined).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; }));
             }
 
             if (promises.length > 0) {
@@ -768,12 +768,12 @@ const Marketing: React.FC = () => {
         </div>
 
         {/* GLOBAL CAMPAIGN FILTER */}
-        <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 w-full md:w-fit">
-            <div className="p-2 bg-slate-50 rounded-lg text-slate-400"><Filter size={16}/></div>
+        <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 w-full md:w-fit shadow-sm mb-6">
+            <div className="p-1.5 bg-slate-50 rounded-lg text-slate-400"><Filter size={14}/></div>
             <select 
                 value={globalCampaignFilter}
                 onChange={(e) => setGlobalCampaignFilter(e.target.value)}
-                className="bg-transparent text-sm font-medium text-navy focus:outline-none w-full md:min-w-[300px]"
+                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none w-full md:min-w-[300px] cursor-pointer"
             >
                 <option value="">Todas as Campanhas</option>
                 {campaigns.map(c => (
@@ -781,7 +781,7 @@ const Marketing: React.FC = () => {
                 ))}
             </select>
             {globalCampaignFilter && (
-                <button onClick={() => setGlobalCampaignFilter('')} className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-rose-500">
+                <button onClick={() => setGlobalCampaignFilter('')} className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-rose-500 transition-colors">
                     <X size={14}/>
                 </button>
             )}
@@ -789,7 +789,7 @@ const Marketing: React.FC = () => {
       </header>
 
       {/* TABS */}
-      <div className="flex overflow-x-auto pb-2 gap-2 border-b border-slate-200">
+      <div className="flex overflow-x-auto pb-px gap-6 border-b border-slate-200 mb-8">
           {[
               { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
               ...(isMccUser ? [{ id: 'accounts', label: 'Contas', icon: Users }] : []),
@@ -806,10 +806,13 @@ const Marketing: React.FC = () => {
               <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap ${activeTab === tab.id ? 'bg-white border-x border-t border-slate-200 text-navy -mb-[1px] z-10' : 'text-slate-400 hover:text-navy hover:bg-slate-50'}`}
+                  className={`flex items-center gap-2 pb-3 text-sm font-medium transition-colors whitespace-nowrap relative ${activeTab === tab.id ? 'text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
               >
-                  <tab.icon size={14} />
+                  <tab.icon size={16} className={activeTab === tab.id ? 'text-blue-600' : 'text-slate-400'} />
                   {tab.label}
+                  {activeTab === tab.id && (
+                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t-full" />
+                  )}
               </button>
           ))}
       </div>
@@ -840,23 +843,23 @@ const Marketing: React.FC = () => {
             {activeTab === 'overview' && (
                 <>
                     {/* KPIs */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                         {[
-                            { label: 'Custo', value: formatCurrency(periodTotals.spend), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50', variation: renderVariation(periodTotals.spend, periodTotalsComparison.spend, true) },
-                            { label: 'Cliques', value: formatNumber(periodTotals.clicks), icon: MousePointer2, color: 'text-indigo-600', bg: 'bg-indigo-50', variation: renderVariation(periodTotals.clicks, periodTotalsComparison.clicks) },
-                            { label: 'Impressões', value: formatNumber(periodTotals.impressions), icon: Eye, color: 'text-purple-600', bg: 'bg-purple-50', variation: renderVariation(periodTotals.impressions, periodTotalsComparison.impressions) },
-                            { label: 'CTR', value: formatPercent(periodTotals.ctr), icon: Target, color: 'text-emerald-600', bg: 'bg-emerald-50', variation: renderVariation(periodTotals.ctr, periodTotalsComparison.ctr) },
-                            { label: 'CPC Médio', value: formatCurrency(periodTotals.cpc), icon: TrendingUp, color: 'text-amber-600', bg: 'bg-amber-50', variation: renderVariation(periodTotals.cpc, periodTotalsComparison.cpc, true) },
-                            { label: 'Conversões', value: formatNumber(periodTotals.conversions), icon: Zap, color: 'text-rose-600', bg: 'bg-rose-50', variation: renderVariation(periodTotals.conversions, periodTotalsComparison.conversions) },
-                            { label: 'Custo/Conv.', value: formatCurrency(periodTotals.costPerConv), icon: DollarSign, color: 'text-cyan-600', bg: 'bg-cyan-50', variation: renderVariation(periodTotals.costPerConv, periodTotalsComparison.costPerConv, true) },
+                            { label: 'Custo', value: formatCurrency(periodTotals.spend), icon: DollarSign, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.spend, periodTotalsComparison.spend, true) },
+                            { label: 'Cliques', value: formatNumber(periodTotals.clicks), icon: MousePointer2, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.clicks, periodTotalsComparison.clicks) },
+                            { label: 'Impressões', value: formatNumber(periodTotals.impressions), icon: Eye, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.impressions, periodTotalsComparison.impressions) },
+                            { label: 'CTR', value: formatPercent(periodTotals.ctr), icon: Target, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.ctr, periodTotalsComparison.ctr) },
+                            { label: 'CPC Médio', value: formatCurrency(periodTotals.cpc), icon: TrendingUp, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.cpc, periodTotalsComparison.cpc, true) },
+                            { label: 'Conversões', value: formatNumber(periodTotals.conversions), icon: Zap, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.conversions, periodTotalsComparison.conversions) },
+                            { label: 'Custo/Conv.', value: formatCurrency(periodTotals.costPerConv), icon: DollarSign, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.costPerConv, periodTotalsComparison.costPerConv, true) },
                         ].map((kpi, idx) => (
-                            <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between h-24">
+                            <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between h-28 hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{kpi.label}</span>
-                                    <div className={`p-1.5 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon size={12} /></div>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{kpi.label}</span>
+                                    <div className={`p-1.5 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon size={14} /></div>
                                 </div>
                                 <div>
-                                    <p className="text-sm font-black text-navy">{kpi.value}</p>
+                                    <p className="text-xl font-light tracking-tight text-slate-900">{kpi.value}</p>
                                     {kpi.variation}
                                 </div>
                             </div>
@@ -864,31 +867,31 @@ const Marketing: React.FC = () => {
                     </div>
 
                     {/* BUDGET PANEL */}
-                    <div className={`bg-white p-6 rounded-2xl border shadow-sm mb-6 ${budgetMetrics.progress > 95 ? 'border-rose-200 ring-1 ring-rose-100' : budgetMetrics.progress > 80 ? 'border-amber-200 ring-1 ring-amber-100' : 'border-slate-200'}`}>
+                    <div className={`bg-white p-6 rounded-2xl border shadow-sm mb-6 mt-6 ${budgetMetrics.progress > 95 ? 'border-rose-200 ring-1 ring-rose-100' : budgetMetrics.progress > 80 ? 'border-amber-200 ring-1 ring-amber-100' : 'border-slate-200'}`}>
                         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
                             <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-xl ${budgetMetrics.progress > 95 ? 'bg-rose-100 text-rose-600' : budgetMetrics.progress > 80 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                <div className={`p-3 rounded-xl ${budgetMetrics.progress > 95 ? 'bg-rose-100 text-rose-600' : budgetMetrics.progress > 80 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
                                     <DollarSign size={24} />
                                 </div>
                                 <div>
-                                    <h3 className="text-sm font-bold text-navy uppercase tracking-widest mb-1">Orçamento do Período</h3>
+                                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Orçamento do Período</h3>
                                     <div className="flex items-baseline gap-2">
-                                        <span className="text-2xl font-black text-navy">{formatCurrency(budgetMetrics.totalSpend)}</span>
-                                        <span className="text-xs font-bold text-slate-400">de {formatCurrency(budgetMetrics.totalPeriodBudget)} previstos</span>
+                                        <span className="text-3xl font-light tracking-tight text-slate-900">{formatCurrency(budgetMetrics.totalSpend)}</span>
+                                        <span className="text-xs font-medium text-slate-400">de {formatCurrency(budgetMetrics.totalPeriodBudget)} previstos</span>
                                     </div>
                                 </div>
                             </div>
                             
                             <div className="flex-1 w-full max-w-md">
-                                <div className="flex justify-between text-xs font-bold mb-2">
-                                    <span className={budgetMetrics.progress > 95 ? 'text-rose-600' : 'text-slate-500'}>
+                                <div className="flex justify-between text-xs font-medium mb-2">
+                                    <span className={budgetMetrics.progress > 95 ? 'text-rose-600 font-bold' : 'text-slate-500'}>
                                         {formatPercent(budgetMetrics.progress)} consumido
                                     </span>
-                                    {budgetMetrics.progress > 95 && <span className="text-rose-600 flex items-center gap-1"><AlertCircle size={12}/> Orçamento quase esgotado</span>}
+                                    {budgetMetrics.progress > 95 && <span className="text-rose-600 font-bold flex items-center gap-1"><AlertCircle size={12}/> Orçamento quase esgotado</span>}
                                 </div>
-                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                     <div 
-                                        className={`h-full rounded-full transition-all duration-500 ${budgetMetrics.progress > 95 ? 'bg-rose-500' : budgetMetrics.progress > 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                        className={`h-full rounded-full transition-all duration-500 ${budgetMetrics.progress > 95 ? 'bg-rose-500' : budgetMetrics.progress > 80 ? 'bg-amber-500' : 'bg-blue-500'}`}
                                         style={{ width: `${Math.min(budgetMetrics.progress, 100)}%` }}
                                     />
                                 </div>
@@ -897,22 +900,22 @@ const Marketing: React.FC = () => {
                     </div>
 
                     {/* CHART */}
-                    <div ref={chartRef} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <div ref={chartRef} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mt-6">
                         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-                            <h3 className="text-sm font-bold text-navy uppercase tracking-widest">Desempenho no Período</h3>
+                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Desempenho no Período</h3>
                             <div className="flex flex-wrap gap-2 items-center">
                                 {Object.entries(metricStyles).map(([key, style]) => (
-                                    <div key={key} className={`flex items-center gap-1.5 p-1 rounded-lg border transition-all ${selectedMetrics.includes(key as MetricType) ? 'bg-slate-50 border-slate-200' : 'border-transparent opacity-40 hover:opacity-100'}`}>
+                                    <div key={key} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all border ${selectedMetrics.includes(key as MetricType) ? 'bg-slate-50 border-slate-200 shadow-sm' : 'border-transparent opacity-50 hover:opacity-100 hover:bg-slate-50'}`}>
                                         <button 
                                             onClick={() => toggleMetric(key as MetricType)}
-                                            className={`text-[9px] font-bold uppercase transition-colors ${selectedMetrics.includes(key as MetricType) ? 'text-navy' : 'text-slate-400'}`}
+                                            className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${selectedMetrics.includes(key as MetricType) ? 'text-slate-800' : 'text-slate-500'}`}
                                         >
                                             {style.label}
                                         </button>
                                         
                                         {selectedMetrics.includes(key as MetricType) && (
                                             <div className="flex items-center gap-1 pl-1.5 border-l border-slate-200">
-                                                <div className="relative w-2 h-2 rounded-full overflow-hidden cursor-pointer shadow-sm ring-1 ring-slate-200">
+                                                <div className="relative w-2.5 h-2.5 rounded-full overflow-hidden cursor-pointer shadow-sm ring-1 ring-slate-200 hover:scale-110 transition-transform">
                                                     <input 
                                                         type="color" 
                                                         value={style.color}
@@ -926,10 +929,10 @@ const Marketing: React.FC = () => {
                                         {customMetrics.some(m => m.id === key) && (
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteMetric(key); }}
-                                                className="ml-0.5 p-0.5 text-slate-300 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors"
+                                                className="ml-0.5 p-0.5 text-slate-400 hover:text-rose-500 rounded-full hover:bg-rose-50 transition-colors"
                                                 title="Excluir métrica"
                                             >
-                                                <Trash2 size={8} />
+                                                <Trash2 size={10} />
                                             </button>
                                         )}
                                     </div>
@@ -937,23 +940,24 @@ const Marketing: React.FC = () => {
                                 
                                 <button 
                                     onClick={() => setIsMetricModalOpen(true)}
-                                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-navy hover:border-navy hover:bg-slate-50 transition-colors text-[9px] font-bold uppercase tracking-widest"
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-slate-300 text-slate-500 hover:text-blue-600 hover:border-blue-600 hover:bg-blue-50 transition-colors text-[10px] font-bold uppercase tracking-wider"
                                 >
-                                    <Plus size={10} /> Criar
+                                    <Plus size={12} /> Criar
                                 </button>
                             </div>
                         </div>
-                        <div className="h-[220px]">
+                        <div className="h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
                                     <XAxis 
                                         dataKey="date" 
                                         axisLine={false} 
                                         tickLine={false} 
-                                        tick={{ fontSize: 10, fill: '#94a3b8' }} 
+                                        tick={{ fontSize: 10, fill: '#64748b', fontWeight: 500 }} 
                                         tickFormatter={(val) => new Date(val).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                                         minTickGap={30}
+                                        dy={10}
                                     />
                                     <YAxis yAxisId="left" orientation="left" hide />
                                     <YAxis yAxisId="right" orientation="right" hide />
@@ -962,17 +966,16 @@ const Marketing: React.FC = () => {
                                             if (active && payload && payload.length) {
                                                 const currentItem = payload[0].payload;
                                                 return (
-                                                    <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                                    <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-100 min-w-[200px]">
+                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3 pb-2 border-b border-slate-100">
                                                             {new Date(label).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
                                                             {isCompareEnabled && currentItem.compareDate && (
-                                                                <span className="ml-1 text-slate-300">vs {new Date(currentItem.compareDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}</span>
+                                                                <span className="ml-1 text-slate-400 font-medium">vs {new Date(currentItem.compareDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}</span>
                                                             )}
                                                         </p>
-                                                        <div className="space-y-1">
+                                                        <div className="space-y-2">
                                                             {payload.map((entry: any, index: number) => {
-                                                                if (entry.dataKey.endsWith('_prev')) return null; // Skip duplicate rendering in tooltip if handled customly, but here we let recharts handle it or filter?
-                                                                // Actually, let's render both current and prev if available
+                                                                if (entry.dataKey.endsWith('_prev')) return null;
                                                                 
                                                                 const key = Object.keys(metricStyles).find(k => metricStyles[k].label === entry.name);
                                                                 const customMetric = key ? customMetrics.find(m => m.id === key) : null;
@@ -985,15 +988,15 @@ const Marketing: React.FC = () => {
                                                                 const prevVal = currentItem[`${key}_prev`];
                                                                 
                                                                 return (
-                                                                    <div key={index} className="flex items-center justify-between gap-4 text-xs">
+                                                                    <div key={index} className="flex items-center justify-between gap-6 text-sm">
                                                                         <div className="flex items-center gap-2">
-                                                                            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                                                                            <span className="text-slate-500 font-medium">{entry.name}:</span>
+                                                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                                                                            <span className="text-slate-600 font-medium">{entry.name}</span>
                                                                         </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-navy font-bold">{formatVal(currentVal)}</span>
+                                                                        <div className="flex items-center gap-2 text-right">
+                                                                            <span className="text-slate-900 font-bold">{formatVal(currentVal)}</span>
                                                                             {isCompareEnabled && prevVal !== undefined && (
-                                                                                <span className="text-slate-400 text-[10px]">({formatVal(prevVal)})</span>
+                                                                                <span className="text-slate-400 text-xs font-medium">({formatVal(prevVal)})</span>
                                                                             )}
                                                                         </div>
                                                                     </div>
@@ -1014,10 +1017,10 @@ const Marketing: React.FC = () => {
                                                 dataKey={metric}
                                                 name={metricStyles[metric].label}
                                                 stroke={metricStyles[metric].color}
-                                                strokeWidth={1.5}
+                                                strokeWidth={2}
                                                 strokeDasharray={metricStyles[metric].strokeDasharray}
                                                 dot={false}
-                                                activeDot={{ r: 4, strokeWidth: 0 }}
+                                                activeDot={{ r: 5, strokeWidth: 0, fill: metricStyles[metric].color }}
                                             />
                                             {isCompareEnabled && (
                                                 <Line
@@ -1026,16 +1029,16 @@ const Marketing: React.FC = () => {
                                                     dataKey={`${metric}_prev`}
                                                     name={`${metricStyles[metric].label} (Anterior)`}
                                                     stroke={metricStyles[metric].color}
-                                                    strokeWidth={1.5}
-                                                    strokeDasharray="3 3"
-                                                    strokeOpacity={0.5}
+                                                    strokeWidth={2}
+                                                    strokeDasharray="4 4"
+                                                    strokeOpacity={0.4}
                                                     dot={false}
                                                     activeDot={false}
                                                 />
                                             )}
                                         </React.Fragment>
                                     ))}
-                                    <Brush dataKey="date" height={20} stroke="#e2e8f0" fill="#f8fafc" tickFormatter={() => ''} />
+                                    <Brush dataKey="date" height={24} stroke="#cbd5e1" fill="#f8fafc" tickFormatter={() => ''} className="mt-4" />
                                 </ComposedChart>
                             </ResponsiveContainer>
                         </div>
@@ -1045,10 +1048,10 @@ const Marketing: React.FC = () => {
 
             {/* CAMPAIGNS TAB */}
             {activeTab === 'campaigns' && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-slate-50 border-b border-slate-100">
+                            <thead className="bg-slate-50 border-b border-slate-200">
                                 <tr>
                                     {[
                                         { k: 'name', l: 'Campanha' }, { k: 'status', l: 'Status' }, { k: 'type', l: 'Tipo' },
@@ -1056,12 +1059,12 @@ const Marketing: React.FC = () => {
                                         { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
                                         { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
                                     ].map(h => (
-                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
-                                            <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
+                                            <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
                                         </th>
                                     ))}
                                     {customMetrics.map(m => (
-                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors border-l border-slate-100">
+                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
                                             <div className="flex items-center gap-1">
                                                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                                                 {m.name} {renderSortIcon(m.id)}
@@ -1070,24 +1073,24 @@ const Marketing: React.FC = () => {
                                     ))}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className="divide-y divide-slate-100">
                                 {sortData(filteredCampaigns).map((c, i) => {
                                     const prev = getPrevCampaign(c.id);
                                     return (
-                                        <tr key={i} className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy group-hover:text-blue-600 transition-colors">{c.name}</td>
+                                        <tr key={i} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
+                                            <td className="px-6 py-4 text-sm font-medium text-slate-900 group-hover:text-blue-600 transition-colors">{c.name}</td>
                                             <td className="px-6 py-4">{renderStatusBadge(c.status)}</td>
-                                            <td className="px-6 py-4 text-[10px] text-slate-500 uppercase">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
-                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.impressions, prev?.impressions, 'number')}</td>
-                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</td>
-                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}</td>
-                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
-                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
-                                            <td className="px-6 py-4 text-xs text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
+                                            <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.impressions, prev?.impressions, 'number')}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}</td>
+                                            <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}</td>
+                                            <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
                                             {customMetrics.map(m => (
-                                                <td key={m.id} className="px-6 py-4 text-xs font-bold text-navy border-l border-slate-50">
+                                                <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
                                                     {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
                                                 </td>
                                             ))}
@@ -1120,10 +1123,10 @@ const Marketing: React.FC = () => {
 
             {/* ASSET GROUPS TAB */}
             {activeTab === 'assetgroups' && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-slate-50 border-b border-slate-100">
+                            <thead className="bg-slate-50 border-b border-slate-200">
                                 <tr>
                                     {[
                                         { k: 'name', l: 'Grupo de Recursos' }, { k: 'status', l: 'Status' },
@@ -1131,12 +1134,12 @@ const Marketing: React.FC = () => {
                                         { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
                                         { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
                                     ].map(h => (
-                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
-                                            <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
+                                            <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
                                         </th>
                                     ))}
                                     {customMetrics.map(m => (
-                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors border-l border-slate-100">
+                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
                                             <div className="flex items-center gap-1">
                                                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                                                 {m.name} {renderSortIcon(m.id)}
@@ -1145,40 +1148,40 @@ const Marketing: React.FC = () => {
                                     ))}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className="divide-y divide-slate-100">
                                 {sortData(assetGroups).map((ag, i) => (
-                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{ag.name}</td>
+                                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-6 py-4 text-sm font-medium text-slate-900">{ag.name}</td>
                                         <td className="px-6 py-4">{renderStatusBadge(ag.status)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ag.impressions)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ag.clicks)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(ag.spend)}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(ag.conversions)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ag.conversions / ag.clicks) * 100 || 0)}</td>
-                                        <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.impressions)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.clicks)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}</td>
+                                        <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatCurrency(ag.spend)}</td>
+                                        <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatNumber(ag.conversions)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ag.conversions / ag.clicks) * 100 || 0)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</td>
                                         {customMetrics.map(m => (
-                                            <td key={m.id} className="px-6 py-4 text-xs font-bold text-navy border-l border-slate-50">
+                                            <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
                                                 {formatMetricValue(calculateMetricValue(m, ag), m.format)}
                                             </td>
                                         ))}
                                     </tr>
                                 ))}
                             </tbody>
-                            <tfoot className="bg-slate-50 border-t border-slate-100">
+                            <tfoot className="bg-slate-50 border-t border-slate-200">
                                 <tr>
-                                    <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={2}>Totais</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(assetGroups).impressions)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(assetGroups).clicks)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(assetGroups).ctr)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(assetGroups).cpc)}</td>
-                                    <td className="px-6 py-4 text-xs font-black text-navy">{formatCurrency(calculateTotals(assetGroups).spend)}</td>
-                                    <td className="px-6 py-4 text-xs font-black text-navy">{formatNumber(calculateTotals(assetGroups).conversions)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(assetGroups).clicks > 0 ? (calculateTotals(assetGroups).conversions / calculateTotals(assetGroups).clicks) * 100 : 0)}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(assetGroups).costPerConv)}</td>
+                                    <td className="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider" colSpan={2}>Totais</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(assetGroups).impressions)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(assetGroups).clicks)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(assetGroups).ctr)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(assetGroups).cpc)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(assetGroups).spend)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(assetGroups).conversions)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(assetGroups).clicks > 0 ? (calculateTotals(assetGroups).conversions / calculateTotals(assetGroups).clicks) * 100 : 0)}</td>
+                                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(assetGroups).costPerConv)}</td>
                                     {customMetrics.map(m => (
-                                        <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
+                                        <td key={m.id} className="px-6 py-4 text-sm font-bold text-slate-900 border-l border-slate-200">
                                             {formatMetricValue(calculateMetricValue(m, calculateTotals(assetGroups)), m.format)}
                                         </td>
                                     ))}
@@ -1197,10 +1200,10 @@ const Marketing: React.FC = () => {
                             <InfoMessage title="Campanha Performance Max" message="Campanhas P-MAX utilizam 'Grupos de Recursos' em vez de grupos de anúncios tradicionais. A API atual foca na visão consolidada." />
                         </div>
                     ) : (
-                        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-100">
+                                    <thead className="bg-slate-50 border-b border-slate-200">
                                         <tr>
                                             {[
                                                 { k: 'name', l: 'Grupo de Anúncios' }, { k: 'campaignName', l: 'Campanha' }, { k: 'status', l: 'Status' },
@@ -1208,12 +1211,12 @@ const Marketing: React.FC = () => {
                                                 { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
                                                 { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
-                                                    <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
+                                                    <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
                                                 </th>
                                             ))}
                                             {customMetrics.map(m => (
-                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors border-l border-slate-100">
+                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
                                                     <div className="flex items-center gap-1">
                                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                                                         {m.name} {renderSortIcon(m.id)}
@@ -1222,41 +1225,41 @@ const Marketing: React.FC = () => {
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50">
+                                    <tbody className="divide-y divide-slate-100">
                                         {sortData(filteredAdGroups).map((ag, i) => (
-                                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                                <td className="px-6 py-4 text-xs font-bold text-navy">{ag.name}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-500">{ag.campaignName}</td>
+                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{ag.name}</td>
+                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ag.campaignName}</td>
                                                 <td className="px-6 py-4">{renderStatusBadge(ag.status)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ag.impressions)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ag.clicks)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}</td>
-                                                <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(ag.spend)}</td>
-                                                <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(ag.conversions)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ag.conversions / ag.clicks) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.impressions)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.clicks)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatCurrency(ag.spend)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatNumber(ag.conversions)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ag.conversions / ag.clicks) * 100 || 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</td>
                                                 {customMetrics.map(m => (
-                                                    <td key={m.id} className="px-6 py-4 text-xs font-bold text-navy border-l border-slate-50">
+                                                    <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
                                                         {formatMetricValue(calculateMetricValue(m, ag), m.format)}
                                                     </td>
                                                 ))}
                                             </tr>
                                         ))}
                                     </tbody>
-                                    <tfoot className="bg-slate-50 border-t border-slate-100">
+                                    <tfoot className="bg-slate-50 border-t border-slate-200">
                                         <tr>
-                                            <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={3}>Totais</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(filteredAdGroups).impressions)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(filteredAdGroups).clicks)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(filteredAdGroups).ctr)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(filteredAdGroups).cpc)}</td>
-                                            <td className="px-6 py-4 text-xs font-black text-navy">{formatCurrency(calculateTotals(filteredAdGroups).spend)}</td>
-                                            <td className="px-6 py-4 text-xs font-black text-navy">{formatNumber(calculateTotals(filteredAdGroups).conversions)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(filteredAdGroups).clicks > 0 ? (calculateTotals(filteredAdGroups).conversions / calculateTotals(filteredAdGroups).clicks) * 100 : 0)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(filteredAdGroups).costPerConv)}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider" colSpan={3}>Totais</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredAdGroups).impressions)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredAdGroups).clicks)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredAdGroups).ctr)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredAdGroups).cpc)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredAdGroups).spend)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredAdGroups).conversions)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredAdGroups).clicks > 0 ? (calculateTotals(filteredAdGroups).conversions / calculateTotals(filteredAdGroups).clicks) * 100 : 0)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredAdGroups).costPerConv)}</td>
                                             {customMetrics.map(m => (
-                                                <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
+                                                <td key={m.id} className="px-6 py-4 text-sm font-bold text-slate-900 border-l border-slate-200">
                                                     {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredAdGroups)), m.format)}
                                                 </td>
                                             ))}
@@ -1281,10 +1284,10 @@ const Marketing: React.FC = () => {
                             <InfoMessage title="Segmentação por Audiência" message="Campanhas de Display e Vídeo focam em segmentos de público-alvo, tópicos e canais." />
                         </div>
                     ) : (
-                        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-100">
+                                    <thead className="bg-slate-50 border-b border-slate-200">
                                         <tr>
                                             {[
                                                 { k: 'text', l: 'Palavra-chave' }, { k: 'matchType', l: 'Tipo' }, { k: 'status', l: 'Status' },
@@ -1292,12 +1295,12 @@ const Marketing: React.FC = () => {
                                                 { k: 'ctr', l: 'CTR' }, { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
                                                 { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
-                                                    <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
+                                                    <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
                                                 </th>
                                             ))}
                                             {customMetrics.map(m => (
-                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors border-l border-slate-100">
+                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
                                                     <div className="flex items-center gap-1">
                                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                                                         {m.name} {renderSortIcon(m.id)}
@@ -1306,42 +1309,42 @@ const Marketing: React.FC = () => {
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50">
+                                    <tbody className="divide-y divide-slate-100">
                                         {sortData(filteredKeywords).map((kw, i) => (
-                                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                                <td className="px-6 py-4 text-xs font-bold text-navy">{kw.text}</td>
-                                                <td className="px-6 py-4 text-[10px] text-slate-500 uppercase">{kw.matchType}</td>
+                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{kw.text}</td>
+                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{kw.matchType}</td>
                                                 <td className="px-6 py-4">{renderStatusBadge(kw.status)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{kw.qualityScore}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(kw.impressions)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(kw.clicks)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((kw.clicks / kw.impressions) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(kw.clicks > 0 ? kw.spend / kw.clicks : 0)}</td>
-                                                <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(kw.spend)}</td>
-                                                <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(kw.conversions)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((kw.conversions / kw.clicks) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatCurrency(kw.conversions > 0 ? kw.spend / kw.conversions : 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{kw.qualityScore}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(kw.impressions)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(kw.clicks)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((kw.clicks / kw.impressions) * 100 || 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(kw.clicks > 0 ? kw.spend / kw.clicks : 0)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatCurrency(kw.spend)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatNumber(kw.conversions)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((kw.conversions / kw.clicks) * 100 || 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(kw.conversions > 0 ? kw.spend / kw.conversions : 0)}</td>
                                                 {customMetrics.map(m => (
-                                                    <td key={m.id} className="px-6 py-4 text-xs font-bold text-navy border-l border-slate-50">
+                                                    <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
                                                         {formatMetricValue(calculateMetricValue(m, kw), m.format)}
                                                     </td>
                                                 ))}
                                             </tr>
                                         ))}
                                     </tbody>
-                                    <tfoot className="bg-slate-50 border-t border-slate-100">
+                                    <tfoot className="bg-slate-50 border-t border-slate-200">
                                         <tr>
-                                            <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={4}>Totais</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(filteredKeywords).impressions)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatNumber(calculateTotals(filteredKeywords).clicks)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(filteredKeywords).ctr)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(filteredKeywords).cpc)}</td>
-                                            <td className="px-6 py-4 text-xs font-black text-navy">{formatCurrency(calculateTotals(filteredKeywords).spend)}</td>
-                                            <td className="px-6 py-4 text-xs font-black text-navy">{formatNumber(calculateTotals(filteredKeywords).conversions)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatPercent(calculateTotals(filteredKeywords).clicks > 0 ? (calculateTotals(filteredKeywords).conversions / calculateTotals(filteredKeywords).clicks) * 100 : 0)}</td>
-                                            <td className="px-6 py-4 text-xs font-bold text-navy">{formatCurrency(calculateTotals(filteredKeywords).costPerConv)}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider" colSpan={4}>Totais</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredKeywords).impressions)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredKeywords).clicks)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredKeywords).ctr)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredKeywords).cpc)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredKeywords).spend)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredKeywords).conversions)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredKeywords).clicks > 0 ? (calculateTotals(filteredKeywords).conversions / calculateTotals(filteredKeywords).clicks) * 100 : 0)}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredKeywords).costPerConv)}</td>
                                             {customMetrics.map(m => (
-                                                <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
+                                                <td key={m.id} className="px-6 py-4 text-sm font-bold text-slate-900 border-l border-slate-200">
                                                     {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredKeywords)), m.format)}
                                                 </td>
                                             ))}
@@ -1372,23 +1375,41 @@ const Marketing: React.FC = () => {
                                 ].map(category => {
                                     const assets = pmaxAssets.filter(category.filter);
                                     return (
-                                        <div key={category.title} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-                                            <h3 className="text-lg font-bold text-navy mb-4 flex items-center gap-2">
-                                                {category.title} <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{assets.length}</span>
+                                        <div key={category.title} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                                            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2 uppercase tracking-wider">
+                                                {category.title} <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{assets.length}</span>
                                             </h3>
                                             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                                                 {assets.length === 0 ? (
                                                     <p className="text-sm text-slate-400 italic">Nenhum recurso encontrado.</p>
                                                 ) : (
                                                     assets.map((asset, i) => (
-                                                        <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center gap-4">
+                                                        <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-4 hover:bg-slate-100/50 transition-colors">
+                                                            {category.title === 'Imagens' && asset.imageUrl && (
+                                                                <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-slate-200 border border-slate-200">
+                                                                    <img src={asset.imageUrl} alt={asset.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                                </div>
+                                                            )}
+                                                            {category.title === 'Vídeos' && asset.videoId && (
+                                                                <div className="w-24 h-16 shrink-0 rounded-lg overflow-hidden bg-slate-200 border border-slate-200 relative group">
+                                                                    <img src={`https://img.youtube.com/vi/${asset.videoId}/mqdefault.jpg`} alt={asset.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
+                                                                            <div className="w-0 h-0 border-t-4 border-t-transparent border-l-6 border-l-white border-b-4 border-b-transparent ml-1"></div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                             <div className="flex-1 min-w-0">
-                                                                <p className="text-sm font-medium text-navy truncate" title={asset.name}>{asset.name}</p>
-                                                                <p className="text-[10px] text-slate-500 uppercase mt-1">{asset.fieldType?.replace(/_/g, ' ')}</p>
-                                                            </div>
-                                                            <div className="text-right shrink-0">
-                                                                <p className="text-xs font-bold text-navy">{formatNumber(asset.impressions)} impr.</p>
-                                                                <p className="text-[10px] text-slate-500">{formatNumber(asset.clicks)} cliques</p>
+                                                                <p className="text-sm font-medium text-slate-900 truncate" title={asset.text || asset.name}>{asset.text || asset.name}</p>
+                                                                <div className="flex items-center gap-2 mt-1.5">
+                                                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{asset.fieldType?.replace(/_/g, ' ')}</span>
+                                                                    {asset.status && (
+                                                                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${asset.status === 'ENABLED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                                                                            {asset.status}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))
@@ -1400,31 +1421,31 @@ const Marketing: React.FC = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-100">
+                                    <thead className="bg-slate-50 border-b border-slate-200">
                                         <tr>
                                             {[
                                                 { k: 'headlines', l: 'Anúncio (Títulos)' }, { k: 'campaignName', l: 'Campanha' }, { k: 'adGroupName', l: 'Grupo' },
                                                 { k: 'status', l: 'Status' }, { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-navy transition-colors">
-                                                    <div className="flex items-center">{h.l} {renderSortIcon(h.k)}</div>
+                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
+                                                    <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
                                                 </th>
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50">
+                                    <tbody className="divide-y divide-slate-100">
                                         {sortData(filteredAds).map((ad, i) => (
-                                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                                <td className="px-6 py-4 text-xs text-navy max-w-xs truncate" title={ad.headlines}>{ad.headlines}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-500">{ad.campaignName}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-500">{ad.adGroupName}</td>
+                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900 max-w-xs truncate" title={ad.headlines}>{ad.headlines}</td>
+                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ad.campaignName}</td>
+                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ad.adGroupName}</td>
                                                 <td className="px-6 py-4">{renderStatusBadge(ad.status)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ad.impressions)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatNumber(ad.clicks)}</td>
-                                                <td className="px-6 py-4 text-xs text-slate-600">{formatPercent((ad.clicks / ad.impressions) * 100 || 0)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ad.impressions)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ad.clicks)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ad.clicks / ad.impressions) * 100 || 0)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1440,53 +1461,53 @@ const Marketing: React.FC = () => {
       {/* REPORT MODAL */}
       {isReportModalOpen && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
                   <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                       <div className="flex items-center gap-3">
-                          <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><FileUp size={20} /></div>
-                          <h3 className="text-lg font-bold text-navy">Exportar Relatório PDF</h3>
+                          <div className="p-2 bg-blue-100 text-blue-600 rounded-xl"><FileUp size={20} /></div>
+                          <h3 className="text-lg font-bold text-slate-900">Exportar Relatório PDF</h3>
                       </div>
-                      <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-navy transition-colors"><X size={20} /></button>
+                      <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={20} /></button>
                   </div>
                   
                   <div className="p-6 space-y-6">
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Nome do Cliente</label>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Nome do Cliente</label>
                           <input 
                               type="text" 
                               value={reportConfig.clientName}
                               onChange={(e) => setReportConfig({...reportConfig, clientName: e.target.value})}
                               placeholder="Ex: Clínica Sorriso"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
                           />
                       </div>
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Nome da Agência (Opcional)</label>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Nome da Agência (Opcional)</label>
                           <input 
                               type="text" 
                               value={reportConfig.agencyName}
                               onChange={(e) => setReportConfig({...reportConfig, agencyName: e.target.value})}
                               placeholder="Ex: Minha Agência"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
                           />
                       </div>
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Logo URL (Opcional)</label>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Logo URL (Opcional)</label>
                           <input 
                               type="text" 
                               value={reportConfig.logoUrl}
                               onChange={(e) => setReportConfig({...reportConfig, logoUrl: e.target.value})}
                               placeholder="https://..."
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
                           />
                       </div>
                       
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                          <h4 className="text-xs font-bold text-navy uppercase tracking-widest mb-2">Resumo do Relatório</h4>
-                          <div className="text-[10px] text-slate-500 space-y-1">
-                              <p>• Período: <span className="font-bold text-navy">{new Date(dateFilter.start).toLocaleDateString('pt-BR')} a {new Date(dateFilter.end).toLocaleDateString('pt-BR')}</span></p>
-                              <p>• Campanhas: <span className="font-bold text-navy">{campaigns.length}</span></p>
-                              <p>• Gráfico de Evolução: <span className="font-bold text-navy">Incluído</span></p>
+                          <h4 className="text-[10px] font-bold text-slate-900 uppercase tracking-wider mb-2">Resumo do Relatório</h4>
+                          <div className="text-xs text-slate-500 space-y-1.5 font-medium">
+                              <p>• Período: <span className="font-bold text-slate-900">{new Date(dateFilter.start).toLocaleDateString('pt-BR')} a {new Date(dateFilter.end).toLocaleDateString('pt-BR')}</span></p>
+                              <p>• Campanhas: <span className="font-bold text-slate-900">{campaigns.length}</span></p>
+                              <p>• Gráfico de Evolução: <span className="font-bold text-slate-900">Incluído</span></p>
                           </div>
                       </div>
                   </div>
@@ -1494,7 +1515,7 @@ const Marketing: React.FC = () => {
                   <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
                       <button 
                           onClick={() => setIsReportModalOpen(false)}
-                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-navy uppercase tracking-widest transition-colors"
+                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors"
                           disabled={isGeneratingReport}
                       >
                           Cancelar
@@ -1502,12 +1523,12 @@ const Marketing: React.FC = () => {
                       <button 
                           onClick={handleExportReport}
                           disabled={isGeneratingReport}
-                          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold uppercase tracking-widest shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
                       >
                           {isGeneratingReport ? (
-                              <><Loader2 size={14} className="animate-spin" /> Gerando...</>
+                              <><Loader2 size={16} className="animate-spin" /> Gerando...</>
                           ) : (
-                              <><Download size={14} /> Baixar PDF</>
+                              <><Download size={16} /> Baixar PDF</>
                           )}
                       </button>
                   </div>
@@ -1520,41 +1541,41 @@ const Marketing: React.FC = () => {
                 <div className="space-y-6">
                     {/* Consolidated KPIs */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Custo</span>
-                            <p className="text-xl font-black text-navy">{formatCurrency(mccAccounts.reduce((acc, curr) => acc + curr.cost, 0))}</p>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Custo</span>
+                            <p className="text-2xl font-black text-slate-900 mt-2">{formatCurrency(mccAccounts.reduce((acc, curr) => acc + curr.cost, 0))}</p>
                         </div>
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Cliques</span>
-                            <p className="text-xl font-black text-navy">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.clicks, 0))}</p>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Cliques</span>
+                            <p className="text-2xl font-black text-slate-900 mt-2">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.clicks, 0))}</p>
                         </div>
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Conversões</span>
-                            <p className="text-xl font-black text-navy">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.conversions, 0))}</p>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Conversões</span>
+                            <p className="text-2xl font-black text-slate-900 mt-2">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.conversions, 0))}</p>
                         </div>
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Contas Ativas</span>
-                            <p className="text-xl font-black text-navy">{mccAccounts.length}</p>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Contas Ativas</span>
+                            <p className="text-2xl font-black text-slate-900 mt-2">{mccAccounts.length}</p>
                         </div>
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                             <h3 className="text-sm font-bold text-navy uppercase tracking-widest">Contas Gerenciadas</h3>
+                        <div className="p-6 border-b border-slate-200 bg-slate-50">
+                             <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Contas Gerenciadas</h3>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                        <th className="p-4">Conta</th>
-                                        <th className="p-4 text-right">Custo</th>
-                                        <th className="p-4 text-right">Cliques</th>
-                                        <th className="p-4 text-right">Impressões</th>
-                                        <th className="p-4 text-right">Conversões</th>
-                                        <th className="p-4 text-right">CPL</th>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                        <th className="p-4 px-6">Conta</th>
+                                        <th className="p-4 px-6 text-right">Custo</th>
+                                        <th className="p-4 px-6 text-right">Cliques</th>
+                                        <th className="p-4 px-6 text-right">Impressões</th>
+                                        <th className="p-4 px-6 text-right">Conversões</th>
+                                        <th className="p-4 px-6 text-right">CPL</th>
                                     </tr>
                                 </thead>
-                                <tbody className="text-xs font-medium text-slate-600 divide-y divide-slate-50">
+                                <tbody className="text-sm font-medium text-slate-600 divide-y divide-slate-100">
                                     {mccAccounts.map(acc => (
                                         <tr 
                                             key={acc.customer_id} 
@@ -1563,14 +1584,14 @@ const Marketing: React.FC = () => {
                                                 setSelectedAccountName(acc.account_name);
                                                 setActiveTab('overview');
                                             }}
-                                            className={`hover:bg-indigo-50/50 transition-colors cursor-pointer ${selectedAccountId === acc.customer_id ? 'bg-indigo-50' : ''}`}
+                                            className={`hover:bg-blue-50 transition-colors cursor-pointer ${selectedAccountId === acc.customer_id ? 'bg-blue-50/50' : ''}`}
                                         >
-                                            <td className="p-4 font-bold text-navy">{acc.account_name}</td>
-                                            <td className="p-4 text-right">{formatCurrency(acc.cost)}</td>
-                                            <td className="p-4 text-right">{formatNumber(acc.clicks)}</td>
-                                            <td className="p-4 text-right">{formatNumber(acc.impressions)}</td>
-                                            <td className="p-4 text-right">{formatNumber(acc.conversions)}</td>
-                                            <td className="p-4 text-right">{acc.conversions > 0 ? formatCurrency(acc.cost / acc.conversions) : '-'}</td>
+                                            <td className="p-4 px-6 font-bold text-slate-900">{acc.account_name}</td>
+                                            <td className="p-4 px-6 text-right">{formatCurrency(acc.cost)}</td>
+                                            <td className="p-4 px-6 text-right">{formatNumber(acc.clicks)}</td>
+                                            <td className="p-4 px-6 text-right">{formatNumber(acc.impressions)}</td>
+                                            <td className="p-4 px-6 text-right">{formatNumber(acc.conversions)}</td>
+                                            <td className="p-4 px-6 text-right">{acc.conversions > 0 ? formatCurrency(acc.cost / acc.conversions) : '-'}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1584,14 +1605,14 @@ const Marketing: React.FC = () => {
             {activeTab === 'searchterms' && (
                 <div className="space-y-6">
                     {/* Filters */}
-                    <div className="flex items-center gap-4 bg-white p-2 rounded-xl border border-slate-200 w-full md:w-fit">
+                    <div className="flex items-center gap-4 bg-white p-2 rounded-xl border border-slate-200 w-full md:w-fit shadow-sm">
                         <div className="p-2 bg-slate-50 rounded-lg text-slate-400"><Search size={16}/></div>
                         <input 
                             type="text" 
                             placeholder="Filtrar termos..." 
                             value={searchTermFilter}
                             onChange={(e) => setSearchTermFilter(e.target.value)}
-                            className="bg-transparent text-sm font-medium text-navy focus:outline-none w-full md:min-w-[300px]"
+                            className="bg-transparent text-sm font-medium text-slate-900 focus:outline-none w-full md:min-w-[300px] placeholder:text-slate-400"
                         />
                     </div>
 
@@ -1599,39 +1620,39 @@ const Marketing: React.FC = () => {
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                        <th className="p-4">Termo de Busca</th>
-                                        <th className="p-4">Campanha / Grupo</th>
-                                        <th className="p-4 text-right">Cliques</th>
-                                        <th className="p-4 text-right">Impr.</th>
-                                        <th className="p-4 text-right">Custo</th>
-                                        <th className="p-4 text-right">Conv.</th>
-                                        <th className="p-4 text-right">CTR</th>
-                                        <th className="p-4 text-center">Status</th>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                        <th className="p-4 px-6">Termo de Busca</th>
+                                        <th className="p-4 px-6">Campanha / Grupo</th>
+                                        <th className="p-4 px-6 text-right">Cliques</th>
+                                        <th className="p-4 px-6 text-right">Impr.</th>
+                                        <th className="p-4 px-6 text-right">Custo</th>
+                                        <th className="p-4 px-6 text-right">Conv.</th>
+                                        <th className="p-4 px-6 text-right">CTR</th>
+                                        <th className="p-4 px-6 text-center">Status</th>
                                     </tr>
                                 </thead>
-                                <tbody className="text-xs font-medium text-slate-600 divide-y divide-slate-50">
+                                <tbody className="text-sm font-medium text-slate-600 divide-y divide-slate-100">
                                     {searchTerms
                                         .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
                                         .map((term, idx) => (
                                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-4 font-bold text-navy">{term.searchTerm}</td>
-                                            <td className="p-4">
-                                                <div className="text-navy">{term.campaignName}</div>
-                                                <div className="text-[10px] text-slate-400">{term.adGroupName}</div>
+                                            <td className="p-4 px-6 font-bold text-slate-900">{term.searchTerm}</td>
+                                            <td className="p-4 px-6">
+                                                <div className="text-slate-900">{term.campaignName}</div>
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">{term.adGroupName}</div>
                                             </td>
-                                            <td className="p-4 text-right">{formatNumber(term.clicks)}</td>
-                                            <td className="p-4 text-right">{formatNumber(term.impressions)}</td>
-                                            <td className="p-4 text-right">{formatCurrency(term.spend)}</td>
-                                            <td className="p-4 text-right">{formatNumber(term.conversions)}</td>
-                                            <td className="p-4 text-right">{formatPercent(term.ctr)}</td>
-                                            <td className="p-4 text-center">
+                                            <td className="p-4 px-6 text-right">{formatNumber(term.clicks)}</td>
+                                            <td className="p-4 px-6 text-right">{formatNumber(term.impressions)}</td>
+                                            <td className="p-4 px-6 text-right">{formatCurrency(term.spend)}</td>
+                                            <td className="p-4 px-6 text-right">{formatNumber(term.conversions)}</td>
+                                            <td className="p-4 px-6 text-right">{formatPercent(term.ctr)}</td>
+                                            <td className="p-4 px-6 text-center">
                                                 {term.conversions > 0 ? (
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-600 uppercase tracking-wide">Convertido</span>
+                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-wider">Convertido</span>
                                                 ) : term.spend > 50 ? ( // Threshold for potential negative
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold bg-rose-100 text-rose-600 uppercase tracking-wide">Potencial Negativa</span>
+                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 uppercase tracking-wider">Potencial Negativa</span>
                                                 ) : (
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500 uppercase tracking-wide">-</span>
+                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 uppercase tracking-wider">-</span>
                                                 )}
                                             </td>
                                         </tr>
@@ -1645,37 +1666,37 @@ const Marketing: React.FC = () => {
 
       {/* METRIC CREATOR MODAL */}
       {isMetricModalOpen && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-300">
+          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-300 border border-slate-200">
                   <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                       <div className="flex items-center gap-3">
-                          <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><Calculator size={20} /></div>
-                          <h3 className="text-lg font-bold text-navy">Criar Métrica Personalizada</h3>
+                          <div className="p-2 bg-blue-100 text-blue-600 rounded-xl"><Calculator size={20} /></div>
+                          <h3 className="text-lg font-bold text-slate-900">Criar Métrica Personalizada</h3>
                       </div>
-                      <button onClick={() => setIsMetricModalOpen(false)} className="text-slate-400 hover:text-navy transition-colors"><X size={20} /></button>
+                      <button onClick={() => setIsMetricModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={20} /></button>
                   </div>
                   
                   <div className="p-6 space-y-6">
                       {/* Name */}
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Nome da Métrica</label>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Nome da Métrica</label>
                           <input 
                               type="text" 
                               value={newMetric.name}
                               onChange={(e) => setNewMetric({...newMetric, name: e.target.value})}
                               placeholder="Ex: Meu ROAS"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
                           />
                       </div>
 
                       {/* Formula Builder */}
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Fórmula</label>
+                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-5">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fórmula</label>
                           <div className="flex items-center gap-2">
                               <select 
                                   value={newMetric.numerator}
                                   onChange={(e) => setNewMetric({...newMetric, numerator: e.target.value as BaseMetricType})}
-                                  className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-navy focus:outline-none"
+                                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                               >
                                   <option value="clicks">Cliques</option>
                                   <option value="impressions">Impressões</option>
@@ -1687,7 +1708,7 @@ const Marketing: React.FC = () => {
                               <select 
                                   value={newMetric.operator}
                                   onChange={(e) => setNewMetric({...newMetric, operator: e.target.value as MetricOperator})}
-                                  className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold text-center text-navy focus:outline-none"
+                                  className="w-16 bg-white border border-slate-200 rounded-xl px-2 py-2.5 text-sm font-bold text-center text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                               >
                                   <option value="/">÷</option>
                                   <option value="*">×</option>
@@ -1698,7 +1719,7 @@ const Marketing: React.FC = () => {
                               <select 
                                   value={newMetric.denominator}
                                   onChange={(e) => setNewMetric({...newMetric, denominator: e.target.value as BaseMetricType})}
-                                  className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-navy focus:outline-none"
+                                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                               >
                                   <option value="clicks">Cliques</option>
                                   <option value="impressions">Impressões</option>
@@ -1710,20 +1731,20 @@ const Marketing: React.FC = () => {
                           
                           <div className="flex items-center gap-4">
                               <div className="flex-1">
-                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Multiplicador (Opcional)</label>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Multiplicador (Opcional)</label>
                                   <input 
                                       type="number" 
                                       value={newMetric.multiplier}
                                       onChange={(e) => setNewMetric({...newMetric, multiplier: parseFloat(e.target.value)})}
-                                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-navy focus:outline-none"
+                                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                   />
                               </div>
                               <div className="flex-1">
-                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Formato</label>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Formato</label>
                                   <select 
                                       value={newMetric.format}
                                       onChange={(e) => setNewMetric({...newMetric, format: e.target.value as MetricFormat})}
-                                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-navy focus:outline-none"
+                                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                   >
                                       <option value="number">Número (1.234)</option>
                                       <option value="currency">Moeda (R$)</option>
@@ -1736,20 +1757,20 @@ const Marketing: React.FC = () => {
                       {/* Color & Preview */}
                       <div className="grid grid-cols-2 gap-4">
                           <div>
-                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Cor da Linha</label>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Cor da Linha</label>
                               <div className="flex items-center gap-3">
                                   <input 
                                       type="color" 
                                       value={newMetric.color}
                                       onChange={(e) => setNewMetric({...newMetric, color: e.target.value})}
-                                      className="h-10 w-20 rounded cursor-pointer"
+                                      className="h-10 w-20 rounded-lg cursor-pointer border-0 p-0"
                                   />
-                                  <span className="text-xs font-mono text-slate-400">{newMetric.color}</span>
+                                  <span className="text-xs font-mono text-slate-500 bg-slate-50 px-2 py-1 rounded-md border border-slate-200">{newMetric.color}</span>
                               </div>
                           </div>
-                          <div className="bg-slate-900 rounded-xl p-4 text-white">
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Preview (Total do Período)</label>
-                              <div className="text-2xl font-black">
+                          <div className="bg-slate-900 rounded-2xl p-5 text-white shadow-inner">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Preview (Total do Período)</label>
+                              <div className="text-2xl font-black tracking-tight">
                                   {formatMetricValue(calculateMetricValue(newMetric as CustomMetric, periodTotals), newMetric.format as MetricFormat)}
                               </div>
                           </div>
@@ -1759,16 +1780,16 @@ const Marketing: React.FC = () => {
                   <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
                       <button 
                           onClick={() => setIsMetricModalOpen(false)}
-                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-navy uppercase tracking-widest transition-colors"
+                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors"
                       >
                           Cancelar
                       </button>
                       <button 
                           onClick={handleSaveMetric}
                           disabled={!newMetric.name}
-                          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold uppercase tracking-widest shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
                       >
-                          <Save size={14} /> Salvar Métrica
+                          <Save size={16} /> Salvar Métrica
                       </button>
                   </div>
               </div>
