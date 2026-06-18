@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 import PDFDocument from 'pdfkit';
+import crypto from 'crypto';
 
 // Carrega variáveis de ambiente
 dotenv.config();
@@ -16,10 +17,19 @@ const PORT = process.env.PORT || 3000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // --- SUPABASE SETUP ---
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("SUPABASE_SERVICE_ROLE_KEY ausente. Rotas CRM/Uazapi precisam dela.");
+}
+const supabaseAdmin = createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY || SUPABASE_KEY
+);
 
 // --- GEMINI SETUP ---
 const API_KEY = process.env.API_KEY;
@@ -1159,6 +1169,358 @@ app.post('/api/axis/chat', async (req, res) => {
     }
 });
 // ... (Evolution API requests mantidos) ...
+
+// ==============================================================================
+// 12. CRM & UAZAPI INTEGRATION BASE
+// ==============================================================================
+
+// Helper de Autenticação
+async function getAuthUser(req) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        const error = new Error('Não autorizado - SUPABASE_SERVICE_ROLE_KEY ausente no backend. As rotas CRM/Uazapi precisam dela.');
+        error.status = 500;
+        throw error;
+    }
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const error = new Error('Não autorizado - Bearer token ausente');
+        error.status = 401;
+        throw error;
+    }
+    const token = authHeader.split(' ')[1];
+    const client = supabaseAdmin || supabase;
+    const { data: { user }, error: authError } = await client.auth.getUser(token);
+    if (authError || !user) {
+        const error = new Error('Não autorizado - Token inválido ou expirado');
+        error.status = 401;
+        throw error;
+    }
+    return user;
+}
+
+// Helper para Conexões (Sanitização)
+function sanitizeCrmConnection(connection) {
+    if (!connection) return null;
+    const sanitized = { ...connection };
+    delete sanitized.instance_token;
+    delete sanitized.webhook_secret;
+    return sanitized;
+}
+
+// Helper Uazapi (Request Maker)
+async function uazapiRequest(connection, pathStr, options = {}) {
+    const { api_base_url, instance_token } = connection;
+    if (!api_base_url) {
+        return { error: true, message: 'api_base_url ausente na conexão' };
+    }
+    
+    const baseUrl = api_base_url.replace(/\/+$/, '');
+    const cleanPath = pathStr.replace(/^\/+/, '');
+    const url = `${baseUrl}/${cleanPath}`;
+    
+    const headers = {
+        'Content-Type': 'application/json',
+        ...options.headers,
+    };
+    
+    if (instance_token) {
+        headers['token'] = instance_token;
+        headers['Authorization'] = `Bearer ${instance_token}`;
+    }
+    
+    const fetchOptions = {
+        method: options.method || 'GET',
+        headers,
+    };
+    
+    if (options.body) {
+        fetchOptions.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    }
+    
+    try {
+        const response = await fetch(url, fetchOptions);
+        const text = await response.text();
+        let json;
+        try {
+            json = JSON.parse(text);
+        } catch (e) {
+            if (!response.ok) {
+                return { error: true, message: `Erro Uazapi HTTP ${response.status}: ${text}` };
+            }
+            return { raw: text };
+        }
+        
+        if (!response.ok) {
+            return { error: true, message: json.message || json.error || `Erro Uazapi HTTP ${response.status}` };
+        }
+        return json;
+    } catch (err) {
+        console.error(`Erro na requisição Uazapi (${pathStr}):`, err);
+        return { error: true, message: err.message };
+    }
+}
+
+// ROTA DE HEALTHCHECK: GET /api/crm/health
+app.get('/api/crm/health', (req, res) => {
+    try {
+        const hasUrl = !!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+        const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const appPublicUrl = process.env.APP_PUBLIC_URL || process.env.APP_BASE_URL || process.env.VITE_BACKEND_URL || null;
+        const appPublicUrlConfigured = !!appPublicUrl;
+        
+        res.json({
+            ok: true,
+            supabaseUrlConfigured: hasUrl,
+            serviceRoleConfigured: hasServiceRole,
+            appPublicUrlConfigured: appPublicUrlConfigured,
+            appPublicUrl: appPublicUrl
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ROTA 1: GET /api/crm/connections
+app.get('/api/crm/connections', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const client = supabaseAdmin || supabase;
+        const { data: connections, error } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('user_id', user.id);
+            
+        if (error) throw error;
+        
+        const sanitized = (connections || []).map(sanitizeCrmConnection);
+        res.json({
+            ok: true,
+            connections: sanitized
+        });
+    } catch (err) {
+        console.error('Erro ao ler conexões CRM:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao ler conexões'
+        });
+    }
+});
+
+// ROTA 2: POST /api/crm/connections/uazapi/manual
+app.post('/api/crm/connections/uazapi/manual', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionName, apiBaseUrl, instanceToken, instanceName, connectionSettings } = req.body;
+        
+        if (!connectionName || !apiBaseUrl || !instanceToken) {
+            return res.status(400).json({ error: 'Campos obrigatórios: connectionName, apiBaseUrl, instanceToken' });
+        }
+        
+        const webhookSecret = crypto.randomBytes(16).toString('hex');
+        
+        const insertPayload = {
+            user_id: user.id,
+            channel: 'whatsapp',
+            provider: 'uazapi',
+            connection_name: connectionName,
+            api_base_url: apiBaseUrl,
+            instance_token: instanceToken,
+            instance_name: instanceName || null,
+            connection_settings: connectionSettings || {},
+            connection_status: 'connecting',
+            webhook_secret: webhookSecret
+        };
+        
+        const client = supabaseAdmin || supabase;
+        const { data: newConn, error: insertError } = await client
+            .from('crm_connections')
+            .insert(insertPayload)
+            .select()
+            .single();
+            
+        if (insertError || !newConn) {
+            throw new Error(`Erro ao salvar conexão CRM: ${insertError?.message || 'registro não retornado'}`);
+        }
+        
+        const publicUrl = process.env.APP_PUBLIC_URL || process.env.VITE_APP_PUBLIC_URL || (req.protocol + "://" + req.get("host"));
+        const webhookUrl = `${publicUrl.replace(/\/+$/, '')}/api/webhooks/uazapi/${newConn.id}/${newConn.webhook_secret}`;
+        
+        const { error: updateWebErr } = await client
+            .from('crm_connections')
+            .update({ webhook_url: webhookUrl })
+            .eq('id', newConn.id);
+            
+        if (updateWebErr) {
+            console.error('[UazAPI Connection] Erro ao salvar webhook_url:', updateWebErr);
+        }
+        
+        const updatedConnRecord = { ...newConn, webhook_url: webhookUrl };
+        
+        let warning = null;
+        let lastStatusPayload = null;
+        let connectionStatus = 'connecting';
+        let lastError = null;
+        
+        try {
+            const statusResult = await uazapiRequest(updatedConnRecord, 'instance/status');
+            if (statusResult && !statusResult.error) {
+                lastStatusPayload = statusResult;
+                const rStatus = statusResult.status || (statusResult.instance && statusResult.instance.status) || statusResult.state;
+                if (rStatus) {
+                    const s = String(rStatus).toLowerCase();
+                    if (s === 'connected' || s === 'open' || s === 'true' || s === 'authenticated') {
+                        connectionStatus = 'connected';
+                    }
+                }
+            } else {
+                lastError = statusResult?.message || 'Não foi possível se comunicar com Uazapi';
+                warning = `Aviso: Conexão criada, mas falhou ao validar status com a Uazapi: ${lastError}`;
+            }
+        } catch (e) {
+            lastError = e.message;
+            warning = `Aviso: Conexão criada, mas falhou ao validar status: ${lastError}`;
+        }
+        
+        const updatePayload = {
+            connection_status: connectionStatus,
+            last_status_payload: lastStatusPayload,
+            last_error: lastError
+        };
+        
+        const { data: finalRecord, error: finalUpdateErr } = await client
+            .from('crm_connections')
+            .update(updatePayload)
+            .eq('id', newConn.id)
+            .select()
+            .single();
+            
+        const finalConnection = finalRecord || { ...updatedConnRecord, ...updatePayload };
+        
+        res.json({
+            ok: true,
+            connection: sanitizeCrmConnection(finalConnection),
+            warning: warning
+        });
+        
+    } catch (err) {
+        console.error('Erro na criação de conexão Uazapi:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao criar conexão manual'
+        });
+    }
+});
+
+// ROTA 3: GET /api/crm/connections/:connectionId/status
+app.get('/api/crm/connections/:connectionId/status', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionId } = req.params;
+        const client = supabaseAdmin || supabase;
+        
+        const { data: connection, error: connError } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', connectionId)
+            .eq('user_id', user.id)
+            .single();
+            
+        if (connError || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: 'Conexão não encontrada para este usuário'
+            });
+        }
+        
+        const statusResult = await uazapiRequest(connection, 'instance/status');
+        
+        let updatedStatus = 'connecting';
+        let lastStatusPayload = statusResult;
+        let lastError = null;
+        
+        if (statusResult && statusResult.error) {
+            updatedStatus = 'error';
+            lastError = statusResult.message || 'unknown error';
+        } else if (statusResult) {
+            const rawStatus = statusResult.status || (statusResult.instance && statusResult.instance.status) || statusResult.state;
+            if (rawStatus) {
+                const s = String(rawStatus).toLowerCase();
+                if (s === 'connected' || s === 'open' || s === 'true' || s === 'authenticated') {
+                    updatedStatus = 'connected';
+                } else if (s === 'disconnected' || s === 'closed' || s === 'close') {
+                    updatedStatus = 'disconnected';
+                } else {
+                    updatedStatus = 'connecting';
+                }
+            }
+        }
+        
+        const { data: updatedConnection, error: updateError } = await client
+            .from('crm_connections')
+            .update({
+                last_status_payload: lastStatusPayload,
+                last_error: lastError,
+                connection_status: updatedStatus,
+                updated_at: new Date()
+            })
+            .eq('id', connectionId)
+            .select()
+            .single();
+            
+        const finalConn = updatedConnection || { ...connection, connection_status: updatedStatus, last_status_payload: lastStatusPayload, last_error: lastError };
+        
+        res.json({
+            ok: true,
+            connection: sanitizeCrmConnection(finalConn),
+            statusPayload: statusResult
+        });
+        
+    } catch (err) {
+        console.error('Erro ao verificar status da conexão:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao consultar status da conexão'
+        });
+    }
+});
+
+// ROTA Webhook Placeholder: POST /api/webhooks/uazapi/:connectionId/:secret
+app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
+    const { connectionId, secret } = req.params;
+    const body = req.body;
+    
+    try {
+        const client = supabaseAdmin || supabase;
+        const { data: connection, error } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', connectionId)
+            .eq('webhook_secret', secret)
+            .single();
+            
+        if (error || !connection) {
+            console.error(`[Webhook Uazapi] Conexão não encontrada ou secret inválido: ${connectionId}`);
+            return res.status(404).json({ error: 'Connection not found or secret invalid' });
+        }
+        
+        const { error: updateError } = await client
+            .from('crm_connections')
+            .update({
+                last_status_payload: body,
+                updated_at: new Date()
+            })
+            .eq('id', connectionId);
+            
+        if (updateError) {
+            console.error(`[Webhook Uazapi] Erro ao atualizar payload na conexão:`, updateError);
+        }
+        
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[Webhook Uazapi] Erro interno:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));

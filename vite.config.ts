@@ -5,14 +5,15 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
+  const backendTarget = env.VITE_BACKEND_URL || 'http://localhost:3000';
   
   return {
     plugins: [react()],
     server: {
       proxy: {
-        // Redireciona chamadas /api para o servidor Express localmente
+        // Redireciona chamadas /api para o servidor Express localmente ou URL remota configurada
         '/api': {
-          target: 'http://localhost:3000',
+          target: backendTarget,
           changeOrigin: true,
           secure: false,
         }
