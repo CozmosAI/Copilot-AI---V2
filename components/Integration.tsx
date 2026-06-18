@@ -109,7 +109,7 @@ const Integration: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) {
-        setCrmConnectionsError('Usuário não autenticado.');
+        setCrmConnectionsError('Sessão não encontrada. Faça login novamente.');
         setLoadingConnections(false);
         return;
       }
@@ -147,7 +147,10 @@ const Integration: React.FC = () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (!token) return;
+      if (!token) {
+        alert('Sessão não encontrada. Por favor, recarregue e tente novamente.');
+        return;
+      }
       
       // Temporarily mark as checking
       setCrmConnections(prev => {
@@ -169,7 +172,7 @@ const Integration: React.FC = () => {
           return list.map(c => c.id === connectionId ? data.connection : c);
         });
       } else {
-        alert(data.error || 'Erro ao consultar status ou conexão não retornada.');
+        alert(data?.error || 'Erro ao consultar status ou conexão não retornada.');
         fetchCrmConnections();
       }
     } catch (e: any) {
@@ -191,7 +194,7 @@ const Integration: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) {
-        alert('Usuário não autenticado.');
+        alert('Sessão não encontrada ou expirada. Faça login novamente.');
         setSubmittingCrm(false);
         return;
       }
@@ -217,7 +220,7 @@ const Integration: React.FC = () => {
       
       const data = await safeJsonResponse(response);
       if (!response.ok || data.ok === false) {
-        throw new Error(data.error || 'Erro ao salvar conexão');
+        throw new Error(data?.error || 'Erro ao salvar conexão');
       }
       
       if (data.warning) {
@@ -768,22 +771,27 @@ const Integration: React.FC = () => {
                 <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                   {safeCrmConnections.map((conn) => {
                     const isConnected = conn.connection_status === 'connected';
-                    const isChecking = conn.connection_status === 'checking';
+                    const isChecking = conn.connection_status === 'checking' || conn.connection_status === 'connecting';
+                    const isDisconnected = conn.connection_status === 'disconnected';
                     const isError = conn.connection_status === 'error';
                     
                     return (
                       <div key={conn.id} className="p-3.5 bg-slate-50/50 border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-slate-300 transition-colors animate-in fade-in">
                         <div className="space-y-1 min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500' : isChecking ? 'bg-blue-400' : isDisconnected ? 'bg-amber-500' : 'bg-slate-400'}`}></span>
                             <p className="text-xs font-black text-navy truncate">{conn.connection_name}</p>
                             <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${
                               isConnected ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                              isDisconnected ? 'bg-amber-50 text-amber-600 border-amber-100' :
                               isError ? 'bg-rose-50 text-rose-500 border-rose-100' :
                               isChecking ? 'bg-blue-50 text-blue-500 border-blue-100 animate-pulse' :
                               'bg-slate-100 text-slate-500 border-slate-200'
                             }`}>
-                              {conn.connection_status}
+                              {conn.connection_status === 'connected' ? 'Conectado' :
+                               conn.connection_status === 'disconnected' ? 'Desconectado' :
+                               conn.connection_status === 'connecting' || conn.connection_status === 'checking' ? 'Conectando' :
+                               conn.connection_status === 'error' ? 'Erro' : conn.connection_status || 'Desconhecido'}
                             </span>
                           </div>
                           <p className="text-[9px] font-mono text-slate-400 truncate">{conn.api_base_url}</p>

@@ -1207,9 +1207,42 @@ function sanitizeCrmConnection(connection) {
     return sanitized;
 }
 
+// Função para mapear status da Uazapi pros valores internos
+function mapUazapiStatus(payload) {
+    if (!payload) {
+        return 'error';
+    }
+    if (payload.error) {
+        console.warn(`[Uazapi Status Mapeador] Payload contendo erro: ${payload.message || 'Erro desconhecido'}`);
+        return 'error';
+    }
+    
+    // Suportar diferentes locais de state/status/statusResult pelo payload da Uazapi
+    const rawStatus = payload.status || (payload.instance && payload.instance.status) || payload.state || payload.connectionStatus;
+    
+    // Booleans diretos de conexão ou status online em campos diferentes
+    const isConnectedBool = payload.connected === true || payload.isConnected === true || payload.online === true;
+    const isDisconnectedBool = payload.connected === false || payload.isConnected === false || payload.online === false;
+
+    if (isConnectedBool) return 'connected';
+    if (isDisconnectedBool) return 'disconnected';
+
+    if (rawStatus) {
+        const s = String(rawStatus).toLowerCase();
+        if (s === 'connected' || s === 'open' || s === 'online' || s === 'authenticated' || s === 'authorized' || s === 'logged' || s === 'true') {
+            return 'connected';
+        }
+        if (s === 'disconnected' || s === 'close' || s === 'closed' || s === 'offline' || s === 'notauthorized' || s === 'logout' || s === 'false') {
+            return 'disconnected';
+        }
+    }
+    
+    return 'connecting';
+}
+
 // Helper Uazapi (Request Maker)
 async function uazapiRequest(connection, pathStr, options = {}) {
-    const { api_base_url, instance_token } = connection;
+    const { id: connectionId, api_base_url, instance_token } = connection;
     if (!api_base_url) {
         return { error: true, message: 'api_base_url ausente na conexão' };
     }
@@ -1218,6 +1251,9 @@ async function uazapiRequest(connection, pathStr, options = {}) {
     const cleanPath = pathStr.replace(/^\/+/, '');
     const url = `${baseUrl}/${cleanPath}`;
     
+    // Log seguro do endpoint que está sendo testado (Tarefa 8: nunca expõe token)
+    console.log(`[Uazapi HTTP Request] Testando endpoint seguro na Uazapi: ${cleanPath} para a conexão ${connectionId || 'manual'}`);
+
     const headers = {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -1360,21 +1396,37 @@ app.post('/api/crm/connections/uazapi/manual', async (req, res) => {
         let lastStatusPayload = null;
         let connectionStatus = 'connecting';
         let lastError = null;
+        let phone = null;
         
         try {
-            const statusResult = await uazapiRequest(updatedConnRecord, 'instance/status');
-            if (statusResult && !statusResult.error) {
+            let statusResult = await uazapiRequest(updatedConnRecord, 'instance/status');
+            
+            // Tenta o endpoint secundário se falhar
+            if ((!statusResult || statusResult.error) && updatedConnRecord.instance_name) {
+                console.log(`[Uazapi Status Manual] Endpoint "instance/status" falhou, tentando "instance/status/${updatedConnRecord.instance_name}"...`);
+                const secondaryResult = await uazapiRequest(updatedConnRecord, `instance/status/${updatedConnRecord.instance_name}`);
+                if (secondaryResult && !secondaryResult.error) {
+                    statusResult = secondaryResult;
+                }
+            }
+            
+            connectionStatus = mapUazapiStatus(statusResult);
+            
+            if (statusResult) {
                 lastStatusPayload = statusResult;
-                const rStatus = statusResult.status || (statusResult.instance && statusResult.instance.status) || statusResult.state;
-                if (rStatus) {
-                    const s = String(rStatus).toLowerCase();
-                    if (s === 'connected' || s === 'open' || s === 'true' || s === 'authenticated') {
-                        connectionStatus = 'connected';
+                if (statusResult.error) {
+                    lastError = statusResult.message || 'Não foi possível se comunicar com Uazapi';
+                    warning = `Aviso: Conexão criada, mas falhou ao validar status com a Uazapi: ${lastError}`;
+                } else if (connectionStatus === 'connected') {
+                    phone = statusResult.phone || statusResult.number || statusResult.jid || statusResult.wid || 
+                            (statusResult.instance && (statusResult.instance.phone || statusResult.instance.number)) || null;
+                    if (phone && typeof phone === 'string') {
+                        phone = phone.replace(/[^0-9]/g, '');
                     }
                 }
             } else {
-                lastError = statusResult?.message || 'Não foi possível se comunicar com Uazapi';
-                warning = `Aviso: Conexão criada, mas falhou ao validar status com a Uazapi: ${lastError}`;
+                lastError = 'Não foi possível se comunicar com Uazapi';
+                warning = `Aviso: Conexão criada, mas falhou ao validar status com a Uazapi`;
             }
         } catch (e) {
             lastError = e.message;
@@ -1386,6 +1438,10 @@ app.post('/api/crm/connections/uazapi/manual', async (req, res) => {
             last_status_payload: lastStatusPayload,
             last_error: lastError
         };
+        
+        if (phone) {
+            updatePayload.connected_phone = phone;
+        }
         
         const { data: finalRecord, error: finalUpdateErr } = await client
             .from('crm_connections')
@@ -1432,47 +1488,55 @@ app.get('/api/crm/connections/:connectionId/status', async (req, res) => {
             });
         }
         
-        const statusResult = await uazapiRequest(connection, 'instance/status');
+        let statusResult = await uazapiRequest(connection, 'instance/status');
         
-        let updatedStatus = 'connecting';
-        let lastStatusPayload = statusResult;
-        let lastError = null;
-        
-        if (statusResult && statusResult.error) {
-            updatedStatus = 'error';
-            lastError = statusResult.message || 'unknown error';
-        } else if (statusResult) {
-            const rawStatus = statusResult.status || (statusResult.instance && statusResult.instance.status) || statusResult.state;
-            if (rawStatus) {
-                const s = String(rawStatus).toLowerCase();
-                if (s === 'connected' || s === 'open' || s === 'true' || s === 'authenticated') {
-                    updatedStatus = 'connected';
-                } else if (s === 'disconnected' || s === 'closed' || s === 'close') {
-                    updatedStatus = 'disconnected';
-                } else {
-                    updatedStatus = 'connecting';
-                }
+        // Se falhar ou der erro, e tiver instance_name, tentar instance/status/{instance_name}
+        if ((!statusResult || statusResult.error) && connection.instance_name) {
+            console.log(`[Uazapi Status] Endpoint "instance/status" falhou para conexão ${connectionId}, tentando "instance/status/${connection.instance_name}"...`);
+            const secondaryResult = await uazapiRequest(connection, `instance/status/${connection.instance_name}`);
+            if (secondaryResult && !secondaryResult.error) {
+                statusResult = secondaryResult;
             }
+        }
+        
+        const updatedStatus = mapUazapiStatus(statusResult);
+        let lastStatusPayload = statusResult;
+        let lastError = (statusResult && statusResult.error) ? (statusResult.message || 'Erro desconhecido da Uazapi') : null;
+        let phone = null;
+        
+        if (updatedStatus === 'connected' && statusResult) {
+            phone = statusResult.phone || statusResult.number || statusResult.jid || statusResult.wid || 
+                    (statusResult.instance && (statusResult.instance.phone || statusResult.instance.number)) || null;
+            if (phone && typeof phone === 'string') {
+                phone = phone.replace(/[^0-9]/g, ''); // só dígitos
+            }
+        }
+        
+        const updateFields = {
+            last_status_payload: lastStatusPayload,
+            last_error: lastError,
+            connection_status: updatedStatus,
+            updated_at: new Date()
+        };
+        
+        if (phone) {
+            updateFields.connected_phone = phone;
         }
         
         const { data: updatedConnection, error: updateError } = await client
             .from('crm_connections')
-            .update({
-                last_status_payload: lastStatusPayload,
-                last_error: lastError,
-                connection_status: updatedStatus,
-                updated_at: new Date()
-            })
+            .update(updateFields)
             .eq('id', connectionId)
             .select()
             .single();
             
-        const finalConn = updatedConnection || { ...connection, connection_status: updatedStatus, last_status_payload: lastStatusPayload, last_error: lastError };
+        const finalConn = updatedConnection || { ...connection, ...updateFields };
         
         res.json({
             ok: true,
             connection: sanitizeCrmConnection(finalConn),
-            statusPayload: statusResult
+            statusPayload: statusResult,
+            mappedStatus: updatedStatus
         });
         
     } catch (err) {
