@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   CheckCircle2, Calendar, Loader2, LogOut, MessageCircle, Smartphone, 
   FileSpreadsheet, Activity, AlertCircle, Upload, RefreshCw, X, ChevronRight, LayoutList, Copy, Phone,
-  Building2, ArrowRight
+  Building2, ArrowRight, Trash2
 } from 'lucide-react';
 import { useApp } from '../App';
 import { initiateGoogleAdsAuth, exchangeCodeForToken, selectGoogleAdsAccount, checkGoogleAdsStatus, listMccChildren } from '../services/googleAdsService';
@@ -71,6 +71,9 @@ const Integration: React.FC = () => {
     appPublicUrl: string | null;
   } | null>(null);
   
+  const [syncingConnectionId, setSyncingConnectionId] = useState<string | null>(null);
+  const [configuringWebhookId, setConfiguringWebhookId] = useState<string | null>(null);
+  
   // Uazapi Form Fields State
   const [crmConnName, setCrmConnName] = useState('');
   const [crmApiUrl, setCrmApiUrl] = useState('https://task-ai.uazapi.com');
@@ -78,7 +81,6 @@ const Integration: React.FC = () => {
   const [crmInstanceName, setCrmInstanceName] = useState('');
   const [crmListenGroups, setCrmListenGroups] = useState(false);
   const [crmRestoreMsgs, setCrmRestoreMsgs] = useState(false);
-  const [crmListType, setCrmListType] = useState<'buttons' | 'list' | 'numbered'>('buttons');
 
   // Normalization helper
   const normalizeConnectionsResponse = (data: any): any[] => {
@@ -144,6 +146,7 @@ const Integration: React.FC = () => {
 
   // Check Connection Status with API
   const handleCheckCrmStatus = async (connectionId: string) => {
+    setSyncingConnectionId(connectionId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -151,12 +154,6 @@ const Integration: React.FC = () => {
         alert('Sessão não encontrada. Por favor, recarregue e tente novamente.');
         return;
       }
-      
-      // Temporarily mark as checking
-      setCrmConnections(prev => {
-        const list = Array.isArray(prev) ? prev : [];
-        return list.map(c => c.id === connectionId ? { ...c, connection_status: 'checking' } : c);
-      });
       
       const response = await apiFetch(`/api/crm/connections/${connectionId}/status`, {
         headers: {
@@ -178,6 +175,72 @@ const Integration: React.FC = () => {
     } catch (e: any) {
       alert(`Erro na verificação de status: ${e.message}`);
       fetchCrmConnections();
+    } finally {
+      setSyncingConnectionId(null);
+    }
+  };
+
+  // Delete CRM Connection
+  const handleDeleteCrmConnection = async (id: string) => {
+    if (!confirm("Remover esta conexão da AXIS? Isso não desconecta o número na Uazapi.")) {
+      return;
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        alert("Sessão expirada. Faça login novamente.");
+        return;
+      }
+      
+      const response = await apiFetch(`/api/crm/connections/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const data = await safeJsonResponse(response);
+      if (response.ok && data.ok) {
+        alert("Conexão removida com sucesso da AXIS!");
+        fetchCrmConnections();
+      } else {
+        alert(data?.error || "Erro ao excluir conexão.");
+      }
+    } catch (e: any) {
+      alert(`Erro técnico ao remover: ${e.message}`);
+    }
+  };
+
+  // Configure CRM Webhook automatically on UazAPI
+  const handleConfigureCrmWebhook = async (id: string) => {
+    setConfiguringWebhookId(id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        alert("Sessão expirada. Faça login novamente.");
+        return;
+      }
+      
+      const response = await apiFetch(`/api/crm/connections/${id}/configure-webhook`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const data = await safeJsonResponse(response);
+      if (response.ok && data.ok) {
+        alert("Webhook AXIS configurado com sucesso na Uazapi para esta instância!");
+        fetchCrmConnections();
+      } else {
+        alert(data?.error || "Não foi possível configurar automaticamente. Copie o webhook da AXIS e configure manualmente.");
+      }
+    } catch (e: any) {
+      alert(`Erro: ${e.message}`);
+    } finally {
+      setConfiguringWebhookId(null);
     }
   };
 
@@ -212,8 +275,7 @@ const Integration: React.FC = () => {
           instanceName: crmInstanceName || undefined,
           connectionSettings: {
             listenGroups: crmListenGroups,
-            restoreMessages: crmRestoreMsgs,
-            listType: crmListType
+            restoreMessages: crmRestoreMsgs
           }
         })
       });
@@ -692,19 +754,6 @@ const Integration: React.FC = () => {
                 </label>
               </div>
 
-              <div>
-                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Tipo de Lista</label>
-                <select 
-                  value={crmListType} 
-                  onChange={(e) => setCrmListType(e.target.value as any)} 
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-[10px] font-black text-navy focus:outline-none focus:border-blue-500 bg-white uppercase tracking-wider"
-                >
-                  <option value="buttons">buttons</option>
-                  <option value="list">list</option>
-                  <option value="numbered">numbered</option>
-                </select>
-              </div>
-
               <button 
                 type="submit" 
                 disabled={submittingCrm}
@@ -771,66 +820,115 @@ const Integration: React.FC = () => {
                 <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                   {safeCrmConnections.map((conn) => {
                     const isConnected = conn.connection_status === 'connected';
-                    const isChecking = conn.connection_status === 'checking' || conn.connection_status === 'connecting';
+                    const isConnecting = conn.connection_status === 'connecting';
                     const isDisconnected = conn.connection_status === 'disconnected';
                     const isError = conn.connection_status === 'error';
                     
+                    const isSyncing = syncingConnectionId === conn.id;
+                    const isConfiguringWebhook = configuringWebhookId === conn.id;
+                    
                     return (
-                      <div key={conn.id} className="p-3.5 bg-slate-50/50 border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-slate-300 transition-colors animate-in fade-in">
-                        <div className="space-y-1 min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500' : isChecking ? 'bg-blue-400' : isDisconnected ? 'bg-amber-500' : 'bg-slate-400'}`}></span>
-                            <p className="text-xs font-black text-navy truncate">{conn.connection_name}</p>
-                            <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                              isConnected ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                              isDisconnected ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                              isError ? 'bg-rose-50 text-rose-500 border-rose-100' :
-                              isChecking ? 'bg-blue-50 text-blue-500 border-blue-100 animate-pulse' :
-                              'bg-slate-100 text-slate-500 border-slate-200'
-                            }`}>
-                              {conn.connection_status === 'connected' ? 'Conectado' :
-                               conn.connection_status === 'disconnected' ? 'Desconectado' :
-                               conn.connection_status === 'connecting' || conn.connection_status === 'checking' ? 'Conectando' :
-                               conn.connection_status === 'error' ? 'Erro' : conn.connection_status || 'Desconhecido'}
-                            </span>
-                          </div>
-                          <p className="text-[9px] font-mono text-slate-400 truncate">{conn.api_base_url}</p>
-                          {conn.instance_name && (
-                            <p className="text-[9px] text-slate-450">
-                              Instância: <span className="font-semibold text-slate-600">{conn.instance_name}</span>
-                            </p>
-                          )}
-                          {conn.webhook_url && (
-                            <div className="flex items-center gap-1">
-                              <span className="text-[8px] text-slate-400 uppercase font-black">Webhook:</span>
-                              <span className="text-[8px] font-mono text-slate-500 bg-slate-100/80 px-1 py-0.5 rounded truncate max-w-[200px]" title={conn.webhook_url}>
-                                {conn.webhook_url}
+                      <div key={conn.id} className="p-3.5 bg-slate-50/50 border border-slate-200 rounded-2xl flex flex-col gap-3 hover:border-slate-300 transition-colors animate-in fade-in">
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                isConnected ? 'bg-emerald-500' : 
+                                isConnecting ? 'bg-blue-400' : 
+                                isDisconnected ? 'bg-slate-400' : 'bg-rose-500'
+                              }`}></span>
+                              <p className="text-xs font-black text-navy truncate">{conn.connection_name}</p>
+                              <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                                isConnected ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                isConnecting ? 'bg-blue-50 text-blue-500 border-blue-100' :
+                                isDisconnected ? 'bg-slate-100 text-slate-500 border-slate-200' :
+                                'bg-rose-50 text-rose-500 border-rose-100'
+                              }`}>
+                                {isConnected ? 'Conectado' :
+                                 isConnecting ? 'Conectando' :
+                                 isDisconnected ? 'Desconectado' : 'Erro'}
                               </span>
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(conn.webhook_url);
-                                  alert('URL do Webhook copiada!');
-                                }} 
-                                className="text-slate-400 hover:text-navy p-0.5 rounded hover:bg-slate-200 transition-all"
-                                title="Copiar URL"
-                              >
-                                <Copy size={9} />
-                              </button>
                             </div>
-                          )}
-                        </div>
+                            
+                            <p className="text-[9px] font-mono text-slate-400 truncate">{conn.api_base_url}</p>
+                            
+                            {conn.instance_name && (
+                              <p className="text-[9px] text-slate-500">
+                                Instância: <span className="font-semibold text-slate-600">{conn.instance_name}</span>
+                              </p>
+                            )}
 
-                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                          <button 
-                            type="button"
-                            onClick={() => handleCheckCrmStatus(conn.id)}
-                            disabled={isChecking}
-                            className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 font-bold text-[8px] uppercase tracking-wider rounded-lg border border-slate-200 flex items-center gap-1 transition-all"
-                          >
-                            {isChecking ? <Loader2 size={9} className="animate-spin" /> : <RefreshCw size={9} />}
-                            Sincronizar
-                          </button>
+                            {conn.connected_phone && (
+                              <p className="text-[9px] text-slate-500">
+                                Número conectado: <span className="font-mono font-semibold text-slate-700">{conn.connected_phone}</span>
+                              </p>
+                            )}
+
+                            {conn.last_error && (
+                              <p className="text-[9px] text-rose-500 font-medium">
+                                Último erro: <span className="font-mono text-[8px] text-rose-600 font-normal bg-rose-50 px-1 py-0.5 rounded block whitespace-pre-wrap mt-0.5">{conn.last_error}</span>
+                              </p>
+                            )}
+
+                            {conn.connection_status && (
+                              <p className="text-[9px] text-slate-400">
+                                Status bruto: <span className="font-mono text-[8px] bg-slate-100 px-1 py-0.5 rounded text-slate-500">{conn.connection_status}</span>
+                              </p>
+                            )}
+                            
+                            {conn.webhook_url && (
+                              <div className="flex items-center gap-1.5 pt-1">
+                                <span className="text-[8px] text-slate-500 uppercase font-bold shrink-0">Webhook AXIS:</span>
+                                <span className="text-[8px] font-mono text-slate-500 bg-slate-100/80 px-1 py-0.5 rounded truncate max-w-[200px]" title={conn.webhook_url}>
+                                  {conn.webhook_url}
+                                </span>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(conn.webhook_url);
+                                    alert('URL do Webhook copiada!');
+                                  }} 
+                                  className="text-slate-400 hover:text-navy p-0.5 rounded hover:bg-slate-200 transition-all shrink-0"
+                                  title="Copiar URL"
+                                >
+                                  <Copy size={9} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row items-stretch sm:items-center gap-1.5 shrink-0">
+                            <button 
+                              type="button"
+                              onClick={() => handleCheckCrmStatus(conn.id)}
+                              disabled={isSyncing}
+                              className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-600 font-bold text-[8px] uppercase tracking-wider rounded-lg border border-slate-200 flex items-center justify-center gap-1 transition-all disabled:opacity-50"
+                            >
+                              {isSyncing ? <Loader2 size={9} className="animate-spin text-blue-500" /> : <RefreshCw size={9} />}
+                              Sincronizar
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={() => handleConfigureCrmWebhook(conn.id)}
+                              disabled={isConfiguringWebhook || !conn.webhook_url}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold text-[8px] uppercase tracking-wider rounded-lg border border-blue-200 flex items-center justify-center gap-1 transition-all disabled:opacity-50"
+                              title="Configurar webhook automaticamente na Uazapi"
+                            >
+                              {isConfiguringWebhook ? <Loader2 size={9} className="animate-spin text-blue-500" /> : <Activity size={9} />}
+                              Configurar Webhook
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={() => handleDeleteCrmConnection(conn.id)}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-150 border border-rose-200 text-rose-600 font-bold text-[8px] uppercase tracking-wider rounded-lg flex items-center justify-center gap-1 transition-all"
+                              title="Remover conexão da AXIS"
+                            >
+                              <Trash2 size={9} />
+                              Excluir
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );

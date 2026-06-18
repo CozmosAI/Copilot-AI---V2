@@ -1237,10 +1237,21 @@ function mapUazapiStatus(payload) {
         }
     }
     
+    // Fallback analisando JSON.stringify(payload).toLowerCase()
+    try {
+        const str = JSON.stringify(payload).toLowerCase();
+        if (str.includes('"connected"') || str.includes('"open"') || str.includes('"authenticated"') || str.includes('"online"')) {
+            return 'connected';
+        }
+        if (str.includes('"disconnected"') || str.includes('"closed"') || str.includes('"offline"') || str.includes('"logout"')) {
+            return 'disconnected';
+        }
+    } catch (_) {}
+    
     return 'connecting';
 }
 
-// Helper Uazapi (Request Maker)
+// Helper Uazapi (Request Maker with 10s Timeout)
 async function uazapiRequest(connection, pathStr, options = {}) {
     const { id: connectionId, api_base_url, instance_token } = connection;
     if (!api_base_url) {
@@ -1264,9 +1275,15 @@ async function uazapiRequest(connection, pathStr, options = {}) {
         headers['Authorization'] = `Bearer ${instance_token}`;
     }
     
+    // Suportar timeout de 10 segundos
+    const controller = new AbortController();
+    const timeoutVal = options.timeout || 10000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutVal);
+    
     const fetchOptions = {
         method: options.method || 'GET',
         headers,
+        signal: controller.signal
     };
     
     if (options.body) {
@@ -1275,6 +1292,8 @@ async function uazapiRequest(connection, pathStr, options = {}) {
     
     try {
         const response = await fetch(url, fetchOptions);
+        clearTimeout(timeoutId);
+        
         const text = await response.text();
         let json;
         try {
@@ -1291,6 +1310,11 @@ async function uazapiRequest(connection, pathStr, options = {}) {
         }
         return json;
     } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            console.error(`Erro na requisição Uazapi (${pathStr}): Tempo limite esgotado (${timeoutVal / 1000}s)`);
+            return { error: true, message: `Tempo limite esgotado (${timeoutVal / 1000}s) ao se comunicar com a Uazapi` };
+        }
         console.error(`Erro na requisição Uazapi (${pathStr}):`, err);
         return { error: true, message: err.message };
     }
@@ -1378,7 +1402,15 @@ app.post('/api/crm/connections/uazapi/manual', async (req, res) => {
             throw new Error(`Erro ao salvar conexão CRM: ${insertError?.message || 'registro não retornado'}`);
         }
         
-        const publicUrl = process.env.APP_PUBLIC_URL || process.env.VITE_APP_PUBLIC_URL || (req.protocol + "://" + req.get("host"));
+        let publicUrl =
+            process.env.APP_PUBLIC_URL ||
+            process.env.APP_BASE_URL ||
+            process.env.VITE_BACKEND_URL ||
+            `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+
+        if (publicUrl.includes('onrender.com') && publicUrl.startsWith('http://')) {
+            publicUrl = publicUrl.replace('http://', 'https://');
+        }
         const webhookUrl = `${publicUrl.replace(/\/+$/, '')}/api/webhooks/uazapi/${newConn.id}/${newConn.webhook_secret}`;
         
         const { error: updateWebErr } = await client
@@ -1544,6 +1576,174 @@ app.get('/api/crm/connections/:connectionId/status', async (req, res) => {
         res.status(err.status || 500).json({
             ok: false,
             error: err.message || 'Erro ao consultar status da conexão'
+        });
+    }
+});
+
+// ROTA 4: DELETE /api/crm/connections/:connectionId
+app.delete('/api/crm/connections/:connectionId', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionId } = req.params;
+        
+        const client = supabaseAdmin || supabase;
+        const { data: connection, error: connError } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', connectionId)
+            .eq('user_id', user.id)
+            .single();
+            
+        if (connError || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: 'Conexão não encontrada.'
+            });
+        }
+        
+        const { error: deleteError } = await client
+            .from('crm_connections')
+            .delete()
+            .eq('id', connectionId)
+            .eq('user_id', user.id);
+            
+        if (deleteError) {
+            throw deleteError;
+        }
+        
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('Erro ao deletar conexão CRM:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao deletar conexão.'
+        });
+    }
+});
+
+// ROTA 5: POST /api/crm/connections/:connectionId/configure-webhook
+app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionId } = req.params;
+        
+        const client = supabaseAdmin || supabase;
+        const { data: connection, error: connError } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', connectionId)
+            .eq('user_id', user.id)
+            .single();
+            
+        if (connError || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: 'Conexão não encontrada.'
+            });
+        }
+        
+        if (connection.provider !== 'uazapi') {
+            return res.status(400).json({
+                ok: false,
+                error: 'Essa operação é suportada apenas para o provedor Uazapi.'
+            });
+        }
+        
+        if (!connection.webhook_url) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Webhook URL não gerado para esta conexão.'
+            });
+        }
+        
+        const webhookBody = {
+            url: connection.webhook_url,
+            webhookUrl: connection.webhook_url,
+            enabled: true,
+            events: ["messages.upsert", "MESSAGES_UPSERT", "STATUS_INSTANCE", "QRCODE_UPDATED"]
+        };
+        
+        const endpoints = [];
+        endpoints.push({ path: 'webhook', method: 'POST' });
+        if (connection.instance_name) {
+            endpoints.push({ path: `webhook/set/${connection.instance_name}`, method: 'POST' });
+        }
+        endpoints.push({ path: 'globalwebhook', method: 'POST' });
+        
+        let successResult = null;
+        let endpointUsado = null;
+        let lastErrDetail = '';
+        
+        for (const ep of endpoints) {
+            try {
+                // timeout de 10s via options.timeout
+                const result = await uazapiRequest(connection, ep.path, {
+                    method: ep.method,
+                    body: webhookBody,
+                    timeout: 10000
+                });
+                
+                if (result && !result.error) {
+                    successResult = result;
+                    endpointUsado = ep.path;
+                    break;
+                } else {
+                    lastErrDetail = (result && result.message) || 'Erro sem mensagem específica';
+                }
+            } catch (err) {
+                lastErrDetail = err.message;
+            }
+        }
+        
+        if (successResult) {
+            // Remove dados sensíveis da resposta antes de salvar
+            const respostaSemToken = { ...successResult };
+            delete respostaSemToken.token;
+            delete respostaSemToken.instance_token;
+            delete respostaSemToken.key;
+            
+            const payloadToSave = {
+                webhookConfigured: true,
+                endpoint: endpointUsado,
+                response: respostaSemToken
+            };
+            
+            await client
+                .from('crm_connections')
+                .update({
+                    last_status_payload: payloadToSave,
+                    last_error: null,
+                    updated_at: new Date()
+                })
+                .eq('id', connectionId);
+                
+            res.json({
+                ok: true,
+                message: "Webhook AXIS configurado na Uazapi.",
+                endpoint: endpointUsado
+            });
+        } else {
+            const finalErrorMsg = `Falha ao configurar webhook nos endpoints testados. Último erro: ${lastErrDetail}`;
+            
+            await client
+                .from('crm_connections')
+                .update({
+                    last_error: finalErrorMsg,
+                    updated_at: new Date()
+                })
+                .eq('id', connectionId);
+                
+            res.status(400).json({
+                ok: false,
+                error: "Não foi possível configurar o webhook automaticamente. Copie o webhook da AXIS e configure manualmente no painel da Uazapi."
+            });
+        }
+        
+    } catch (err) {
+        console.error('Erro ao configurar webhook Uazapi:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro interno ao configurar webhook'
         });
     }
 });
