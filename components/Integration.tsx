@@ -74,6 +74,12 @@ const Integration: React.FC = () => {
   const [syncingConnectionId, setSyncingConnectionId] = useState<string | null>(null);
   const [configuringWebhookId, setConfiguringWebhookId] = useState<string | null>(null);
   
+  // Debug & Webhook Diagnostic States
+  const [openEventsConnId, setOpenEventsConnId] = useState<string | null>(null);
+  const [eventsList, setEventsList] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
+  
   // Uazapi Auto-Creation and QR Polling States
   const [uazapiFormMode, setUazapiFormMode] = useState<'manual' | 'create'>('manual');
   const [isCreatingInstance, setIsCreatingInstance] = useState(false);
@@ -400,6 +406,79 @@ const Integration: React.FC = () => {
       alert(`Erro: ${e.message}`);
     } finally {
       setConfiguringWebhookId(null);
+    }
+  };
+
+  // Buscar eventos de log webhook para diagnóstico
+  const handleFetchEvents = async (connectionId: string) => {
+    setLoadingEvents(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      
+      const response = await apiFetch(`/api/crm/connections/${connectionId}/webhook-events`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await safeJsonResponse(response);
+      if (response.ok && data.ok) {
+        setEventsList(data.events || []);
+      } else {
+        console.error("Erro ao buscar eventos:", data?.error);
+      }
+    } catch (err) {
+      console.error("Erro técnico ao buscar eventos:", err);
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  // Enviar payload de teste ao webhook AXIS
+  const handleTestWebhook = async (conn: any) => {
+    if (!conn.webhook_url) {
+      alert('URL do Webhook indisponível para teste.');
+      return;
+    }
+    setTestingWebhookId(conn.id);
+    try {
+      const payload = {
+        event: "messages",
+        messages: [
+          {
+            id: "axis_test_" + Date.now(),
+            remoteJid: "5541999999999@s.whatsapp.net",
+            pushName: "Teste AXIS",
+            fromMe: false,
+            messageType: "text",
+            message: {
+              conversation: "Mensagem de teste webhook AXIS"
+            },
+            timestamp: Date.now()
+          }
+        ]
+      };
+      
+      const resp = await fetch(conn.webhook_url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (resp.ok) {
+        alert('Webhook de teste enviado com sucesso!');
+        await handleFetchEvents(conn.id);
+      } else {
+        const text = await resp.text();
+        alert(`Falha ao registrar webhook de teste: HTTP ${resp.status} - ${text}`);
+      }
+    } catch (err: any) {
+      alert(`Erro no envio de teste: ${err.message}`);
+    } finally {
+      setTestingWebhookId(null);
     }
   };
 
@@ -1154,6 +1233,36 @@ const Integration: React.FC = () => {
                               Configurar Webhook
                             </button>
 
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (openEventsConnId === conn.id) {
+                                  setOpenEventsConnId(null);
+                                } else {
+                                  setOpenEventsConnId(conn.id);
+                                  handleFetchEvents(conn.id);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-violet-50 hover:bg-violet-100 border border-violet-200 text-violet-600 font-bold text-[8px] uppercase tracking-wider rounded-lg flex items-center justify-center gap-1 transition-all"
+                              title="Ver histórico de recebimentos do Webhook"
+                            >
+                              <LayoutList size={9} />
+                              Ver eventos
+                            </button>
+
+                            {conn.webhook_url && (
+                              <button
+                                type="button"
+                                onClick={() => handleTestWebhook(conn)}
+                                disabled={testingWebhookId === conn.id}
+                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-600 font-bold text-[8px] uppercase tracking-wider rounded-lg flex items-center justify-center gap-1 transition-all disabled:opacity-50"
+                                title="Testar entrega do Webhook AXIS com payload fake"
+                              >
+                                {testingWebhookId === conn.id ? <Loader2 size={9} className="animate-spin text-amber-500" /> : <Activity size={9} />}
+                                Testar Webhook
+                              </button>
+                            )}
+
                             <button 
                               type="button"
                               onClick={() => handleDeleteCrmConnection(conn.id)}
@@ -1165,6 +1274,110 @@ const Integration: React.FC = () => {
                             </button>
                           </div>
                         </div>
+
+                        {/* PANEL DIAGNOSTIC WEBHOOK */}
+                        {openEventsConnId === conn.id && (
+                          <div className="mt-2.5 pt-3 border-t border-slate-200/80 space-y-2.5 animate-in slide-in-from-top duration-200">
+                            <div className="flex items-center justify-between">
+                              <h6 className="text-[10px] font-black uppercase text-navy tracking-wider flex items-center gap-1">
+                                <Activity size={10} className="text-blue-500 animate-pulse" />
+                                Diagnóstico do Webhook (Últimos 20 Eventos)
+                              </h6>
+                              <div className="flex items-center gap-1.5">
+                                {eventsList.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (eventsList[0]?.raw_payload) {
+                                        navigator.clipboard.writeText(JSON.stringify(eventsList[0].raw_payload, null, 2));
+                                        alert('Último payload bruto copiado!');
+                                      } else {
+                                        alert('Nenhum payload disponível.');
+                                      }
+                                    }}
+                                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[8px] uppercase tracking-wider rounded border border-slate-200 transition-all flex items-center gap-1"
+                                    title="Copiar Payload Bruto do Último Evento"
+                                  >
+                                    <Copy size={8} />
+                                    Copiar Último Payload
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleFetchEvents(conn.id)}
+                                  disabled={loadingEvents}
+                                  className="p-1 hover:bg-slate-100 text-slate-500 rounded border border-slate-250 hover:text-navy transition-all"
+                                  title="Recarregar logs"
+                                >
+                                  <RefreshCw size={8} className={loadingEvents ? "animate-spin" : ""} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenEventsConnId(null)}
+                                  className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded border border-slate-250 hover:border-rose-100 transition-all"
+                                  title="Fechar logs"
+                                >
+                                  <X size={8} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {loadingEvents ? (
+                              <div className="py-6 flex flex-col items-center justify-center text-slate-400 gap-1.5">
+                                <Loader2 size={12} className="animate-spin text-blue-500" />
+                                <span className="text-[8px] font-bold uppercase tracking-widest text-slate-400">Buscando histórico...</span>
+                              </div>
+                            ) : eventsList.length === 0 ? (
+                              <div className="p-4 rounded-xl bg-slate-100/40 text-center text-slate-400 border border-slate-100">
+                                <p className="text-[9px] font-bold">Nenhum evento registrado ainda.</p>
+                                <p className="text-[8px] text-slate-400 mt-0.5">Dispare um teste clicando em "Testar Webhook" ou aguarde envios reais da Uazapi.</p>
+                              </div>
+                            ) : (
+                              <div className="max-h-[220px] overflow-y-auto border border-slate-200 rounded-xl bg-white divide-y divide-slate-100 font-sans">
+                                {eventsList.map((evt) => {
+                                  const isProcessingError = evt.processing_status === 'error';
+                                  const isProcessed = evt.processing_status === 'processed';
+                                  const isIgnored = evt.processing_status === 'ignored';
+                                  
+                                  return (
+                                    <div key={evt.id} className="p-2 space-y-1 text-[9px] hover:bg-slate-50/40 transition-all">
+                                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-mono text-slate-500 font-semibold">
+                                            {new Date(evt.created_at).toLocaleString('pt-BR')}
+                                          </span>
+                                          <span className="px-1.5 py-0.5 font-bold uppercase tracking-wider rounded text-[7px] bg-slate-100 text-slate-600 border border-slate-200">
+                                            {evt.event_type}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <span className={`px-1.5 py-0.5 font-black uppercase text-[7px] rounded border ${
+                                            isProcessed ? 'bg-emerald-50 text-emerald-600 border-emerald-250' :
+                                            isIgnored ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                                            isProcessingError ? 'bg-rose-50 text-rose-600 border-rose-250' :
+                                            'bg-blue-50 text-blue-600 border-blue-200'
+                                          }`}>
+                                            {evt.processing_status === 'processed' ? 'PROCESSADO' :
+                                             evt.processing_status === 'ignored' ? 'IGNORADO' :
+                                             evt.processing_status === 'error' ? 'ERRO' : 'RECEBIDO'}
+                                          </span>
+                                          <span className="font-semibold text-slate-500 bg-slate-100 px-1 py-0.5 rounded text-[7px]">
+                                            msgs: {evt.processed_messages || 0}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      {evt.error_message && (
+                                        <div className="bg-rose-50/50 border border-rose-100 text-rose-700 p-1.5 rounded text-[7px] font-mono break-all whitespace-pre-wrap">
+                                          <strong>Erro:</strong> {evt.error_message}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

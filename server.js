@@ -2050,13 +2050,280 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
     }
 });
 
-// ROTA Webhook Placeholder: POST /api/webhooks/uazapi/:connectionId/:secret
+// GET /api/crm/connections/:connectionId/webhook-events - Buscar logs de eventos webhook
+app.get('/api/crm/connections/:connectionId/webhook-events', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionId } = req.params;
+        const client = supabaseAdmin || supabase;
+        
+        // Validar se a conexão existe e pertence a este user
+        const { data: connection, error: connError } = await client
+            .from('crm_connections')
+            .select('id')
+            .eq('id', connectionId)
+            .eq('user_id', user.id)
+            .single();
+            
+        if (connError || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: "Conexão não encontrada ou não pertence a este usuário"
+            });
+        }
+        
+        const { data: events, error: eventsError } = await client
+            .from('crm_webhook_events')
+            .select('*')
+            .eq('connection_id', connectionId)
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(20);
+            
+        if (eventsError) throw eventsError;
+        
+        res.json({
+            ok: true,
+            events: events || []
+        });
+    } catch (err) {
+        console.error('Erro ao buscar logs de webhook:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao buscar eventos'
+        });
+    }
+});
+
+// --- HELPERS E PROCESSADORES DA UAZAPI ---
+
+// Normaliza telefone (remove sufixos e caracteres não numéricos)
+function normalizePhone(value) {
+    if (!value) return null;
+    let clean = String(value);
+    clean = clean.split('@')[0];
+    clean = clean.replace(/\D/g, '');
+    return clean || null;
+}
+
+// Normaliza external_chat_id (usa valor existente ou phone, preserva identificador do grupo)
+function normalizeExternalChatId(value, phone) {
+    if (value) return String(value);
+    if (phone) return String(phone);
+    return null;
+}
+
+// Reconstrói e mapeia defensivamente o payload da Uazapi
+function normalizeUazapiWebhookPayload(payload) {
+    if (!payload) return { eventType: 'unknown', messages: [] };
+
+    // 1. Detectar tipo de evento principal
+    let eventType = payload.event || payload.type || payload.eventType || 'unknown';
+    eventType = String(eventType).toLowerCase();
+    
+    const hasMessages = payload.messages || payload.message || 
+                        (payload.data && (payload.data.messages || payload.data.message));
+                        
+    if (eventType.includes('message') || hasMessages) {
+        eventType = 'messages';
+    } else if (eventType.includes('connection') || eventType.includes('status') || eventType.includes('qr') || eventType.includes('instance')) {
+        eventType = 'connection';
+    }
+
+    // 2. Tentar extrair status da conexão
+    let connectionStatus = null;
+    const s = payload.status || payload.state || (payload.data && (payload.data.status || payload.data.state || payload.data.connection));
+    if (s) {
+        connectionStatus = s;
+    }
+
+    // 3. Extrair lista de mensagens
+    let rawMessagesList = [];
+    if (Array.isArray(payload.messages)) {
+        rawMessagesList = payload.messages;
+    } else if (payload.messages) {
+        rawMessagesList = [payload.messages];
+    } else if (payload.data && Array.isArray(payload.data.messages)) {
+        rawMessagesList = payload.data.messages;
+    } else if (payload.data && payload.data.messages) {
+        rawMessagesList = [payload.data.messages];
+    } else if (payload.data && payload.data.message) {
+        rawMessagesList = [payload.data.message];
+    } else if (payload.message) {
+        rawMessagesList = [payload.message];
+    } else if (payload.key && (payload.message || payload.messageContent)) {
+        rawMessagesList = [payload];
+    } else if (payload.data && payload.data.key) {
+        rawMessagesList = [payload.data];
+    }
+
+    const messages = [];
+
+    for (const raw of rawMessagesList) {
+        if (!raw) continue;
+
+        const key = raw.key || (raw.message && raw.message.key) || (payload.data && payload.data.key) || {};
+        
+        let isGroup = false;
+        if (typeof raw.isGroup === 'boolean') {
+            isGroup = raw.isGroup;
+        } else if (raw.isGroupYes === true || raw.isGroupYes === 'true') {
+            isGroup = true;
+        } else if (raw.is_group === true || raw.is_group === 'true') {
+            isGroup = true;
+        }
+        
+        let externalChatId = raw.chatId || raw.remoteJid || raw.from || raw.to || raw.jid || key.remoteJid || null;
+        if (externalChatId && (externalChatId.includes('@g.us') || externalChatId.includes('-') || externalChatId.includes('@group'))) {
+            isGroup = true;
+        }
+
+        const phone = externalChatId ? normalizePhone(externalChatId) : null;
+        externalChatId = normalizeExternalChatId(externalChatId, phone) || null;
+
+        const externalMessageId = raw.messageId || raw.id || key.id || (raw.key && raw.key.id) || null;
+        const pushName = raw.pushName || raw.senderName || raw.notifyName || raw.verifiedName || null;
+
+        let fromMe = false;
+        if (typeof raw.fromMe === 'boolean') {
+            fromMe = raw.fromMe;
+        } else if (key && typeof key.fromMe === 'boolean') {
+            fromMe = key.fromMe;
+        } else if (raw.from_me === true) {
+            fromMe = true;
+        }
+
+        let messageType = raw.messageType || raw.type || raw.mediaType || null;
+        let text = null;
+        let caption = null;
+        let mediaUrl = null;
+        let mediaMimeType = null;
+        let mediaFilename = null;
+
+        const actualMessage = raw.message || raw.messageContent || raw;
+        if (actualMessage) {
+            text = actualMessage.text || actualMessage.body || actualMessage.conversation || 
+                   (actualMessage.extendedTextMessage && (actualMessage.extendedTextMessage.text || actualMessage.extendedTextMessage.conversation)) || null;
+
+            const img = actualMessage.imageMessage;
+            const vid = actualMessage.videoMessage;
+            const doc = actualMessage.documentMessage;
+            const stk = actualMessage.stickerMessage;
+            const aud = actualMessage.audioMessage;
+
+            if (img) {
+                messageType = messageType || 'image';
+                caption = caption || img.caption || null;
+                mediaUrl = mediaUrl || img.url || img.fileUrl || null;
+                mediaMimeType = mediaMimeType || img.mimetype || img.mimeType || null;
+            }
+            if (vid) {
+                messageType = messageType || 'video';
+                caption = caption || vid.caption || null;
+                mediaUrl = mediaUrl || vid.url || vid.fileUrl || null;
+                mediaMimeType = mediaMimeType || vid.mimetype || vid.mimeType || null;
+            }
+            if (doc) {
+                messageType = messageType || 'document';
+                caption = caption || doc.caption || null;
+                mediaUrl = mediaUrl || doc.url || doc.fileUrl || null;
+                mediaMimeType = mediaMimeType || doc.mimetype || doc.mimeType || null;
+                mediaFilename = mediaFilename || doc.fileName || doc.filename || null;
+            }
+            if (stk) {
+                messageType = messageType || 'sticker';
+                mediaUrl = mediaUrl || stk.url || stk.fileUrl || null;
+                mediaMimeType = mediaMimeType || stk.mimetype || stk.mimeType || null;
+            }
+            if (aud) {
+                messageType = messageType || 'audio';
+                mediaUrl = mediaUrl || aud.url || aud.fileUrl || null;
+                mediaMimeType = mediaMimeType || aud.mimetype || aud.mimeType || null;
+            }
+
+            if (!text) {
+                text = caption || actualMessage.caption || null;
+            }
+            if (!mediaUrl) {
+                mediaUrl = actualMessage.mediaUrl || actualMessage.url || actualMessage.fileUrl || null;
+            }
+            if (!mediaMimeType) {
+                mediaMimeType = actualMessage.mimetype || actualMessage.mimeType || null;
+            }
+            if (!mediaFilename) {
+                mediaFilename = actualMessage.fileName || actualMessage.filename || null;
+            }
+        }
+
+        if (!messageType) {
+            if (mediaUrl) {
+                if (mediaMimeType) {
+                    if (mediaMimeType.startsWith('image/')) messageType = 'image';
+                    else if (mediaMimeType.startsWith('video/')) messageType = 'video';
+                    else if (mediaMimeType.startsWith('audio/')) messageType = 'audio';
+                    else messageType = 'document';
+                } else {
+                    messageType = 'document';
+                }
+            } else {
+                messageType = 'text';
+            }
+        }
+
+        let timestamp = raw.messageTimestamp || raw.timestamp || raw.sentAt || null;
+        if (timestamp) {
+            const tsNum = Number(timestamp);
+            if (!isNaN(tsNum)) {
+                if (tsNum < 10000000000) {
+                    timestamp = new Date(tsNum * 1000);
+                } else {
+                    timestamp = new Date(tsNum);
+                }
+            } else {
+                timestamp = new Date(timestamp);
+            }
+        } else {
+            timestamp = new Date();
+        }
+
+        messages.push({
+            externalMessageId,
+            externalChatId,
+            phone,
+            pushName,
+            fromMe,
+            isGroup: !!isGroup,
+            messageType,
+            text,
+            caption,
+            mediaUrl,
+            mediaMimeType,
+            mediaFilename,
+            timestamp,
+            rawMessage: raw
+        });
+    }
+
+    return {
+        eventType,
+        messages,
+        connectionStatus,
+        rawPayload: payload
+    };
+}
+
+// ROTA Webhook Real: POST /api/webhooks/uazapi/:connectionId/:secret
 app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const { connectionId, secret } = req.params;
     const body = req.body;
+    let webhookEventId = null;
+    
+    console.log(`[Webhook Uazapi] Recebido evento para a conexão ID: ${connectionId}`);
     
     try {
         const client = supabaseAdmin || supabase;
+        
+        // 1. Validar a conexão
         const { data: connection, error } = await client
             .from('crm_connections')
             .select('*')
@@ -2066,25 +2333,483 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             
         if (error || !connection) {
             console.error(`[Webhook Uazapi] Conexão não encontrada ou secret inválido: ${connectionId}`);
-            return res.status(404).json({ error: 'Connection not found or secret invalid' });
+            return res.status(404).json({ ok: false, error: "Webhook inválido." });
         }
         
-        const { error: updateError } = await client
-            .from('crm_connections')
-            .update({
+        // Tarefa 1 - Salvar evento bruto imediatamente
+        try {
+            const { data: newEvent, error: insertEventErr } = await client
+                .from('crm_webhook_events')
+                .insert({
+                    connection_id: connection.id,
+                    user_id: connection.user_id,
+                    provider: 'uazapi',
+                    event_type: 'raw_received',
+                    processing_status: 'received',
+                    raw_payload: body,
+                    processed_messages: 0
+                })
+                .select('id')
+                .single();
+                
+            if (insertEventErr) {
+                console.error(`[Webhook Uazapi] Erro ao salvar evento bruto inicial:`, insertEventErr);
+            } else if (newEvent) {
+                webhookEventId = newEvent.id;
+                console.log(`[Webhook Uazapi] Evento bruto salvo: ${webhookEventId}`);
+            }
+        } catch (dbErr) {
+            console.error(`[Webhook Uazapi] Falha crítica de BD ao gravar evento bruto inicial:`, dbErr);
+        }
+
+        // 2. Interpretar eventos da Uazapi via normalizador tolerante
+        const normalized = normalizeUazapiWebhookPayload(body);
+        console.log(`[Webhook Uazapi] EventType: ${normalized.eventType}`);
+        
+        // 3. Tratar eventos de conexão/status da instância
+        if (normalized.eventType === 'connection') {
+            let connectedPhone = null;
+            const rawJid = body.jid || body.data?.jid || body.data?.me?.id || body.me?.id || body.data?.me || body.connectedPhone || body.data?.phone || body.phone || null;
+            if (rawJid) {
+                connectedPhone = normalizePhone(rawJid);
+            }
+
+            const updateData = {
                 last_status_payload: body,
+                connection_status: mapUazapiStatus(body),
                 updated_at: new Date()
-            })
-            .eq('id', connectionId);
+            };
+            if (connectedPhone) {
+                updateData.connected_phone = connectedPhone;
+            }
+
+            console.log(`[Webhook Uazapi] Atualizando status da conexão para: ${updateData.connection_status}`);
             
-        if (updateError) {
-            console.error(`[Webhook Uazapi] Erro ao atualizar payload na conexão:`, updateError);
+            const { error: updateError } = await client
+                .from('crm_connections')
+                .update(updateData)
+                .eq('id', connectionId);
+                
+            if (updateError) {
+                console.error(`[Webhook Uazapi] Erro ao atualizar status na conexão:`, updateError);
+            }
+            
+            // Tarefa 2 - Atualizar crm_webhook_events após normalizar
+            if (webhookEventId) {
+                await client
+                    .from('crm_webhook_events')
+                    .update({
+                        event_type: normalized.eventType,
+                        normalized_payload: normalized,
+                        processing_status: 'ignored',
+                        processed_messages: 0,
+                        updated_at: new Date()
+                    })
+                    .eq('id', webhookEventId);
+            }
+            
+            console.log(`[Webhook Uazapi] Ignorado: Evento de conexão tratado, sem mensagens de CRM.`);
+            
+            return res.json({
+                ok: true,
+                eventType: 'connection',
+                processedMessages: 0
+            });
         }
         
-        res.json({ ok: true });
+        // Se não for nem de mensagem e nem de conexão, devolve warning saudável
+        if (normalized.eventType !== 'messages' || normalized.messages.length === 0) {
+            if (webhookEventId) {
+                await client
+                    .from('crm_webhook_events')
+                    .update({
+                        event_type: normalized.eventType,
+                        normalized_payload: normalized,
+                        processing_status: 'ignored',
+                        processed_messages: 0,
+                        updated_at: new Date()
+                    })
+                    .eq('id', webhookEventId);
+            }
+            
+            console.log(`[Webhook Uazapi] Ignorado: Tipo de evento diferente de mensagens ou lista de mensagens está vazia.`);
+            
+            return res.json({
+                ok: true,
+                warning: "Payload sem mensagens processáveis."
+            });
+        }
+        
+        console.log(`[Webhook Uazapi] Mensagens normalizadas: ${normalized.messages.length}`);
+        let processedCount = 0;
+        
+        // 4. Processar mensagens recebidas
+        for (const msg of normalized.messages) {
+            try {
+                const {
+                    externalMessageId,
+                    externalChatId,
+                    phone,
+                    pushName,
+                    fromMe,
+                    isGroup,
+                    messageType,
+                    text,
+                    caption,
+                    mediaUrl,
+                    mediaMimeType,
+                    mediaFilename,
+                    timestamp,
+                    rawMessage
+                } = msg;
+                
+                if (!externalChatId) {
+                    console.log(`[Webhook Uazapi] Ignorado: chatId nulo.`);
+                    continue;
+                }
+                
+                const listenGroups = connection.connection_settings?.listenGroups === true;
+                if (isGroup && !listenGroups) {
+                    console.log(`[Webhook Uazapi] Ignorado: Grupo ignorado de acordo com as configurações da conexão.`);
+                    continue;
+                }
+                
+                const wasSentByApi = rawMessage?.wasSentByApi === true || rawMessage?.isSentByApi === true || body?.wasSentByApi === true;
+                if (fromMe && wasSentByApi) {
+                    console.log(`[Webhook Uazapi] Ignorado: Enviada pelo próprio sistema via API.`);
+                    continue;
+                }
+                
+                const isProtocolOrSystem = messageType === 'protocol' || messageType === 'system';
+                const hasUsefulContent = !!(text || caption || mediaUrl);
+                if (isProtocolOrSystem && !hasUsefulContent) {
+                    console.log(`[Webhook Uazapi] Ignorado: Notificação de sistema sem conteúdo útil.`);
+                    continue;
+                }
+                
+                // --- FLUXO 1: crm_contacts ---
+                let contactId = null;
+                const { data: existingContact, error: findContactErr } = await client
+                    .from('crm_contacts')
+                    .select('*')
+                    .eq('connection_id', connection.id)
+                    .eq('external_chat_id', externalChatId)
+                    .maybeSingle();
+                    
+                if (findContactErr) {
+                    console.error(`[Webhook Uazapi] Erro ao buscar crm_contacts:`, findContactErr);
+                }
+                
+                if (existingContact) {
+                    contactId = existingContact.id;
+                    const updateContactData = {
+                        phone: phone || existingContact.phone,
+                        push_name: pushName || existingContact.push_name,
+                        display_name: pushName || phone || externalChatId || existingContact.display_name,
+                        raw_profile: rawMessage || existingContact.raw_profile,
+                        updated_at: new Date()
+                    };
+                    const { error: updateContactErr } = await client
+                        .from('crm_contacts')
+                        .update(updateContactData)
+                        .eq('id', contactId);
+                        
+                    if (updateContactErr) {
+                        console.error(`[Webhook Uazapi] Erro ao atualizar crm_contacts:`, updateContactErr);
+                    }
+                } else {
+                    const insertContactData = {
+                        user_id: connection.user_id,
+                        connection_id: connection.id,
+                        external_chat_id: externalChatId,
+                        phone: phone,
+                        push_name: pushName,
+                        display_name: pushName || phone || externalChatId,
+                        is_group: !!isGroup,
+                        raw_profile: rawMessage,
+                        created_at: new Date(),
+                        updated_at: new Date()
+                    };
+                    const { data: newContact, error: insertContactErr } = await client
+                        .from('crm_contacts')
+                        .insert(insertContactData)
+                        .select()
+                        .single();
+                        
+                    if (insertContactErr) {
+                        console.error(`[Webhook Uazapi] Erro ao criar crm_contacts:`, insertContactErr);
+                    } else if (newContact) {
+                        contactId = newContact.id;
+                        console.log(`[Webhook Uazapi] Novo crm_contacts criado: ID ${contactId}`);
+                    }
+                }
+                
+                // --- FLUXO 2: leads (CRM) ---
+                let leadId = null;
+                let existingLead = null;
+                
+                if (phone) {
+                    const { data, error } = await client
+                        .from('leads')
+                        .select('*')
+                        .eq('user_id', connection.user_id)
+                        .eq('phone', phone)
+                        .maybeSingle();
+                    if (!error && data) {
+                        existingLead = data;
+                    }
+                }
+                
+                if (!existingLead && externalChatId) {
+                    const { data, error } = await client
+                        .from('leads')
+                        .select('*')
+                        .eq('user_id', connection.user_id)
+                        .eq('external_chat_id', externalChatId)
+                        .maybeSingle();
+                    if (!error && data) {
+                        existingLead = data;
+                    }
+                }
+                
+                const messageSummary = text || caption || (mediaUrl ? "[mídia]" : "[mensagem]");
+                const senderTypeStr = fromMe ? "me" : "contact";
+                const interactionTime = timestamp || new Date();
+                
+                if (existingLead) {
+                    leadId = existingLead.id;
+                    const updateLeadData = {
+                        last_message: messageSummary,
+                        last_sender: senderTypeStr,
+                        last_interaction: interactionTime,
+                        external_chat_id: externalChatId || existingLead.external_chat_id,
+                        channel: 'whatsapp'
+                    };
+                    const { error: updateLeadErr } = await client
+                        .from('leads')
+                        .update(updateLeadData)
+                        .eq('id', leadId);
+                        
+                    if (updateLeadErr) {
+                        console.error(`[Webhook Uazapi] Erro ao atualizar lead:`, updateLeadErr);
+                    }
+                } else {
+                    const insertLeadData = {
+                        user_id: connection.user_id,
+                        name: pushName || phone || externalChatId || 'Lead WhatsApp',
+                        phone: phone || externalChatId || '',
+                        status: 'Novo',
+                        temperature: 'Cold',
+                        source: 'WhatsApp',
+                        channel: 'whatsapp',
+                        external_chat_id: externalChatId,
+                        last_message: messageSummary,
+                        last_sender: senderTypeStr,
+                        last_interaction: interactionTime,
+                        created_at: new Date()
+                    };
+                    const { data: newLead, error: insertLeadErr } = await client
+                        .from('leads')
+                        .insert(insertLeadData)
+                        .select()
+                        .single();
+                        
+                    if (insertLeadErr) {
+                        console.error(`[Webhook Uazapi] Erro ao criar lead:`, insertLeadErr);
+                    } else if (newLead) {
+                        leadId = newLead.id;
+                        console.log(`[Webhook Uazapi] Novo lead criado: ID ${leadId}`);
+                    }
+                }
+                
+                // --- FLUXO 3: crm_conversations ---
+                let conversationId = null;
+                if (contactId) {
+                    const { data: existingConv, error: findConvErr } = await client
+                        .from('crm_conversations')
+                        .select('*')
+                        .eq('connection_id', connection.id)
+                        .eq('contact_id', contactId)
+                        .maybeSingle();
+                        
+                    if (findConvErr) {
+                        console.error(`[Webhook Uazapi] Erro ao buscar crm_conversations:`, findConvErr);
+                    }
+                    
+                    const msgTypeStr = messageType || 'text';
+                    
+                    if (existingConv) {
+                        conversationId = existingConv.id;
+                        const incUnread = !fromMe ? 1 : 0;
+                        const updateConvData = {
+                            unread_count: existingConv.unread_count + incUnread,
+                            last_message_text: messageSummary,
+                            last_message_type: msgTypeStr,
+                            last_message_at: interactionTime,
+                            last_sender: senderTypeStr,
+                            updated_at: new Date()
+                        };
+                        
+                        if (!existingConv.lead_id && leadId) {
+                            updateConvData.lead_id = leadId;
+                        }
+                        
+                        const { error: updateConvErr } = await client
+                            .from('crm_conversations')
+                            .update(updateConvData)
+                            .eq('id', conversationId);
+                            
+                        if (updateConvErr) {
+                            console.error(`[Webhook Uazapi] Erro ao atualizar conversa:`, updateConvErr);
+                        }
+                    } else {
+                        const insertConvData = {
+                            user_id: connection.user_id,
+                            connection_id: connection.id,
+                            contact_id: contactId,
+                            lead_id: leadId,
+                            conversation_status: 'open',
+                            unread_count: !fromMe ? 1 : 0,
+                            last_message_text: messageSummary,
+                            last_message_type: msgTypeStr,
+                            last_message_at: interactionTime,
+                            last_sender: senderTypeStr,
+                            created_at: new Date(),
+                            updated_at: new Date()
+                        };
+                        const { data: newConv, error: insertConvErr } = await client
+                            .from('crm_conversations')
+                            .insert(insertConvData)
+                            .select()
+                            .single();
+                            
+                        if (insertConvErr) {
+                            console.error(`[Webhook Uazapi] Erro ao criar conversa:`, insertConvErr);
+                        } else if (newConv) {
+                            conversationId = newConv.id;
+                            console.log(`[Webhook Uazapi] Nova crm_conversations criada: ID ${conversationId}`);
+                        }
+                    }
+                }
+                
+                // Vincular conversa recém-criada ao Lead
+                if (leadId && conversationId) {
+                    const { error: updateLeadConvErr } = await client
+                        .from('leads')
+                        .update({ conversation_id: conversationId })
+                        .eq('id', leadId);
+                        
+                    if (updateLeadConvErr) {
+                        console.error(`[Webhook Uazapi] Erro ao associar conversation_id ao lead:`, updateLeadConvErr);
+                    }
+                }
+                
+                // --- FLUXO 4: crm_messages com IDEMPOTÊNCIA ---
+                let finalExternalMessageId = externalMessageId;
+                if (!finalExternalMessageId) {
+                    const hashBase = `${connection.id}_${externalChatId}_${interactionTime.getTime ? interactionTime.getTime() : String(interactionTime)}_${messageSummary}`;
+                    finalExternalMessageId = crypto.createHash('md5').update(hashBase).digest('hex');
+                }
+                
+                // Verificar se a mensagem já foi salva
+                const { data: existingMsg, error: checkMsgErr } = await client
+                    .from('crm_messages')
+                    .select('id')
+                    .eq('connection_id', connection.id)
+                    .eq('external_message_id', finalExternalMessageId)
+                    .maybeSingle();
+                    
+                if (checkMsgErr) {
+                    console.error(`[Webhook Uazapi] Erro ao verificar idempotência de crm_messages:`, checkMsgErr);
+                }
+                
+                if (existingMsg) {
+                    console.log(`[Webhook Uazapi] Ignorado: Mensagem ${finalExternalMessageId} ja existe (duplicada).`);
+                } else {
+                    const insertMsgData = {
+                        user_id: connection.user_id,
+                        connection_id: connection.id,
+                        conversation_id: conversationId,
+                        contact_id: contactId,
+                        lead_id: leadId,
+                        external_message_id: finalExternalMessageId,
+                        message_direction: fromMe ? "outbound" : "inbound",
+                        sender_type: fromMe ? "me" : "contact",
+                        message_type: messageType || 'text',
+                        message_text: text,
+                        caption: caption || null,
+                        media_url: mediaUrl || null,
+                        media_mime_type: mediaMimeType || null,
+                        media_filename: mediaFilename || null,
+                        message_status: fromMe ? "sent" : "received",
+                        from_me: !!fromMe,
+                        raw_payload: rawMessage || null,
+                        sent_at: interactionTime,
+                        created_at: new Date()
+                    };
+                    
+                    const { error: insertMsgErr } = await client
+                        .from('crm_messages')
+                        .insert(insertMsgData);
+                        
+                    if (insertMsgErr) {
+                        console.error(`[Webhook Uazapi] Erro ao salvar crm_messages:`, insertMsgErr);
+                    } else {
+                        console.log(`[Webhook Uazapi] Mensagem ${finalExternalMessageId} salva com sucesso.`);
+                    }
+                }
+                
+                processedCount++;
+            } catch (singleMsgErr) {
+                console.error(`[Webhook Uazapi] Erro no loop de processamento de mensagem específica:`, singleMsgErr);
+            }
+        }
+        
+        console.log(`[Webhook Uazapi] Mensagens processadas: ${processedCount}`);
+        
+        // Tarefa 2 - Atualizar crm_webhook_events de mensagens com sucesso
+        if (webhookEventId) {
+            await client
+                .from('crm_webhook_events')
+                .update({
+                    event_type: normalized.eventType,
+                    normalized_payload: normalized,
+                    processing_status: processedCount > 0 ? 'processed' : 'ignored',
+                    processed_messages: processedCount,
+                    updated_at: new Date()
+                })
+                .eq('id', webhookEventId);
+        }
+        
+        res.json({
+            ok: true,
+            eventType: normalized.eventType,
+            processedMessages: processedCount
+        });
     } catch (err) {
-        console.error('[Webhook Uazapi] Erro interno:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        // Tarefa 3 - Nunca perder payload, registrar erro em crm_webhook_events e responder ok: true
+        console.error('[Webhook Uazapi] Erro interno crítico:', err);
+        
+        if (webhookEventId) {
+            try {
+                const client = supabaseAdmin || supabase;
+                await client
+                    .from('crm_webhook_events')
+                    .update({
+                        processing_status: 'error',
+                        error_message: err.message || String(err),
+                        updated_at: new Date()
+                    })
+                    .eq('id', webhookEventId);
+            } catch (updateErr) {
+                console.error('[Webhook Uazapi] Erro ao atualizar status de erro no evento de webhook:', updateErr);
+            }
+        }
+        
+        res.json({
+            ok: true,
+            error: "Erro processando webhook, porém payload foi registrado."
+        });
     }
 });
 
