@@ -1207,6 +1207,20 @@ function sanitizeCrmConnection(connection) {
     return sanitized;
 }
 
+// Helper para obter URL pública do App de forma robusta e segura
+function getPublicUrl(req) {
+    let publicUrl =
+        process.env.APP_PUBLIC_URL ||
+        process.env.APP_BASE_URL ||
+        process.env.VITE_BACKEND_URL ||
+        `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+
+    if (publicUrl.includes('onrender.com') && publicUrl.startsWith('http://')) {
+        publicUrl = publicUrl.replace('http://', 'https://');
+    }
+    return publicUrl.replace(/\/+$/, '');
+}
+
 // Função para mapear status da Uazapi pros valores internos
 function mapUazapiStatus(payload) {
     if (!payload) {
@@ -1232,8 +1246,11 @@ function mapUazapiStatus(payload) {
         if (s === 'connected' || s === 'open' || s === 'online' || s === 'authenticated' || s === 'authorized' || s === 'logged' || s === 'true') {
             return 'connected';
         }
-        if (s === 'disconnected' || s === 'close' || s === 'closed' || s === 'offline' || s === 'notauthorized' || s === 'logout' || s === 'false') {
+        if (s === 'disconnected' || s === 'close' || s === 'closed' || s === 'offline' || s === 'not_logged' || s === 'not_connected' || s === 'logout' || s === 'false') {
             return 'disconnected';
+        }
+        if (s === 'qrcode' || s === 'qr' || s === 'paircode' || s === 'notauthorized') {
+            return 'qrcode'; 
         }
     }
     
@@ -1243,8 +1260,11 @@ function mapUazapiStatus(payload) {
         if (str.includes('"connected"') || str.includes('"open"') || str.includes('"authenticated"') || str.includes('"online"')) {
             return 'connected';
         }
-        if (str.includes('"disconnected"') || str.includes('"closed"') || str.includes('"offline"') || str.includes('"logout"')) {
+        if (str.includes('"disconnected"') || str.includes('"closed"') || str.includes('"offline"') || str.includes('"logout"') || str.includes('"not_logged"') || str.includes('"not_connected"')) {
             return 'disconnected';
+        }
+        if (str.includes('"qrcode"') || str.includes('"qr"') || str.includes('"paircode"') || str.includes('"notauthorized"')) {
+            return 'qrcode';
         }
     } catch (_) {}
     
@@ -1555,13 +1575,35 @@ app.get('/api/crm/connections/:connectionId/status', async (req, res) => {
             updateFields.connected_phone = phone;
         }
         
-        const { data: updatedConnection, error: updateError } = await client
+        let updatedConnection = null;
+        let { data: upConn, error: updateError } = await client
             .from('crm_connections')
             .update(updateFields)
             .eq('id', connectionId)
             .select()
             .single();
             
+        if (updateError) {
+            console.warn(`[Uazapi Status Update] Erro ao atualizar status (${updatedStatus}), tentando fallback...`, updateError.message);
+            const fallbackFields = {
+                ...updateFields,
+                connection_status: 'connecting'
+            };
+            const { data: fbConn, error: fbErr } = await client
+                .from('crm_connections')
+                .update(fallbackFields)
+                .eq('id', connectionId)
+                .select()
+                .single();
+            if (fbErr) {
+                console.error('[Uazapi Status Update] Falha no fallback:', fbErr.message);
+            } else {
+                updatedConnection = fbConn;
+            }
+        } else {
+            updatedConnection = upConn;
+        }
+        
         const finalConn = updatedConnection || { ...connection, ...updateFields };
         
         res.json({
@@ -1621,6 +1663,245 @@ app.delete('/api/crm/connections/:connectionId', async (req, res) => {
     }
 });
 
+// NOVO ENDPOINT: POST /api/crm/connections/uazapi/create-instance
+app.post('/api/crm/connections/uazapi/create-instance', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionName, systemName, adminField01, adminField02 } = req.body;
+        
+        if (!connectionName) {
+            return res.status(400).json({ ok: false, error: 'O nome da conexão é obrigatório.' });
+        }
+        
+        const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
+        const apiBaseUrl = process.env.UAZAPI_BASE_URL || 'https://task-ai.uazapi.com';
+        
+        if (!adminToken) {
+            console.error('[Uazapi Create Instance] UAZAPI_ADMIN_TOKEN ausente nas variáveis de ambiente.');
+            return res.status(400).json({ 
+                ok: false, 
+                error: 'Servidor não configurado com UAZAPI_ADMIN_TOKEN. Por favor, adicione-o nas variáveis de ambiente da AXIS.' 
+            });
+        }
+        
+        const url = `${apiBaseUrl.replace(/\/+$/, '')}/instance/init`;
+        const headers = {
+            'Content-Type': 'application/json',
+            'admintoken': adminToken
+        };
+        const bodyValue = {
+            name: connectionName,
+            systemName: systemName || "AXIS AI",
+            adminField01: adminField01 || "AXIS CRM",
+            adminField02: adminField02 || user.id
+        };
+        
+        console.log(`[Uazapi Create Instance] Chamando /instance/init em ${apiBaseUrl}...`);
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(bodyValue)
+        });
+        
+        const resultText = await response.text();
+        let resultJson;
+        try {
+            resultJson = JSON.parse(resultText);
+        } catch (_) {
+            return res.status(400).json({ 
+                ok: false, 
+                error: `Uazapi retornou resposta não-JSON: ${resultText}` 
+            });
+        }
+        
+        if (!response.ok || (resultJson && resultJson.error)) {
+            return res.status(400).json({ 
+                ok: false, 
+                error: (resultJson && resultJson.message) || `Uazapi HTTP Error ${response.status}: ${JSON.stringify(resultJson)}` 
+            });
+        }
+        
+        // Extrair token, id, name defensivamente
+        const instance_token = resultJson.instance_token || resultJson.token || (resultJson.instance && (resultJson.instance.instance_token || resultJson.instance.token)) || null;
+        const instance_id = resultJson.instance_id || resultJson.id || (resultJson.instance && (resultJson.instance.instance_id || resultJson.instance.id)) || null;
+        const instance_name = resultJson.instance_name || resultJson.name || (resultJson.instance && (resultJson.instance.instance_name || resultJson.instance.name)) || null;
+        
+        if (!instance_token) {
+            return res.status(400).json({ 
+                ok: false, 
+                error: 'Instância criada com sucesso na Uazapi, mas o token não foi retornado nas propriedades esperadas.',
+                raw: resultJson 
+            });
+        }
+        
+        const webhookSecret = crypto.randomBytes(16).toString('hex');
+        
+        const insertPayload = {
+            user_id: user.id,
+            channel: 'whatsapp',
+            provider: 'uazapi',
+            connection_name: connectionName,
+            api_base_url: apiBaseUrl,
+            instance_token: instance_token,
+            instance_id: instance_id ? String(instance_id) : null,
+            instance_name: instance_name || connectionName,
+            connection_status: 'connecting',
+            webhook_secret: webhookSecret,
+            connection_settings: { createdByAxis: true }
+        };
+        
+        const client = supabaseAdmin || supabase;
+        const { data: newConn, error: insertError } = await client
+            .from('crm_connections')
+            .insert(insertPayload)
+            .select()
+            .single();
+            
+        if (insertError || !newConn) {
+            throw new Error(`Erro ao salvar nova conexão no banco de dados: ${insertError?.message || 'registro não retornado'}`);
+        }
+        
+        const webhookUrl = `${getPublicUrl(req)}/api/webhooks/uazapi/${newConn.id}/${webhookSecret}`;
+        
+        const { data: finalConnRecord, error: updateWebErr } = await client
+            .from('crm_connections')
+            .update({ webhook_url: webhookUrl })
+            .eq('id', newConn.id)
+            .select()
+            .single();
+            
+        if (updateWebErr) {
+            console.error('[UazAPI Create Instance] Erro ao salvar webhook_url:', updateWebErr);
+        }
+        
+        res.json({
+            ok: true,
+            connection: sanitizeCrmConnection(finalConnRecord || { ...newConn, webhook_url: webhookUrl })
+        });
+        
+    } catch (err) {
+        console.error('Erro ao processar criação de instância:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao processar criação de instância.'
+        });
+    }
+});
+
+// NOVO ENDPOINT: POST /api/crm/connections/:connectionId/connect
+app.post('/api/crm/connections/:connectionId/connect', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { connectionId } = req.params;
+        
+        const client = supabaseAdmin || supabase;
+        const { data: connection, error: connError } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', connectionId)
+            .eq('user_id', user.id)
+            .single();
+            
+        if (connError || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: 'Conexão não encontrada para este usuário.'
+            });
+        }
+        
+        if (connection.provider !== 'uazapi') {
+            return res.status(400).json({
+                ok: false,
+                error: 'Essa operação está disponível apenas para conexões Uazapi.'
+            });
+        }
+        
+        // Chamar Uazapi POST /instance/connect (sem enviar phone no body)
+        console.log(`[Uazapi Connect] Solicitando conexão para ID ${connectionId}...`);
+        const resultJson = await uazapiRequest(connection, 'instance/connect', {
+            method: 'POST',
+            body: {}
+        });
+        
+        if (resultJson && resultJson.error) {
+            return res.status(400).json({
+                ok: false,
+                error: resultJson.message || 'Erro retornado pela Uazapi ao solicitar conexão.'
+            });
+        }
+        
+        // Extrair qrCode/qrcode/qr/base64/image/code
+        const qrCode = resultJson.qrCode || resultJson.qrcode || resultJson.qr || resultJson.base64 || resultJson.image || resultJson.code || 
+                       (resultJson.instance && (resultJson.instance.qrCode || resultJson.instance.qrcode || resultJson.instance.qr)) || null;
+        
+        let updateFields = {
+            connection_status: qrCode ? 'qrcode' : 'connecting',
+            last_qr_code: qrCode || null,
+            last_status_payload: { ...resultJson, qrCode: qrCode || null },
+            updated_at: new Date()
+        };
+        
+        let updatedConnection = null;
+        let { data: upConn, error: updateError } = await client
+            .from('crm_connections')
+            .update(updateFields)
+            .eq('id', connectionId)
+            .select()
+            .single();
+            
+        if (updateError) {
+            console.warn('[Uazapi Connect] Erro na primeira tentativa de persistência, tentando fallback sem coluna last_qr_code ou status qrcode...', updateError.message);
+            
+            const isColumnMissing = updateError.message.includes('column') || updateError.message.includes('last_qr_code');
+            
+            const fallbackFields = {
+                connection_status: 'connecting', // Sempre seguro se 'qrcode' violar check constraint
+                last_status_payload: { 
+                    ...resultJson, 
+                    qrCode: qrCode || null,
+                    last_qr_code_fallback: qrCode || null,
+                    original_status: qrCode ? 'qrcode' : 'connecting'
+                },
+                updated_at: new Date()
+            };
+            
+            if (!isColumnMissing) {
+                fallbackFields.last_qr_code = qrCode || null;
+            }
+            
+            const { data: fallbackConn, error: fallbackErr } = await client
+                .from('crm_connections')
+                .update(fallbackFields)
+                .eq('id', connectionId)
+                .select()
+                .single();
+                
+            if (fallbackErr) {
+                console.error('[Uazapi Connect] Falha definitiva no fallback de persistência:', fallbackErr.message);
+                throw fallbackErr;
+            }
+            updatedConnection = fallbackConn;
+        } else {
+            updatedConnection = upConn;
+        }
+        
+        res.json({
+            ok: true,
+            connection: sanitizeCrmConnection(updatedConnection || { ...connection, ...updateFields }),
+            qrCode: qrCode,
+            raw: resultJson
+        });
+        
+    } catch (err) {
+        console.error('Erro ao conectar instância Uazapi:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro ao conectar com a Uazapi.'
+        });
+    }
+});
+
 // ROTA 5: POST /api/crm/connections/:connectionId/configure-webhook
 app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res) => {
     try {
@@ -1660,15 +1941,22 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
             url: connection.webhook_url,
             webhookUrl: connection.webhook_url,
             enabled: true,
-            events: ["messages.upsert", "MESSAGES_UPSERT", "STATUS_INSTANCE", "QRCODE_UPDATED"]
+            method: "POST",
+            events: ["history", "connection", "messages", "messages_update"],
+            excludeMessages: ["wasSentByApi", "isGroupYes"],
+            exclude: ["wasSentByApi", "isGroupYes"],
+            addUrlEvents: false,
+            addUrlTypesMessages: false
         };
         
-        const endpoints = [];
-        endpoints.push({ path: 'webhook', method: 'POST' });
+        const endpoints = [
+            { path: 'webhook', method: 'POST' },
+            { path: 'webhook/new', method: 'POST' },
+            { path: 'webhook/create', method: 'POST' }
+        ];
         if (connection.instance_name) {
             endpoints.push({ path: `webhook/set/${connection.instance_name}`, method: 'POST' });
         }
-        endpoints.push({ path: 'globalwebhook', method: 'POST' });
         
         let successResult = null;
         let endpointUsado = null;
@@ -1696,7 +1984,20 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
         }
         
         if (successResult) {
-            // Remove dados sensíveis da resposta antes de salvar
+            // Se o endpoint responder com lista/slot/id, salvar em crm_connections.connection_settings
+            let uazapiWebhookId = successResult.id || successResult.webhookId || (successResult.webhook && successResult.webhook.id) || (successResult.result && successResult.result.id) || null;
+            let uazapiWebhookSlot = successResult.slot || successResult.webhookSlot || (successResult.webhook && successResult.webhook.slot) || (successResult.result && successResult.result.slot) || null;
+            
+            const existingSettings = connection.connection_settings || {};
+            const updatedSettings = {
+                ...existingSettings,
+                uazapiWebhookId: uazapiWebhookId || undefined,
+                uazapiWebhookSlot: uazapiWebhookSlot || undefined,
+                webhookMode: "new_slot",
+                webhookEvents: ["history", "connection", "messages", "messages_update"]
+            };
+
+            // Remove de dados sensíveis da resposta antes de salvar
             const respostaSemToken = { ...successResult };
             delete respostaSemToken.token;
             delete respostaSemToken.instance_token;
@@ -1713,13 +2014,14 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
                 .update({
                     last_status_payload: payloadToSave,
                     last_error: null,
+                    connection_settings: updatedSettings,
                     updated_at: new Date()
                 })
                 .eq('id', connectionId);
                 
             res.json({
                 ok: true,
-                message: "Webhook AXIS configurado na Uazapi.",
+                message: "Webhook AXIS criado em novo slot.",
                 endpoint: endpointUsado
             });
         } else {
@@ -1735,7 +2037,7 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
                 
             res.status(400).json({
                 ok: false,
-                error: "Não foi possível configurar o webhook automaticamente. Copie o webhook da AXIS e configure manualmente no painel da Uazapi."
+                error: "Não foi possível criar um novo webhook automaticamente. Abra o painel da Uazapi, vá em Webhooks, use Salvar com um novo e cole o Webhook AXIS."
             });
         }
         
