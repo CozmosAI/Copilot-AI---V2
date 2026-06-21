@@ -2097,6 +2097,197 @@ app.get('/api/crm/connections/:connectionId/webhook-events', async (req, res) =>
 
 // --- HELPERS E PROCESSADORES DA UAZAPI ---
 
+async function backfillLeadForConversation(connection, contact, conversation, message) {
+    try {
+        const client = supabaseAdmin || supabase;
+        if (!connection || !contact || !conversation) {
+            console.log(`[Webhook Uazapi Debug] Parâmetros insuficientes em backfillLeadForConversation.`);
+            return;
+        }
+
+        let activeLeadId = conversation.lead_id;
+
+        // DB fetch for absolute accuracy
+        if (!activeLeadId && conversation.id) {
+            const { data: freshConv, error: fetchConvError } = await client
+                .from('crm_conversations')
+                .select('lead_id')
+                .eq('id', conversation.id)
+                .maybeSingle();
+            if (!fetchConvError && freshConv && freshConv.lead_id) {
+                activeLeadId = freshConv.lead_id;
+            }
+        }
+
+        // se conversation.lead_id já existe, não fazer nada;
+        if (activeLeadId) {
+            console.log(`[Webhook Uazapi] Conversa ${conversation.id} já possui lead_id ${activeLeadId}. Pulando backfill.`);
+            return;
+        }
+
+        // se contact.phone ou contact.external_chat_id existir, criar/encontrar lead;
+        const phone = contact.phone;
+        const externalChatId = contact.external_chat_id || contact.externalChatId;
+        const pushName = contact.push_name || contact.pushName || contact.display_name || contact.displayName;
+
+        if (!phone && !externalChatId) {
+            console.log(`[Webhook Uazapi] Sem telefone e sem externalChatId para backfill.`);
+            return;
+        }
+
+        let leadId = null;
+        let existingLead = null;
+
+        // Buscar lead existente por phone
+        if (phone) {
+            const { data, error } = await client
+                .from('leads')
+                .select('*')
+                .eq('user_id', connection.user_id)
+                .eq('phone', phone)
+                .maybeSingle();
+            if (!error && data) {
+                existingLead = data;
+            }
+        }
+
+        // Se não achar por phone, buscar por external_chat_id
+        if (!existingLead && externalChatId) {
+            const { data, error } = await client
+                .from('leads')
+                .select('*')
+                .eq('user_id', connection.user_id)
+                .eq('external_chat_id', externalChatId)
+                .maybeSingle();
+            if (!error && data) {
+                existingLead = data;
+            }
+        }
+
+        const messageSummary = message?.text || message?.caption || (message?.mediaUrl ? "[mídia]" : "[mensagem]") || "[mensagem]";
+        const senderTypeStr = message?.fromMe ? "me" : "contact";
+        const interactionTime = message?.timestamp || message?.sentAt || new Date();
+
+        if (existingLead) {
+            leadId = existingLead.id;
+            console.log(`[Webhook Uazapi] Lead encontrado no backfill: ID ${leadId}`);
+            try {
+                // Atualizar lead existente (Tarefa 3)
+                const updateLeadData = {
+                    name: existingLead.name || pushName || 'Lead WhatsApp',
+                    phone: phone || existingLead.phone,
+                    channel: 'whatsapp',
+                    external_chat_id: externalChatId || existingLead.external_chat_id,
+                    last_message: messageSummary,
+                    last_sender: senderTypeStr,
+                    last_interaction: interactionTime
+                };
+                const { error: updateLeadErr } = await client
+                    .from('leads')
+                    .update(updateLeadData)
+                    .eq('id', leadId);
+                if (updateLeadErr) {
+                    console.warn(`[Webhook Uazapi] Erro ao atualizar lead no backfill:`, updateLeadErr);
+                } else {
+                    console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
+                }
+            } catch (upErr) {
+                console.error(`[Webhook Uazapi] Erro ao atualizar lead no backfill:`, upErr);
+            }
+        } else {
+            // Criar novo lead
+            try {
+                const insertLeadData = {
+                    user_id: connection.user_id,
+                    name: pushName || phone || externalChatId || 'Lead WhatsApp',
+                    phone: phone || '',
+                    status: 'Novo',
+                    temperature: 'Cold',
+                    source: 'WhatsApp',
+                    channel: 'whatsapp',
+                    external_chat_id: externalChatId,
+                    last_message: messageSummary,
+                    last_sender: senderTypeStr,
+                    last_interaction: interactionTime,
+                    created_at: new Date()
+                };
+                const { data: newLead, error: insertLeadErr } = await client
+                    .from('leads')
+                    .insert(insertLeadData)
+                    .select()
+                    .single();
+
+                if (insertLeadErr) {
+                    console.warn(`[Webhook Uazapi] Erro ao criar lead no backfill (tentando fallback):`, insertLeadErr);
+                    const insertBaseData = {
+                        user_id: connection.user_id,
+                        name: pushName || phone || externalChatId || 'Lead WhatsApp',
+                        phone: phone || '',
+                        status: 'Novo',
+                        temperature: 'Cold',
+                        source: 'WhatsApp',
+                        created_at: new Date()
+                    };
+                    const { data: fallbackLead, error: fallbackInsertErr } = await client
+                        .from('leads')
+                        .insert(insertBaseData)
+                        .select()
+                        .single();
+                    if (fallbackInsertErr) {
+                        console.error(`[Webhook Uazapi] Falha no fallback de insercao de leads no backfill:`, fallbackInsertErr);
+                    } else if (fallbackLead) {
+                        leadId = fallbackLead.id;
+                        console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
+                    }
+                } else if (newLead) {
+                    leadId = newLead.id;
+                    console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
+                }
+            } catch (insErr) {
+                console.error(`[Webhook Uazapi] Falha ao criar lead no backfill:`, insErr);
+            }
+        }
+
+        if (leadId) {
+            // atualizar crm_conversations.lead_id;
+            const { error: updateConvLeadErr } = await client
+                .from('crm_conversations')
+                .update({ lead_id: leadId })
+                .eq('id', conversation.id);
+            if (updateConvLeadErr) {
+                console.error(`[Webhook Uazapi] Erro ao atualizar lead_id na conversa ${conversation.id}:`, updateConvLeadErr);
+            } else {
+                console.log(`[Webhook Uazapi] Conversa vinculada ao lead: ID ${conversation.id}`);
+            }
+
+            // atualizar crm_messages.lead_id para mensagens daquela conversa onde lead_id is null;
+            const { error: updateMsgLeadErr } = await client
+                .from('crm_messages')
+                .update({ lead_id: leadId })
+                .eq('conversation_id', conversation.id)
+                .is('lead_id', null);
+            if (updateMsgLeadErr) {
+                console.error(`[Webhook Uazapi] Erro ao atualizar lead_id nas mensagens da conversa ${conversation.id}:`, updateMsgLeadErr);
+            } else {
+                console.log(`[Webhook Uazapi] Mensagens da conversa ${conversation.id} atualizadas com lead_id ${leadId}.`);
+            }
+
+            // atualizar leads.conversation_id.
+            const { error: updateLeadConvErr } = await client
+                .from('leads')
+                .update({ conversation_id: conversation.id })
+                .eq('id', leadId);
+            if (updateLeadConvErr) {
+                console.error(`[Webhook Uazapi] Erro ao associar conversation_id ${conversation.id} ao lead ${leadId}:`, updateLeadConvErr);
+            } else {
+                console.log(`[Webhook Uazapi] Lead ${leadId} associado à conversa ${conversation.id}`);
+            }
+        }
+    } catch (globalBackfillErr) {
+        console.error(`[Webhook Uazapi] Erro global na função backfillLeadForConversation:`, globalBackfillErr);
+    }
+}
+
 // Normaliza telefone (remove sufixos e caracteres não numéricos)
 function cleanMarkdownLink(val) {
     if (typeof val !== 'string') return val;
@@ -2674,11 +2865,13 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     leadId = existingLead.id;
                     try {
                         const updateLeadData = {
+                            name: existingLead.name || pushName || phone || externalChatId || 'Lead WhatsApp',
+                            phone: phone || existingLead.phone,
+                            channel: 'whatsapp',
+                            external_chat_id: externalChatId || existingLead.external_chat_id,
                             last_message: messageSummary,
                             last_sender: senderTypeStr,
-                            last_interaction: interactionTime,
-                            external_chat_id: externalChatId || existingLead.external_chat_id,
-                            channel: 'whatsapp'
+                            last_interaction: interactionTime
                         };
                         const { error: updateLeadErr } = await client
                             .from('leads')
@@ -2690,13 +2883,16 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             const { error: fallbackErr } = await client
                                 .from('leads')
                                 .update({
-                                    name: pushName || existingLead.name,
-                                    phone: phone || existingLead.phone
+                                    name: existingLead.name || pushName || 'Lead WhatsApp'
                                 })
                                 .eq('id', leadId);
                             if (fallbackErr) {
                                 console.error(`[Webhook Uazapi] Falha no fallback de update de leads:`, fallbackErr);
+                            } else {
+                                console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
                             }
+                        } else {
+                            console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
                         }
                     } catch (leadUpErr) {
                         console.error(`[Webhook Uazapi] Falha silenciosa no processamento do lead:`, leadUpErr);
@@ -2706,7 +2902,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         const insertLeadData = {
                             user_id: connection.user_id,
                             name: pushName || phone || externalChatId || 'Lead WhatsApp',
-                            phone: phone || externalChatId || '',
+                            phone: phone || '',
                             status: 'Novo',
                             temperature: 'Cold',
                             source: 'WhatsApp',
@@ -2724,7 +2920,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             .single();
                             
                         if (insertLeadErr) {
-                            console.warn(`[Webhook Uazapi] Erro ao criar lead com colunas novas, tentando fallback corporativo basico...`, insertEventErr);
+                            console.warn(`[Webhook Uazapi] Erro ao criar lead com colunas novas, tentando fallback corporativo basico...`, insertLeadErr);
                             const insertBaseData = {
                                 user_id: connection.user_id,
                                 name: pushName || phone || externalChatId || 'Lead WhatsApp',
@@ -2743,10 +2939,11 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                                 console.error(`[Webhook Uazapi] Falha no fallback de insercao de leads:`, fallbackInsertErr);
                             } else if (fallbackLead) {
                                 leadId = fallbackLead.id;
+                                console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
                             }
                         } else if (newLead) {
                             leadId = newLead.id;
-                            console.log(`[Webhook Uazapi] Novo lead criado: ID ${leadId}`);
+                            console.log(`[Webhook Uazapi] Lead criado/atualizado: ID ${leadId}`);
                         }
                     } catch (leadInsErr) {
                         console.error(`[Webhook Uazapi] Falha silenciosa de insercao de novo lead:`, leadInsErr);
@@ -2832,6 +3029,8 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         
                     if (updateLeadConvErr) {
                         console.error(`[Webhook Uazapi] Erro ao associar conversation_id ao lead:`, updateLeadConvErr);
+                    } else {
+                        console.log(`[Webhook Uazapi] Conversa vinculada ao lead: ID ${conversationId}`);
                     }
                 }
                 
@@ -2888,7 +3087,31 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         console.error(`[Webhook Uazapi] Erro ao salvar crm_messages:`, insertMsgErr);
                     } else {
                         console.log(`[Webhook Uazapi] Mensagem ${finalExternalMessageId} salva com sucesso.`);
+                        console.log(`[Webhook Uazapi] Mensagem salva com lead_id: ID ${leadId}`);
                     }
+                }
+
+                // Executar backfill para garantir retroatividade de conversas e mensagens sem lead_id
+                try {
+                    const contactArg = {
+                        phone: phone,
+                        external_chat_id: externalChatId,
+                        push_name: pushName
+                    };
+                    const conversationArg = {
+                        id: conversationId,
+                        lead_id: leadId
+                    };
+                    const messageArg = {
+                        text: text,
+                        caption: caption,
+                        mediaUrl: mediaUrl,
+                        fromMe: fromMe,
+                        timestamp: interactionTime
+                    };
+                    await backfillLeadForConversation(connection, contactArg, conversationArg, messageArg);
+                } catch (backfillRunErr) {
+                    console.error(`[Webhook Uazapi] Falha ao tentar executar backfill de lead/conversas:`, backfillRunErr);
                 }
                 
                 processedCount++;
