@@ -2989,7 +2989,22 @@ function normalizeUazapiWebhookPayload(payload) {
             mediaFilename,
             durationSeconds,
             sizeBytes,
-            // ROTA Webhook Real: POST /api/webhooks/uazapi/:connectionId/:secret
+            thumbnailUrl,
+            extraInfo,
+            timestamp,
+            rawMessage: raw
+        });
+    }
+
+    return {
+        eventType,
+        messages,
+        connectionStatus: null,
+        rawPayload: sanitizeWebhookPayloadForStorage(payload)
+    };
+}
+
+// ROTA Webhook Real: POST /api/webhooks/uazapi/:connectionId/:secret
 app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const { connectionId, secret } = req.params;
     const body = req.body;
