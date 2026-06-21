@@ -770,28 +770,126 @@ const Sales: React.FC = () => {
                             ) : (
                               chatMessages.map(msg => {
                                   const isOutbound = msg.from_me === true || msg.message_direction === 'outbound' || msg.sender_type === 'me' || msg.sender_type === 'ai';
+                                  const msgType = (msg.message_type || 'text').toLowerCase();
                                   
-                                  // Content helper
-                                  let txtContent = msg.message_text || '';
-                                  if (!txtContent && msg.caption) {
-                                    txtContent = msg.caption;
-                                  }
-                                  if (!txtContent) {
-                                    const type = (msg.message_type || '').toLowerCase();
-                                    if (type.includes('image')) txtContent = '[imagem]';
-                                    else if (type.includes('audio') || type.includes('ptt') || type.includes('voice')) txtContent = '[áudio]';
-                                    else if (type.includes('video')) txtContent = '[vídeo]';
-                                    else if (type.includes('document') || type.includes('file')) txtContent = '[documento]';
-                                    else txtContent = '[mensagem]';
-                                  }
-
                                   const msgTime = msg.sent_at || msg.created_at;
                                   const formattedTime = msgTime ? new Date(msgTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
 
+                                  // Elemento de renderização dinâmico conforme o tipo
+                                  let contentElement = null;
+
+                                  if (msgType === 'deleted' || msg.message_text === 'Mensagem apagada') {
+                                      contentElement = (
+                                          <div className="italic text-slate-400/80 flex items-center gap-1.5 py-0.5">
+                                              <Trash2 size={14} className="text-slate-300" />
+                                              <span>Mensagem apagada</span>
+                                          </div>
+                                      );
+                                  } else if (msgType === 'reaction') {
+                                      contentElement = (
+                                          <div className="italic text-slate-500 flex items-center gap-1.5 py-0.5">
+                                              <span>Reagiu:</span>
+                                              <span className="text-base not-italic font-bold">{msg.message_text || '❤️'}</span>
+                                          </div>
+                                      );
+                                  } else if (msgType === 'edited') {
+                                      contentElement = (
+                                          <div className="flex flex-col gap-0.5">
+                                              <div>{msg.message_text}</div>
+                                              <span className="text-[9px] text-slate-400 italic font-medium block mt-0.5">(editada)</span>
+                                          </div>
+                                      );
+                                  } else if ((msgType.includes('image') || msgType === 'sticker') && msg.media_url) {
+                                      const isSticker = msgType === 'sticker';
+                                      contentElement = (
+                                          <div className="flex flex-col gap-1.5">
+                                              <img 
+                                                  src={msg.media_url} 
+                                                  alt="Mídia WhatsApp" 
+                                                  className={isSticker ? "w-24 h-24 object-contain rounded-lg" : "max-w-xs md:max-w-sm max-h-64 object-cover rounded-xl shadow-sm border border-slate-200/50"} 
+                                                  referrerPolicy="no-referrer" 
+                                              />
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
+                                      );
+                                  } else if ((msgType.includes('audio') || msgType.includes('ptt') || msgType.includes('voice')) && msg.media_url) {
+                                      contentElement = (
+                                          <div className="flex flex-col gap-1 pt-1 min-w-[200px] sm:min-w-[245px]">
+                                              <audio src={msg.media_url} controls className="w-full max-w-[260px] h-9" />
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-1 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
+                                      );
+                                  } else if (msgType.includes('video') && msg.media_url) {
+                                      contentElement = (
+                                          <div className="flex flex-col gap-1.5">
+                                              <video src={msg.media_url} controls className="max-w-xs md:max-w-sm max-h-64 rounded-xl shadow-sm border border-slate-200/50" />
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
+                                      );
+                                  } else if (msgType.includes('document') && msg.media_url) {
+                                      contentElement = (
+                                          <div className="flex flex-col gap-1.5">
+                                              <a 
+                                                  href={msg.media_url} 
+                                                  target="_blank" 
+                                                  rel="noreferrer" 
+                                                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/60 transition-colors text-blue-600 font-bold shadow-xs"
+                                              >
+                                                  <FileText size={18} className="text-blue-500 flex-shrink-0" />
+                                                  <span className="text-xs truncate max-w-[170px]" title={msg.media_filename || 'Documento'}>
+                                                      {msg.media_filename || 'Download Documento'}
+                                                  </span>
+                                              </a>
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
+                                      );
+                                  } else if (msgType.includes('location')) {
+                                      const locationQuery = msg.media_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(msg.message_text || '')}`;
+                                      contentElement = (
+                                          <div className="flex flex-col gap-1.5">
+                                              <a 
+                                                  href={locationQuery}
+                                                  target="_blank" 
+                                                  rel="noreferrer" 
+                                                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/60 transition-colors text-blue-600 font-bold shadow-xs"
+                                              >
+                                                  <span className="text-lg">📍</span>
+                                                  <div className="text-left font-sans">
+                                                      <span className="text-[11px] block font-bold text-slate-700">Ver Localização</span>
+                                                      <span className="text-[9px] text-slate-400 block truncate max-w-[150px] font-medium">{msg.message_text || 'Abrir Maps'}</span>
+                                                  </div>
+                                              </a>
+                                          </div>
+                                      );
+                                  } else if (msgType === 'contact') {
+                                      contentElement = (
+                                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center gap-2.5 min-w-[180px] select-none text-left font-sans shadow-xs">
+                                              <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-black text-xs border border-blue-100">
+                                                  {msg.message_text ? msg.message_text.substring(0, 2).toUpperCase() : 'CT'}
+                                              </div>
+                                              <div className="text-left leading-tight">
+                                                  <p className="text-xs font-bold text-slate-700 truncate max-w-[130px]">{msg.message_text || 'Contato WhatsApp'}</p>
+                                                  <p className="text-[9px] text-slate-400 font-medium">Contato compartilhado</p>
+                                              </div>
+                                          </div>
+                                      );
+                                  } else {
+                                      // Renderização de textos padrão segura
+                                      let txtContent = msg.message_text || msg.caption || '';
+                                      if (!txtContent) {
+                                          if (msgType.includes('image')) txtContent = '[imagem]';
+                                          else if (msgType.includes('audio') || msgType.includes('voice')) txtContent = '[áudio]';
+                                          else if (msgType.includes('video')) txtContent = '[vídeo]';
+                                          else if (msgType.includes('document')) txtContent = '[documento]';
+                                          else txtContent = '[mensagem]';
+                                      }
+                                      contentElement = <div className="break-words max-w-[320px] whitespace-pre-wrap">{txtContent}</div>;
+                                  }
+
                                   return (
-                                      <div key={msg.id} className={`z-10 max-w-[65%] px-4 py-3 rounded-2xl text-sm shadow-sm relative leading-relaxed ${isOutbound ? 'self-end bg-[#d9fdd3] text-slate-800 rounded-br-none' : 'self-start bg-white text-slate-800 rounded-bl-none'}`}>
-                                          <div>{txtContent}</div>
-                                          <span className="text-[10px] text-slate-400 block text-right mt-1 opacity-70">{formattedTime}</span>
+                                      <div key={msg.id} className={`z-10 max-w-[70%] px-4 py-3 rounded-2xl text-sm shadow-sm relative leading-relaxed flex flex-col ${isOutbound ? 'self-end bg-[#d9fdd3] text-slate-800 rounded-br-none' : 'self-start bg-white text-slate-800 rounded-bl-none'}`}>
+                                          {contentElement}
+                                          <span className="text-[9px] text-slate-400 block text-right mt-1.5 font-medium opacity-80 select-none align-bottom self-end leading-none">{formattedTime}</span>
                                       </div>
                                   );
                               })

@@ -2588,13 +2588,19 @@ function cleanMarkdownLink(val) {
     return val;
 }
 
-function sanitizeWebhookPayloadForStorage(obj) {
+function sanitizeWebhookPayloadForStorage(obj, depth = 0) {
+    if (depth > 12) return "[OMITTED_MAX_DEPTH]";
     if (!obj || typeof obj !== 'object') {
+        if (typeof obj === 'string') {
+            if (obj.length > 5000) {
+                return "[OMITTED_LARGE_STRING]";
+            }
+        }
         return obj;
     }
     
     if (Array.isArray(obj)) {
-        return obj.map(item => sanitizeWebhookPayloadForStorage(item));
+        return obj.map(item => sanitizeWebhookPayloadForStorage(item, depth + 1));
     }
     
     const sanitized = {};
@@ -2608,12 +2614,26 @@ function sanitizeWebhookPayloadForStorage(obj) {
         'Authorization'
     ];
     
+    const keysForLargePayloads = [
+        'base64',
+        'jpegthumbnail',
+        'file',
+        'buffer',
+        'data',
+        'mediadata'
+    ];
+
     for (const [key, value] of Object.entries(obj)) {
         const lowerKey = key.toLowerCase();
+        
         if (keysToRedact.some(k => lowerKey === k.toLowerCase())) {
             sanitized[key] = "[REDACTED]";
+        } else if (typeof value === 'string' && value.length > 5000) {
+            sanitized[key] = "[OMITTED_LARGE_STRING]";
+        } else if (keysForLargePayloads.some(k => lowerKey === k || lowerKey.includes(k)) && typeof value === 'string' && value.length > 100) {
+            sanitized[key] = "[OMITTED_MEDIA_PAYLOAD]";
         } else {
-            sanitized[key] = sanitizeWebhookPayloadForStorage(value);
+            sanitized[key] = sanitizeWebhookPayloadForStorage(value, depth + 1);
         }
     }
     return sanitized;
@@ -2643,23 +2663,26 @@ function normalizeUazapiWebhookPayload(payload) {
     let eventType = payload.EventType || payload.event || payload.type || payload.payload_type || payload.eventType || 'unknown';
     eventType = String(eventType).toLowerCase();
     
-    const hasMessages = payload.messages || payload.message || 
-                        (payload.data && (payload.data.messages || payload.data.message));
-                        
-    if (eventType.includes('message') || hasMessages) {
-        eventType = 'messages';
-    } else if (eventType.includes('connection') || eventType.includes('status') || eventType.includes('qr') || eventType.includes('instance')) {
+    // Identificar explicitamente eventos de status/ack
+    if (eventType.includes('ack') || eventType.includes('status') || eventType.includes('read') || eventType.includes('delivered') || payload.ack !== undefined || payload.status !== undefined) {
+        const containsMessageBubble = payload.messages || payload.message || (payload.data && (payload.data.messages || payload.data.message));
+        if (!containsMessageBubble) {
+            eventType = 'status_update';
+        }
+    }
+    
+    if (eventType.includes('connection') || eventType.includes('presence') || eventType.includes('qr') || eventType.includes('instance') || eventType.includes('state')) {
         eventType = 'connection';
     }
 
-    // 2. Tentar extrair status da conexão
-    let connectionStatus = null;
-    const s = payload.status || payload.state || (payload.data && (payload.data.status || payload.data.state || payload.data.connection));
-    if (s) {
-        connectionStatus = s;
+    if (eventType !== 'status_update' && eventType !== 'connection') {
+        const containsMessageBubble = payload.messages || payload.message || (payload.data && (payload.data.messages || payload.data.message)) || payload.key;
+        if (containsMessageBubble) {
+            eventType = 'messages';
+        }
     }
 
-    // 3. Extrair lista de mensagens
+    // Extrair lista de mensagens
     let rawMessagesList = [];
     if (Array.isArray(payload.messages)) {
         rawMessagesList = payload.messages;
@@ -2722,7 +2745,6 @@ function normalizeUazapiWebhookPayload(payload) {
             phone = normalizePhone(rawPhone);
         }
         
-        // Se phone não veio, mas externalChatId é um whatsapp pessoal direto, tenta extrair phone do externalChatId
         if (!phone && externalChatId && !isGroup) {
             phone = normalizePhone(externalChatId);
         }
@@ -2740,91 +2762,197 @@ function normalizeUazapiWebhookPayload(payload) {
             fromMe = true;
         }
 
-        let messageType = raw.messageType || raw.type || raw.mediaType || null;
-        if (messageType) {
-            messageType = String(messageType).toLowerCase();
-            if (messageType === 'conversation') {
-                messageType = 'text';
-            }
-        }
-        
+        let finalType = 'unknown';
         let text = null;
         let caption = null;
         let mediaUrl = null;
         let mediaMimeType = null;
         let mediaFilename = null;
+        let durationSeconds = null;
+        let sizeBytes = null;
+        let thumbnailUrl = null;
+        let extraInfo = {};
 
         const actualMessage = raw.message || raw.messageContent || raw;
         if (actualMessage) {
+            // 1. Texto
             text = actualMessage.text || actualMessage.body || actualMessage.conversation || 
                    (actualMessage.extendedTextMessage && (actualMessage.extendedTextMessage.text || actualMessage.extendedTextMessage.conversation)) || null;
 
-            const img = actualMessage.imageMessage;
-            const vid = actualMessage.videoMessage;
-            const doc = actualMessage.documentMessage;
-            const stk = actualMessage.stickerMessage;
-            const aud = actualMessage.audioMessage;
-
-            if (img) {
-                messageType = 'image';
-                caption = caption || img.caption || null;
-                mediaUrl = mediaUrl || img.url || img.fileUrl || null;
-                mediaMimeType = mediaMimeType || img.mimetype || img.mimeType || null;
-            }
-            if (vid) {
-                messageType = 'video';
-                caption = caption || vid.caption || null;
-                mediaUrl = mediaUrl || vid.url || vid.fileUrl || null;
-                mediaMimeType = mediaMimeType || vid.mimetype || vid.mimeType || null;
-            }
-            if (doc) {
-                messageType = 'document';
-                caption = caption || doc.caption || null;
-                mediaUrl = mediaUrl || doc.url || doc.fileUrl || null;
-                mediaMimeType = mediaMimeType || doc.mimetype || doc.mimeType || null;
-                mediaFilename = mediaFilename || doc.fileName || doc.filename || null;
-            }
-            if (stk) {
-                messageType = 'sticker';
-                mediaUrl = mediaUrl || stk.url || stk.fileUrl || null;
-                mediaMimeType = mediaMimeType || stk.mimetype || stk.mimeType || null;
-            }
-            if (aud) {
-                messageType = 'audio';
-                mediaUrl = mediaUrl || aud.url || aud.fileUrl || null;
-                mediaMimeType = mediaMimeType || aud.mimetype || aud.mimeType || null;
+            // 2. Imagem
+            const img = actualMessage.imageMessage || actualMessage.image;
+            if (img || raw.messageType === 'image' || raw.type === 'image' || raw.mediaType === 'image') {
+                finalType = 'image';
+                if (img) {
+                    caption = img.caption || null;
+                    mediaUrl = img.url || img.fileUrl || img.directPath || null;
+                    mediaMimeType = img.mimetype || img.mimeType || 'image/jpeg';
+                    if (img.fileLength) sizeBytes = Number(img.fileLength);
+                    if (img.jpegThumbnail) {
+                        thumbnailUrl = "[THUMBNAIL_BASE64_OMITTED]";
+                    }
+                }
             }
 
-            if (!text) {
-                text = caption || actualMessage.caption || null;
+            // 3. Áudio / Voz (PTT)
+            const aud = actualMessage.audioMessage || actualMessage.audio || actualMessage.voiceMessage || actualMessage.voice;
+            if (aud || raw.messageType === 'audio' || raw.type === 'audio' || raw.mediaType === 'audio' || raw.messageType === 'voice' || raw.type === 'voice' || raw.mediaType === 'voice' || raw.ptt === true) {
+                const isPtt = (aud && (aud.ptt === true || aud.ptt === 'true')) || raw.ptt === true || String(raw.messageType).toLowerCase().includes('voice') || String(raw.type).toLowerCase().includes('voice');
+                finalType = isPtt ? 'voice' : 'audio';
+                if (aud) {
+                    mediaUrl = aud.url || aud.fileUrl || aud.directPath || null;
+                    mediaMimeType = aud.mimetype || aud.mimeType || (isPtt ? 'audio/ogg; codecs=opus' : 'audio/mp3');
+                    if (aud.seconds) durationSeconds = Number(aud.seconds);
+                    if (aud.duration) durationSeconds = Number(aud.duration);
+                    if (aud.durationSeconds) durationSeconds = Number(aud.durationSeconds);
+                    if (aud.fileLength) sizeBytes = Number(aud.fileLength);
+                }
             }
+
+            // 4. Vídeo
+            const vid = actualMessage.videoMessage || actualMessage.video;
+            if (vid || raw.messageType === 'video' || raw.type === 'video' || raw.mediaType === 'video') {
+                finalType = 'video';
+                if (vid) {
+                    caption = vid.caption || null;
+                    mediaUrl = vid.url || vid.fileUrl || vid.directPath || null;
+                    mediaMimeType = vid.mimetype || vid.mimeType || 'video/mp4';
+                    if (vid.seconds) durationSeconds = Number(vid.seconds);
+                    if (vid.duration) durationSeconds = Number(vid.duration);
+                    if (vid.durationSeconds) durationSeconds = Number(vid.durationSeconds);
+                    if (vid.fileLength) sizeBytes = Number(vid.fileLength);
+                    if (vid.gifPlayback) extraInfo.gifPlayback = vid.gifPlayback;
+                }
+            }
+
+            // 5. Documento
+            const doc = actualMessage.documentMessage || actualMessage.document;
+            if (doc || raw.messageType === 'document' || raw.type === 'document' || raw.mediaType === 'document') {
+                finalType = 'document';
+                if (doc) {
+                    caption = doc.caption || null;
+                    mediaUrl = doc.url || doc.fileUrl || doc.directPath || null;
+                    mediaMimeType = doc.mimetype || doc.mimeType || 'application/octet-stream';
+                    mediaFilename = doc.fileName || doc.filename || doc.title || null;
+                    if (doc.fileLength) sizeBytes = Number(doc.fileLength);
+                }
+            }
+
+            // 6. Sticker
+            const stk = actualMessage.stickerMessage || actualMessage.sticker;
+            if (stk || raw.messageType === 'sticker' || raw.type === 'sticker' || raw.mediaType === 'sticker') {
+                finalType = 'sticker';
+                if (stk) {
+                    mediaUrl = stk.url || stk.fileUrl || stk.directPath || null;
+                    mediaMimeType = stk.mimetype || stk.mimeType || 'image/webp';
+                    if (stk.fileLength) sizeBytes = Number(stk.fileLength);
+                }
+            }
+
+            // 7. Localização
+            const loc = actualMessage.locationMessage || actualMessage.location || actualMessage.liveLocationMessage;
+            if (loc || raw.messageType === 'location' || raw.type === 'location' || raw.latitude !== undefined) {
+                finalType = 'location';
+                if (loc) {
+                    extraInfo.latitude = loc.degreesLatitude || loc.latitude;
+                    extraInfo.longitude = loc.degreesLongitude || loc.longitude;
+                    extraInfo.address = loc.address || null;
+                    extraInfo.name = loc.name || null;
+                    text = `Localização: ${loc.name || loc.address || `${extraInfo.latitude}, ${extraInfo.longitude}`}`;
+                } else if (raw.latitude) {
+                    extraInfo.latitude = raw.latitude;
+                    extraInfo.longitude = raw.longitude;
+                    extraInfo.address = raw.address || null;
+                    extraInfo.name = raw.name || null;
+                    text = `Localização: ${raw.name || raw.address || `${raw.latitude}, ${raw.longitude}`}`;
+                }
+            }
+
+            // 8. Contato / VCard
+            const conCheck = actualMessage.contactMessage || actualMessage.contactsArrayMessage || raw.contactMessage || raw.contactsArrayMessage;
+            if (conCheck || raw.messageType === 'contact' || raw.type === 'contact' || raw.vcard !== undefined) {
+                finalType = 'contact';
+                if (actualMessage.contactMessage) {
+                    extraInfo.displayName = actualMessage.contactMessage.displayName || null;
+                    extraInfo.vcard = actualMessage.contactMessage.vcard || null;
+                    text = `Contato: ${actualMessage.contactMessage.displayName || 'VCard'}`;
+                } else if (actualMessage.contactsArrayMessage) {
+                    const cnts = actualMessage.contactsArrayMessage.contacts || [];
+                    extraInfo.contacts = cnts;
+                    text = `Contatos: ${cnts.map(c => c.displayName).join(', ') || 'VCard list'}`;
+                } else {
+                    extraInfo.displayName = raw.displayName || null;
+                    extraInfo.vcard = raw.vcard || null;
+                    text = `Contato: ${raw.displayName || 'VCard'}`;
+                }
+            }
+
+            // 9. Reação
+            const react = actualMessage.reactionMessage || actualMessage.reaction || raw.reactionMessage;
+            if (react || raw.messageType === 'reaction' || raw.type === 'reaction') {
+                finalType = 'reaction';
+                if (react) {
+                    extraInfo.emoji = react.text || react.emoji || null;
+                    extraInfo.reactedMessageId = react.key?.id || null;
+                    text = `Reação: ${extraInfo.emoji || ''}`;
+                }
+            }
+
+            // 10. Mensagem Apagada / Revogada
+            const protocol = actualMessage.protocolMessage || raw.protocolMessage;
+            const isDeletedCheck = (protocol && (protocol.type === 3 || protocol.type === 'REVOKE' || protocol.type === 'REVOKE_MESSAGE')) || raw.revoked === true || raw.deleted === true || raw.messageDeleted === true || raw.type === 'revoked';
+            if (isDeletedCheck) {
+                finalType = 'deleted';
+                if (protocol && protocol.key) {
+                    extraInfo.deletedMessageId = protocol.key.id;
+                }
+                text = "Mensagem apagada";
+            }
+
+            // 11. Mensagem Editada
+            const isEditedCheck = actualMessage.editedMessage || actualMessage.edited || raw.edited === true || raw.editedMessage || raw.message?.edited;
+            if (isEditedCheck) {
+                finalType = 'edited';
+                const edMsg = actualMessage.editedMessage || actualMessage.edited || raw.editedMessage;
+                if (edMsg) {
+                    text = edMsg.message?.conversation || edMsg.message?.text || edMsg.text || edMsg.body || "Mensagem editada";
+                }
+            }
+
+            if (finalType === 'unknown' && text) {
+                finalType = 'text';
+            }
+
+            if (finalType === 'text' && !text) {
+                text = actualMessage.conversation || actualMessage.text || raw.text || raw.body || null;
+            }
+
             if (!mediaUrl) {
-                mediaUrl = actualMessage.mediaUrl || actualMessage.url || actualMessage.fileUrl || null;
+                mediaUrl = actualMessage.mediaUrl || actualMessage.url || actualMessage.fileUrl || raw.mediaUrl || raw.url || raw.fileUrl || null;
             }
             if (!mediaMimeType) {
-                mediaMimeType = actualMessage.mimetype || actualMessage.mimeType || null;
+                mediaMimeType = actualMessage.mimetype || actualMessage.mimeType || raw.mediaMimeType || raw.mimeType || raw.mimetype || null;
             }
             if (!mediaFilename) {
-                mediaFilename = actualMessage.fileName || actualMessage.filename || null;
+                mediaFilename = actualMessage.fileName || actualMessage.filename || raw.mediaFilename || raw.filename || raw.fileName || null;
+            }
+            if (!caption) {
+                caption = actualMessage.caption || raw.caption || null;
             }
         }
 
-        if (!text && payload.chat && payload.chat.wa_lastMessageTextVote) {
-            text = payload.chat.wa_lastMessageTextVote;
-        }
-
-        if (!messageType) {
+        if (finalType === 'unknown') {
             if (mediaUrl) {
                 if (mediaMimeType) {
-                    if (mediaMimeType.startsWith('image/')) messageType = 'image';
-                    else if (mediaMimeType.startsWith('video/')) messageType = 'video';
-                    else if (mediaMimeType.startsWith('audio/')) messageType = 'audio';
-                    else messageType = 'document';
+                    if (mediaMimeType.startsWith('image/')) finalType = 'image';
+                    else if (mediaMimeType.startsWith('video/')) finalType = 'video';
+                    else if (mediaMimeType.startsWith('audio/')) finalType = 'audio';
+                    else finalType = 'document';
                 } else {
-                    messageType = 'document';
+                    finalType = 'document';
                 }
             } else {
-                messageType = 'text';
+                finalType = 'text';
             }
         }
 
@@ -2853,26 +2981,15 @@ function normalizeUazapiWebhookPayload(payload) {
             pushName,
             fromMe,
             isGroup: !!isGroup,
-            messageType,
+            messageType: finalType,
             text,
             caption,
             mediaUrl,
             mediaMimeType,
             mediaFilename,
-            timestamp,
-            rawMessage: raw
-        });
-    }
-
-    return {
-        eventType,
-        messages,
-        connectionStatus,
-        rawPayload: payload
-    };
-}
-
-// ROTA Webhook Real: POST /api/webhooks/uazapi/:connectionId/:secret
+            durationSeconds,
+            sizeBytes,
+            // ROTA Webhook Real: POST /api/webhooks/uazapi/:connectionId/:secret
 app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const { connectionId, secret } = req.params;
     const body = req.body;
@@ -2926,7 +3043,72 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
         const normalized = normalizeUazapiWebhookPayload(body);
         console.log(`[Webhook Uazapi] EventType: ${normalized.eventType}`);
         
-        // 3. Tratar eventos de conexão/status da instância
+        // 3. Tratar eventos de status/ack de mensagem (Tarefa 1 e 7)
+        if (normalized.eventType === 'status_update') {
+            let extMessageId = null;
+            let currentStatus = 'sent'; // padrão
+            
+            // Tentar extrair do body/payload
+            const keyId = body.messageId || body.id || body.msgId || body.key?.id || (body.data && (body.data.messageId || body.data.id || body.data.key?.id)) || null;
+            extMessageId = keyId;
+
+            let rawStatus = body.status || body.ack || (body.data && (body.data.status || body.data.ack)) || null;
+            if (rawStatus !== null && rawStatus !== undefined) {
+                rawStatus = String(rawStatus).toLowerCase();
+                if (rawStatus === '3' || rawStatus === 'read' || rawStatus === 'viewed') {
+                    currentStatus = 'read';
+                } else if (rawStatus === '2' || rawStatus === 'delivered') {
+                    currentStatus = 'delivered';
+                } else if (rawStatus === '1' || rawStatus === 'sent') {
+                    currentStatus = 'sent';
+                } else if (rawStatus === 'failed' || rawStatus === 'error') {
+                    currentStatus = 'failed';
+                }
+            }
+
+            let updatedOk = false;
+            let finalMsgId = extMessageId ? cleanMarkdownLink(extMessageId) : null;
+            
+            if (finalMsgId) {
+                const { data: updatedMsgs, error: updateErr } = await client
+                    .from('crm_messages')
+                    .update({ message_status: currentStatus })
+                    .eq('connection_id', connection.id)
+                    .eq('external_message_id', finalMsgId)
+                    .select();
+
+                if (updateErr) {
+                    console.error(`[Webhook Uazapi] Erro ao atualizar status de mensagem ${finalMsgId}:`, updateErr);
+                } else if (updatedMsgs && updatedMsgs.length > 0) {
+                    updatedOk = true;
+                }
+            }
+
+            if (webhookEventId) {
+                await client
+                    .from('crm_webhook_events')
+                    .update({
+                        event_type: 'status_update',
+                        normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
+                        processing_status: 'ignored',
+                        processed_messages: 0,
+                        error_message: updatedOk 
+                            ? "Evento de status/ack sem bolha de chat." 
+                            : `Evento de status/ack sem bolha de chat. Mensagem ${finalMsgId || 'indefinida'} não encontrada no banco.`,
+                        updated_at: new Date()
+                    })
+                    .eq('id', webhookEventId);
+            }
+
+            return res.json({ 
+                ok: true, 
+                message: updatedOk 
+                    ? `Status da mensagem ${finalMsgId} atualizado para ${currentStatus}.` 
+                    : "Evento de status/ack catalogado como ignored sem bolha de chat."
+            });
+        }
+        
+        // 4. Tratar eventos de conexão/status da instância
         if (normalized.eventType === 'connection') {
             let connectedPhone = null;
             const rawJid = body.jid || body.data?.jid || body.data?.me?.id || body.me?.id || body.data?.me || body.connectedPhone || body.data?.phone || body.phone || null;
@@ -2954,7 +3136,6 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 console.error(`[Webhook Uazapi] Erro ao atualizar status na conexão:`, updateError);
             }
             
-            // Atualizar crm_webhook_events após normalizar
             if (webhookEventId) {
                 await client
                     .from('crm_webhook_events')
@@ -2963,7 +3144,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
                         processing_status: 'ignored',
                         processed_messages: 0,
-                        error_message: "Evento de conexao tratado, sem mensagens de CRM.",
+                        error_message: "Evento de conexão/status.",
                         updated_at: new Date()
                     })
                     .eq('id', webhookEventId);
@@ -2988,13 +3169,13 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
                         processing_status: 'ignored',
                         processed_messages: 0,
-                        error_message: "Payload sem mensagens processáveis.",
+                        error_message: "Atualização de mensagem sem conteúdo exibível.",
                         updated_at: new Date()
                     })
                     .eq('id', webhookEventId);
             }
             
-            console.log(`[Webhook Uazapi] Ignorado: Tipo de evento diferente de mensagens ou lista de mensagens está vazia.`);
+            console.log(`[Webhook Uazapi] Ignorado: Tipo de evento diferente de mensagens ou lista de mensagens vazia.`);
             
             return res.json({
                 ok: true,
@@ -3004,9 +3185,9 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
         
         console.log(`[Webhook Uazapi] Mensagens normalizadas: ${normalized.messages.length}`);
         let processedCount = 0;
-        let ignoreReason = null;
+        let lastIgnoreReason = null;
         
-        // 4. Processar mensagens recebidas
+        // 5. Processar mensagens recebidas
         for (const msg of normalized.messages) {
             try {
                 const {
@@ -3022,6 +3203,10 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     mediaUrl,
                     mediaMimeType,
                     mediaFilename,
+                    durationSeconds,
+                    sizeBytes,
+                    thumbnailUrl,
+                    extraInfo,
                     timestamp,
                     rawMessage
                 } = msg;
@@ -3032,30 +3217,38 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
                 if (!externalChatId) {
                     console.log(`[Webhook Uazapi] Ignorado: chatId nulo.`);
-                    ignoreReason = "externalChatId ausente";
+                    lastIgnoreReason = "chatId nulo";
                     continue;
                 }
                 
                 const listenGroups = connection.connection_settings?.listenGroups === true;
                 if (isGroup && !listenGroups) {
                     console.log(`[Webhook Uazapi] Ignorado: Grupo ignorado de acordo com as configurações da conexão.`);
-                    ignoreReason = "mensagem de grupo ignorada";
+                    lastIgnoreReason = "mensagem de grupo ignorada";
                     continue;
                 }
                 
-                const wasSentByApi = rawMessage?.wasSentByApi === true || rawMessage?.isSentByApi === true || body?.wasSentByApi === true;
-                if (fromMe && wasSentByApi) {
-                    console.log(`[Webhook Uazapi] Ignorado: Enviada pelo próprio sistema via API.`);
-                    ignoreReason = "wasSentByApi=true";
-                    continue;
-                }
+                // Classificação de automações / WasSentByApi (Tarefa 2)
+                const wasSentByApi = rawMessage?.wasSentByApi === true || rawMessage?.isSentByApi === true || body?.wasSentByApi === true || rawMessage?.isApi === true;
                 
                 const isProtocolOrSystem = messageType === 'protocol' || messageType === 'system';
-                const hasUsefulContent = !!(text || caption || mediaUrl);
+                const hasUsefulContent = !!(text || caption || mediaUrl || messageType === 'image' || messageType === 'audio' || messageType === 'voice' || messageType === 'video' || messageType === 'document' || messageType === 'sticker' || messageType === 'location');
                 if (isProtocolOrSystem && !hasUsefulContent) {
                     console.log(`[Webhook Uazapi] Ignorado: Notificação de sistema sem conteúdo útil.`);
-                    ignoreReason = "notificacao de sistema sem conteudo util";
+                    lastIgnoreReason = "notificacao de sistema sem conteudo util";
                     continue;
+                }
+                
+                // Determinar sender_type de forma avançada (Tarefa 2)
+                let senderTypeStr = "contact";
+                if (fromMe) {
+                    if (wasSentByApi) {
+                        senderTypeStr = "ai";
+                    } else {
+                        senderTypeStr = "me";
+                    }
+                } else if (messageType === 'protocol' || messageType === 'system' || messageType === 'deleted') {
+                    senderTypeStr = "system";
                 }
                 
                 // --- FLUXO 1: crm_contacts ---
@@ -3148,7 +3341,6 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 }
                 
                 const messageSummary = text || caption || (mediaUrl ? "[mídia]" : "[mensagem]");
-                const senderTypeStr = fromMe ? "me" : "contact";
                 const interactionTime = timestamp || new Date();
                 
                 if (existingLead) {
@@ -3331,10 +3523,10 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     finalExternalMessageId = crypto.createHash('md5').update(hashBase).digest('hex');
                 }
                 
-                // Verificar se a mensagem já foi salva
+                // Verificar se a mensagem já foi salva (idempotência)
                 const { data: existingMsg, error: checkMsgErr } = await client
                     .from('crm_messages')
-                    .select('id')
+                    .select('*')
                     .eq('connection_id', connection.id)
                     .eq('external_message_id', finalExternalMessageId)
                     .maybeSingle();
@@ -3343,10 +3535,47 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     console.error(`[Webhook Uazapi] Erro ao verificar idempotência de crm_messages:`, checkMsgErr);
                 }
                 
+                let actualSavedMsgId = null;
+
                 if (existingMsg) {
-                    console.log(`[Webhook Uazapi] Ignorado: Mensagem ${finalExternalMessageId} ja existe (duplicada).`);
-                    ignoreReason = "mensagem duplicada";
+                    console.log(`[Webhook Uazapi] Mensagem ${finalExternalMessageId} ja existe. Atualizando status/payload.`);
+                    actualSavedMsgId = existingMsg.id;
+                    
+                    const updateMsgData = {
+                        message_status: fromMe ? "sent" : "received",
+                        raw_payload: sanitizeWebhookPayloadForStorage(rawMessage) || null,
+                        updated_at: new Date()
+                    };
+                    
+                    const { error: updateMsgErr } = await client
+                        .from('crm_messages')
+                        .update(updateMsgData)
+                        .eq('id', existingMsg.id);
+                        
+                    if (updateMsgErr) {
+                        console.error(`[Webhook Uazapi] Erro ao atualizar crm_messages:`, updateMsgErr);
+                    }
                 } else {
+                    // Placeholder da mensagem de mídia sem legenda ocupando text (Tarefa 5)
+                    let finalMessageText = text;
+                    if (!finalMessageText) {
+                        if (caption) {
+                            finalMessageText = caption;
+                        } else {
+                            if (messageType === 'image') finalMessageText = '[imagem]';
+                            else if (messageType === 'audio') finalMessageText = '[áudio]';
+                            else if (messageType === 'voice') finalMessageText = '[áudio]';
+                            else if (messageType === 'video') finalMessageText = '[vídeo]';
+                            else if (messageType === 'document') finalMessageText = '[documento]';
+                            else if (messageType === 'sticker') finalMessageText = '[sticker]';
+                            else if (messageType === 'location') finalMessageText = '[localização]';
+                            else if (messageType === 'contact') finalMessageText = '[contato]';
+                            else if (messageType === 'reaction') finalMessageText = text || '[reação]';
+                            else if (messageType === 'deleted') finalMessageText = 'Mensagem apagada';
+                            else finalMessageText = '[mensagem]';
+                        }
+                    }
+
                     const insertMsgData = {
                         user_id: connection.user_id,
                         connection_id: connection.id,
@@ -3355,9 +3584,9 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         lead_id: leadId,
                         external_message_id: finalExternalMessageId,
                         message_direction: fromMe ? "outbound" : "inbound",
-                        sender_type: fromMe ? "me" : "contact",
+                        sender_type: senderTypeStr,
                         message_type: messageType || 'text',
-                        message_text: text,
+                        message_text: finalMessageText,
                         caption: caption || null,
                         media_url: mediaUrl || null,
                         media_mime_type: mediaMimeType || null,
@@ -3369,15 +3598,85 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         created_at: new Date()
                     };
                     
-                    const { error: insertMsgErr } = await client
+                    const { data: insertedMsg, error: insertMsgErr } = await client
                         .from('crm_messages')
-                        .insert(insertMsgData);
+                        .insert(insertMsgData)
+                        .select()
+                        .maybeSingle();
                         
                     if (insertMsgErr) {
-                        console.error(`[Webhook Uazapi] Erro ao salvar crm_messages:`, insertMsgErr);
-                    } else {
-                        console.log(`[Webhook Uazapi] Mensagem ${finalExternalMessageId} salva com sucesso.`);
-                        console.log(`[Webhook Uazapi] Mensagem salva com lead_id: ID ${leadId}`);
+                        // Tratar erro unique silenciosamente
+                        if (insertMsgErr.code === '23505') {
+                            console.log(`[Webhook Uazapi] Conflito silent unique constraint de mensagem, buscando duplicada.`);
+                            const { data: fallbackMsg } = await client
+                                .from('crm_messages')
+                                .select('id')
+                                .eq('connection_id', connection.id)
+                                .eq('external_message_id', finalExternalMessageId)
+                                .maybeSingle();
+                            if (fallbackMsg) {
+                                actualSavedMsgId = fallbackMsg.id;
+                            }
+                        } else {
+                            console.error(`[Webhook Uazapi] Erro ao salvar crm_messages:`, insertMsgErr);
+                        }
+                    } else if (insertedMsg) {
+                        actualSavedMsgId = insertedMsg.id;
+                        console.log(`[Webhook Uazapi] Mensagem ${finalExternalMessageId} salva com sucesso. ID: ${actualSavedMsgId}`);
+                    }
+                }
+
+                // Salvar anexo técnico se aplicável (Tarefa 5)
+                if (actualSavedMsgId && (mediaUrl || thumbnailUrl || messageType === 'image' || messageType === 'audio' || messageType === 'voice' || messageType === 'video' || messageType === 'document' || messageType === 'sticker' || messageType === 'location')) {
+                    // Evitar duplicação
+                    const { data: existingAttachment } = await client
+                        .from('crm_message_attachments')
+                        .select('id')
+                        .eq('message_id', actualSavedMsgId)
+                        .maybeSingle();
+
+                    if (!existingAttachment) {
+                        let finalSizeBytes = null;
+                        if (sizeBytes !== null && sizeBytes !== undefined) {
+                            const parsed = Number(sizeBytes);
+                            if (!isNaN(parsed)) finalSizeBytes = parsed;
+                        }
+                        
+                        let finalDuration = null;
+                        if (durationSeconds !== null && durationSeconds !== undefined) {
+                            const parsed = Number(durationSeconds);
+                            if (!isNaN(parsed)) finalDuration = parsed;
+                        }
+
+                        const attachmentData = {
+                            user_id: connection.user_id,
+                            connection_id: connection.id,
+                            conversation_id: conversationId,
+                            message_id: actualSavedMsgId,
+                            attachment_type: messageType || 'unknown',
+                            source_url: mediaUrl || null,
+                            storage_bucket: null,
+                            storage_path: null,
+                            mime_type: mediaMimeType || null,
+                            filename: mediaFilename || null,
+                            size_bytes: finalSizeBytes,
+                            duration_seconds: finalDuration,
+                            width: extraInfo?.width || null,
+                            height: extraInfo?.height || null,
+                            thumbnail_url: thumbnailUrl || null,
+                            raw_metadata: sanitizeWebhookPayloadForStorage(extraInfo || {}),
+                            created_at: new Date()
+                        };
+
+                        const { error: attachErr } = await client
+                            .from('crm_message_attachments')
+                            .insert(attachmentData);
+
+                        if (attachErr) {
+                            console.error(`[Webhook Uazapi] Erro ao criar crm_message_attachments para mensagem ${actualSavedMsgId}:`, attachErr);
+                        } else {
+                            console.log(`[Webhook Uazapi] Anexo de mídia registrado com sucesso para a mensagem ID ${actualSavedMsgId}`);
+                        }
                     }
                 }
 
@@ -3421,9 +3720,20 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 processed_messages: processedCount,
                 updated_at: new Date()
             };
-            if (processedCount === 0 && ignoreReason) {
-                updatePayload.error_message = `Ignorado: ${ignoreReason}`;
+            
+            // Mensagens duplicadas ou eventos silenciados amigavelmente (Tarefa 1)
+            if (processedCount === 0) {
+                if (lastIgnoreReason === "mensagem duplicada") {
+                    updatePayload.error_message = "Mensagem enviada pela API já registrada.";
+                } else if (lastIgnoreReason === "chatId nulo") {
+                    updatePayload.error_message = "[Webhook Uazapi] Ignorado: chatId nulo.";
+                } else if (lastIgnoreReason) {
+                    updatePayload.error_message = `Ignorado: ${lastIgnoreReason}`;
+                } else {
+                    updatePayload.error_message = "Atualização de mensagem sem conteúdo exibível.";
+                }
             }
+            
             await client
                 .from('crm_webhook_events')
                 .update(updatePayload)
