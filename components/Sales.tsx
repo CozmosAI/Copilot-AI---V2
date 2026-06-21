@@ -356,7 +356,53 @@ const Sales: React.FC = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
       e.preventDefault();
-      alert('Envio pelo CRM será ativado no próximo bloco.');
+      if (!selectedConversationId || !messageText.trim() || sendingMsg) return;
+
+      const bodyText = messageText.trim();
+      setSendingMsg(true);
+
+      try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+
+          if (!token) {
+              alert("Sessão expirada. Por favor, faça login novamente.");
+              setSendingMsg(false);
+              return;
+          }
+
+          const response = await fetch(`/api/crm/conversations/${selectedConversationId}/send`, {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ text: bodyText })
+          });
+
+          const result = await response.json();
+
+          if (result.ok || result.message) {
+              setMessageText('');
+              if (result.message) {
+                  const newMsg = result.message;
+                  setChatMessages(prev => {
+                      if (prev.some(m => m.id === newMsg.id)) return prev;
+                      return [...prev, newMsg];
+                  });
+              }
+              if (!result.ok && result.error) {
+                  alert("Falha ao enviar mensagem.");
+              }
+          } else {
+              alert("Falha ao enviar mensagem.");
+          }
+      } catch (err) {
+          console.error("Erro ao enviar mensagem:", err);
+          alert("Falha ao enviar mensagem.");
+      } finally {
+          setSendingMsg(false);
+      }
   };
 
   const handleAnalyzeLead = async () => {
@@ -754,8 +800,28 @@ const Sales: React.FC = () => {
                         </div>
 
                         <form onSubmit={handleSendMessage} className="p-4 bg-slate-100 border-t border-slate-200 flex gap-3">
-                            <input value={messageText} onChange={e => setMessageText(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-blue-500 text-sm shadow-sm bg-slate-50" placeholder="Envio será ativado no próximo bloco" disabled />
-                            <button disabled className="p-3 bg-blue-600/50 text-white rounded-xl transition-all shadow-md cursor-not-allowed"><Send size={20}/></button>
+                            <input 
+                                value={messageText} 
+                                onChange={e => setMessageText(e.target.value)} 
+                                className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-blue-500 text-sm shadow-sm bg-white disabled:bg-slate-50 disabled:text-slate-400" 
+                                placeholder={selectedConversationId ? "Digite uma mensagem..." : "Selecione uma conversa para responder."} 
+                                disabled={!selectedConversationId || sendingMsg} 
+                            />
+                            <button 
+                                type="submit"
+                                disabled={!selectedConversationId || !messageText.trim() || sendingMsg} 
+                                className={`p-3 rounded-xl transition-all shadow-md flex items-center justify-center ${
+                                    (!selectedConversationId || !messageText.trim() || sendingMsg) 
+                                        ? 'bg-blue-600/50 text-white cursor-not-allowed' 
+                                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    }`}
+                            >
+                                {sendingMsg ? (
+                                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                ) : (
+                                    <Send size={20}/>
+                                )}
+                            </button>
                         </form>
                     </>
                 ) : (

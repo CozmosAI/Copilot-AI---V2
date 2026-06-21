@@ -2095,6 +2095,296 @@ app.get('/api/crm/connections/:connectionId/webhook-events', async (req, res) =>
     }
 });
 
+// POST /api/crm/conversations/:conversationId/send - Enviar mensagem de texto outbound do CRM via Uazapi e salvar
+app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
+    try {
+        // 1. Validar Authorization Bearer com getAuthUser(req)
+        const user = await getAuthUser(req);
+        const { conversationId } = req.params;
+        const { text } = req.body;
+
+        // 2. Validar text obrigatório e não vazio
+        if (!text || typeof text !== 'string' || !text.trim()) {
+            return res.status(400).json({
+                ok: false,
+                error: "O texto da mensagem é obrigatório e não pode ser vazio."
+            });
+        }
+
+        const client = supabaseAdmin || supabase;
+
+        // 3. Buscar crm_conversations por id = conversationId e user_id = user.id
+        const { data: conversation, error: convErr } = await client
+            .from('crm_conversations')
+            .select('*')
+            .eq('id', conversationId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (convErr || !conversation) {
+            return res.status(404).json({
+                ok: false,
+                error: "Conversa não encontrada ou não pertence a este usuário."
+            });
+        }
+
+        // 4. Buscar crm_contacts usando conversation.contact_id
+        const { data: contact, error: contactErr } = await client
+            .from('crm_contacts')
+            .select('*')
+            .eq('id', conversation.contact_id)
+            .maybeSingle();
+
+        if (contactErr || !contact) {
+            return res.status(404).json({
+                ok: false,
+                error: "Contato associado à conversa não foi encontrado."
+            });
+        }
+
+        // 5. Buscar crm_connections usando database query na tabela crm_connections
+        const { data: connection, error: connErr } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', conversation.connection_id)
+            .maybeSingle();
+
+        if (connErr || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: "Conexão de CRM associada não encontrada."
+            });
+        }
+
+        // 6. Validar provider = 'uazapi'
+        if (connection.provider !== 'uazapi') {
+            return res.status(400).json({
+                ok: false,
+                error: "Esta rota suporta apenas conexão via o provedor 'uazapi'."
+            });
+        }
+
+        // 7. Montar destino para Uazapi
+        let destino = null;
+        if (contact.phone) {
+            destino = normalizePhone(contact.phone);
+        }
+        if (!destino && contact.external_chat_id) {
+            destino = normalizePhone(contact.external_chat_id);
+        }
+        if (!destino && contact.external_chat_id) {
+            destino = contact.external_chat_id;
+        }
+
+        if (!destino) {
+            return res.status(400).json({
+                ok: false,
+                error: "Nenhum número de telefone ou ID externo no formato correto foi encontrado para o contato."
+            });
+        }
+
+        console.log(`[CRM Send] Enviando mensagem pela Uazapi para conversa ${conversationId}, destino: ${destino}`);
+
+        // 8. Chamar Uazapi /send/text de forma defensiva com Timeout de 15 segundos
+        const uazapiUrl = `${connection.api_base_url.replace(/\/$/, '')}/send/text`;
+        const headers = {
+            'Content-Type': 'application/json',
+            'token': connection.instance_token,
+            'Authorization': `Bearer ${connection.instance_token}`
+        };
+
+        const firstBody = {
+            "number": destino,
+            "text": text,
+            "linkPreview": false,
+            "readchat": true,
+            "delay": 0
+        };
+
+        const fallbackBody = {
+            "phone": destino,
+            "message": text
+        };
+
+        let uazapiError = null;
+        let responseJson = null;
+        let extMessageId = null;
+
+        // Implementar AbortController para timeout de 15 segundos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+        try {
+            const response = await fetch(uazapiUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(firstBody),
+                signal: controller.signal
+            });
+
+            const responseText = await response.text();
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                // Try fallback body
+                const fallbackController = new AbortController();
+                const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), 15000);
+
+                const fallbackResponse = await fetch(uazapiUrl, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(fallbackBody),
+                    signal: fallbackController.signal
+                });
+
+                const fallbackText = await fallbackResponse.text();
+                clearTimeout(fallbackTimeoutId);
+
+                if (!fallbackResponse.ok) {
+                    throw new Error(`Uazapi HTTP Error first body: ${responseText}, fallback body: ${fallbackText}`);
+                } else {
+                    responseJson = JSON.parse(fallbackText);
+                }
+            } else {
+                responseJson = JSON.parse(responseText);
+            }
+
+            if (responseJson && responseJson.key && responseJson.key.id) {
+                extMessageId = responseJson.key.id;
+            } else if (responseJson && responseJson.id) {
+                extMessageId = responseJson.id;
+            } else if (responseJson && responseJson.messageId) {
+                extMessageId = responseJson.messageId;
+            } else {
+                extMessageId = "axis_out_" + Date.now();
+            }
+
+        } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            console.error(`[CRM Send] Erro de rede ou timeout ao chamar Uazapi:`, fetchErr);
+            uazapiError = fetchErr.message || String(fetchErr);
+        }
+
+        // 9. Salvar mensagem outbound
+        const finalStatus = uazapiError ? "failed" : "sent";
+        const finalExtId = extMessageId || ("axis_out_" + Date.now());
+
+        const outMessageData = {
+            user_id: user.id,
+            connection_id: conversation.connection_id,
+            conversation_id: conversation.id,
+            contact_id: conversation.contact_id,
+            lead_id: conversation.lead_id || null,
+            external_message_id: finalExtId,
+            message_direction: "outbound",
+            sender_type: "me",
+            message_type: "text",
+            message_text: text,
+            message_status: finalStatus,
+            from_me: true,
+            raw_payload: responseJson ? sanitizePayloadForDb(responseJson) : { error: uazapiError },
+            sent_at: new Date().toISOString()
+        };
+
+        function sanitizePayloadForDb(obj) {
+            if (!obj) return obj;
+            const cloned = JSON.parse(JSON.stringify(obj));
+            delete cloned.token;
+            delete cloned.instance_token;
+            delete cloned.instanceToken;
+            return cloned;
+        }
+
+        let createdMessage = null;
+        try {
+            const { data: insertedMsg, error: insertErr } = await client
+                .from('crm_messages')
+                .insert(outMessageData)
+                .select()
+                .single();
+
+            if (insertErr) {
+                if (insertErr.code === '23505') {
+                    console.log(`[CRM Send] Mensagem duplicada ignorada (external_message_id unique constraint): ${finalExtId}`);
+                    const { data: extMsg } = await client
+                        .from('crm_messages')
+                        .select('*')
+                        .eq('connection_id', conversation.connection_id)
+                        .eq('external_message_id', finalExtId)
+                        .maybeSingle();
+                    createdMessage = extMsg;
+                } else {
+                    throw insertErr;
+                }
+            } else {
+                createdMessage = insertedMsg;
+            }
+        } catch (dbErr) {
+            console.error(`[CRM Send] Falha ao tentar salvar crm_messages:`, dbErr);
+            return res.status(500).json({
+                ok: false,
+                error: "Erro do banco de dados ao salvar a tentativa de envio de mensagem."
+            });
+        }
+
+        // 10. Atualizar conversa e lead se o envio obteve sucesso
+        if (!uazapiError && createdMessage) {
+            const now = new Date().toISOString();
+            
+            const { error: updateConvErr } = await client
+                .from('crm_conversations')
+                .update({
+                    last_message_text: text,
+                    last_message_type: "text",
+                    last_message_at: now,
+                    last_sender: "me",
+                    unread_count: 0,
+                    updated_at: now
+                })
+                .eq('id', conversationId);
+
+            if (updateConvErr) {
+                console.error(`[CRM Send] Falha ao atualizar crm_conversations com última mensagem:`, updateConvErr);
+            }
+
+            if (conversation.lead_id) {
+                const { error: updateLeadErr } = await client
+                    .from('leads')
+                    .update({
+                        last_message: text,
+                        last_sender: "me",
+                        last_interaction: now
+                    })
+                    .eq('id', conversation.lead_id);
+
+                if (updateLeadErr) {
+                    console.error(`[CRM Send] Falha ao atualizar lead correspondente à conversa:`, updateLeadErr);
+                }
+            }
+
+            console.log(`[CRM Send] Mensagem enviada e salva com sucesso: ID ${createdMessage.id}`);
+            return res.json({
+                ok: true,
+                message: createdMessage
+            });
+        } else {
+            console.log(`[CRM Send] Falha ao enviar pela Uazapi: ${uazapiError || 'Desconhecido'}`);
+            return res.json({
+                ok: false,
+                message: createdMessage,
+                error: "Erro ao enviar pela Uazapi."
+            });
+        }
+
+    } catch (err) {
+        console.error('Erro geral no endpoint de envio CRM:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro interno ao processar envio de mensagem do CRM'
+        });
+    }
+});
+
 // --- HELPERS E PROCESSADORES DA UAZAPI ---
 
 async function backfillLeadForConversation(connection, contact, conversation, message) {
