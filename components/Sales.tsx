@@ -109,7 +109,27 @@ const Sales: React.FC = () => {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      if (messages) setChatMessages(messages as any[]);
+      
+      if (messages) {
+        // Buscar anexos vinculados para enriquecer mídias carregadas de forma assíncrona
+        const { data: attachments } = await supabase
+          .from('crm_message_attachments')
+          .select('*')
+          .eq('conversation_id', conversationId);
+        
+        const mergedMessages = (messages as any[]).map(m => {
+          const msgAttachs = attachments ? attachments.filter((a: any) => a.message_id === m.id) : [];
+          return {
+            ...m,
+            attachments: msgAttachs,
+            media_url: m.media_url || (msgAttachs[0]?.source_url || null),
+            media_mime_type: m.media_mime_type || (msgAttachs[0]?.mime_type || null),
+            media_filename: m.media_filename || (msgAttachs[0]?.filename || null)
+          };
+        });
+
+        setChatMessages(mergedMessages);
+      }
     } catch (err) {
       console.error('Error fetching CRM messages:', err);
       setChatError('Erro ao carregar mensagens do CRM.');
@@ -264,6 +284,21 @@ const Sales: React.FC = () => {
           setChatMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, newMsg];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'crm_messages',
+          filter: `conversation_id=eq.${selectedConversationId}`
+        },
+        (payload) => {
+          const updatedMsg = payload.new;
+          setChatMessages((prev) => {
+            return prev.map((m) => m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m);
           });
         }
       )

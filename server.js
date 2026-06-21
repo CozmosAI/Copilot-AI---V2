@@ -3123,6 +3123,344 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             });
         }
         
+        // 3.5. Tratar eventos de messages_update (FileDownloadedMessage / FileDownloaded) para mídias
+        const isFileDownloaded = 
+            body.type === "FileDownloadedMessage" ||
+            body.event?.Type === "FileDownloaded" ||
+            body.state === "FileDownloaded" ||
+            body.EventType === "messages_update" ||
+            (body.event && body.event.MessageIDs && body.event.MessageIDs.length > 0);
+            
+        const hasMessageIDs = body.event?.MessageIDs && Array.isArray(body.event.MessageIDs) && body.event.MessageIDs.length > 0;
+        const isMediaDownloadEvent = isFileDownloaded && hasMessageIDs;
+
+        if (isMediaDownloadEvent) {
+            const rawMessageId = body.event.MessageIDs[0];
+            const messageId = rawMessageId ? cleanMarkdownLink(rawMessageId) : null;
+            console.log(`[Webhook Uazapi] FileDownloadedMessage recebido para messageId: ${messageId}`);
+
+            if (!messageId) {
+                if (webhookEventId) {
+                    await client
+                        .from('crm_webhook_events')
+                        .update({
+                            event_type: 'messages_update',
+                            normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                            processing_status: 'ignored',
+                            processed_messages: 0,
+                            error_message: "Mídia baixada, mas MessageIDs inválido.",
+                            updated_at: new Date()
+                        })
+                        .eq('id', webhookEventId);
+                }
+                return res.json({ ok: true, message: "MessageIDs inválido no evento de mídia." });
+            }
+
+            // Localizar a mensagem correspondente (exata ou parcial usando ilike)
+            let targetMsg = null;
+            const { data: exactMsg, error: exactErr } = await client
+                .from('crm_messages')
+                .select('*')
+                .eq('connection_id', connection.id)
+                .eq('external_message_id', messageId)
+                .maybeSingle();
+
+            if (exactErr) {
+                console.error(`[Webhook Uazapi] Erro na busca exata de crm_messages para mídia:`, exactErr);
+            }
+
+            if (exactMsg) {
+                targetMsg = exactMsg;
+            } else {
+                const { data: partialMsgs, error: partialErr } = await client
+                    .from('crm_messages')
+                    .select('*')
+                    .eq('connection_id', connection.id)
+                    .ilike('external_message_id', `%${messageId}`);
+                
+                if (partialErr) {
+                    console.error(`[Webhook Uazapi] Erro na busca parcial de crm_messages para mídia:`, partialErr);
+                }
+                if (partialMsgs && partialMsgs.length > 0) {
+                    targetMsg = partialMsgs[0];
+                }
+            }
+
+            if (!targetMsg) {
+                console.log(`[Webhook Uazapi] Mídia recebida, mas mensagem original ${messageId} não encontrada.`);
+                if (webhookEventId) {
+                    await client
+                        .from('crm_webhook_events')
+                        .update({
+                            event_type: 'messages_update',
+                            normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                            processing_status: 'ignored',
+                            processed_messages: 0,
+                            error_message: "Mídia baixada, mas mensagem original não encontrada.",
+                            updated_at: new Date()
+                        })
+                        .eq('id', webhookEventId);
+                }
+                return res.json({ ok: true, message: "Mensagem original não encontrada para vincular mídia." });
+            }
+
+            // Extrair URLs do payload original
+            let fileUrl = body.event?.FileURL || body.event?.fileURL || body.event?.url || body.event?.URL || null;
+            let mimeType = body.event?.MimeType || body.event?.mimeType || body.event?.Mimetype || null;
+            let base64Available = false;
+            let storagePending = false;
+
+            // Fallback se não vier a URL diretamente no webhook
+            if (!fileUrl && connection.instance_token) {
+                try {
+                    let apiBaseUrl = connection.api_base_url || body.BaseUrl || 'https://task-ai.uazapi.com';
+                    apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
+                    
+                    console.log(`[Webhook Uazapi] FileURL ausente no webhook. Tentando fallback /message/download para ${messageId}`);
+                    const downloadResponse = await fetch(`${apiBaseUrl}/message/download`, {
+                        method: 'POST',
+                        headers: {
+                            'token': connection.instance_token,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            id: messageId,
+                            return_base64: false,
+                            return_link: true
+                        })
+                    });
+
+                    if (downloadResponse.ok) {
+                        const downloadData = await downloadResponse.json();
+                        fileUrl = downloadData.FileURL || downloadData.fileURL || downloadData.url || downloadData.URL || (downloadData.data && (downloadData.data.url || downloadData.data.fileURL || downloadData.data.FileURL)) || null;
+                        if (downloadData.MimeType || downloadData.mimeType) {
+                            mimeType = mimeType || downloadData.MimeType || downloadData.mimeType;
+                        }
+                        if (downloadData.base64 || downloadData.data?.base64) {
+                            base64Available = true;
+                            storagePending = true;
+                        }
+                    }
+
+                    if (!fileUrl) {
+                        console.log(`[Webhook Uazapi] FileURL ausente no fallback /message/download. Tentando fallback /message/find para ${messageId}`);
+                        const findResponse = await fetch(`${apiBaseUrl}/message/find`, {
+                            method: 'POST',
+                            headers: {
+                                'token': connection.instance_token,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                id: messageId,
+                                limit: 20,
+                                offset: 0
+                            })
+                        });
+
+                        if (findResponse.ok) {
+                            const findData = await findResponse.json();
+                            const searchInObj = (obj) => {
+                                if (!obj || typeof obj !== 'object') return null;
+                                const keysToTry = ['fileURL', 'FileURL', 'url', 'URL', 'downloadUrl', 'mediaUrl'];
+                                for (const k of keysToTry) {
+                                    if (obj[k] && typeof obj[k] === 'string' && obj[k].startsWith('http')) {
+                                        return obj[k];
+                                    }
+                                }
+                                if (obj.content && typeof obj.content === 'object') {
+                                    for (const k of keysToTry) {
+                                        if (obj.content[k] && typeof obj.content[k] === 'string' && obj.content[k].startsWith('http')) {
+                                            return obj.content[k];
+                                        }
+                                    }
+                                }
+                                return null;
+                            };
+
+                            if (Array.isArray(findData)) {
+                                for (const item of findData) {
+                                    const found = searchInObj(item);
+                                    if (found) { fileUrl = found; break; }
+                                }
+                            } else if (findData) {
+                                fileUrl = searchInObj(findData) || searchInObj(findData.data) || searchInObj(findData.message) || null;
+                            }
+                        }
+                    }
+                } catch (fallbackErr) {
+                    console.error(`[Webhook Uazapi] Erro ao tentar fallback na Uazapi:`, fallbackErr.message || fallbackErr);
+                }
+            }
+
+            // Mapear tipo de mensagem com base no MimeType
+            let updatedType = targetMsg.message_type || 'unknown';
+            if (mimeType) {
+                const mimeLower = String(mimeType).toLowerCase();
+                if (mimeLower.startsWith('image/')) {
+                    updatedType = 'image';
+                } else if (mimeLower.startsWith('audio/')) {
+                    updatedType = mimeLower.includes('ogg') ? 'voice' : 'audio';
+                } else if (mimeLower.startsWith('video/')) {
+                    updatedType = 'video';
+                } else if (mimeLower.startsWith('application/') || mimeLower.startsWith('text/')) {
+                    updatedType = 'document';
+                }
+            }
+
+            if (targetMsg.message_type === 'unknown' || targetMsg.message_type === 'text') {
+                targetMsg.message_type = updatedType;
+            }
+
+            // Atribuir texto mais específico conforme o placeholder correto
+            let updatedText = targetMsg.message_text || '';
+            if (!updatedText || updatedText === '[mensagem]' || updatedText === '[documento]' || updatedText === '[imagem]' || updatedText === '[áudio]' || updatedText === '[vídeo]' || updatedText === '[sticker]') {
+                if (updatedType === 'image') updatedText = '[imagem]';
+                else if (updatedType === 'audio') updatedText = '[áudio]';
+                else if (updatedType === 'voice') updatedText = '[áudio]';
+                else if (updatedType === 'video') updatedText = '[vídeo]';
+                else if (updatedType === 'document') updatedText = '[documento]';
+                else if (updatedType === 'sticker') updatedText = '[sticker]';
+                else updatedText = '[mensagem]';
+            }
+
+            // Atualizar crm_messages
+            const updateMsgFields = {
+                media_url: fileUrl || targetMsg.media_url,
+                media_mime_type: mimeType || targetMsg.media_mime_type,
+                message_type: updatedType,
+                message_text: updatedText,
+                updated_at: new Date()
+            };
+
+            const { error: updateMsgErr } = await client
+                .from('crm_messages')
+                .update(updateMsgFields)
+                .eq('id', targetMsg.id);
+
+            if (updateMsgErr) {
+                console.error(`[Webhook Uazapi] Erro ao atualizar mídias na mensagem ${targetMsg.id}:`, updateMsgErr);
+            } else {
+                console.log(`[Webhook Uazapi] Mídia vinculada à mensagem ${targetMsg.id}`);
+            }
+
+            // Atualizar a conversa correspondente se aplicável
+            if (targetMsg.conversation_id) {
+                await client
+                    .from('crm_conversations')
+                    .update({
+                        last_message_text: updatedText,
+                        last_message_at: new Date(),
+                        updated_at: new Date()
+                    })
+                    .eq('id', targetMsg.conversation_id);
+            }
+
+            // Criar ou atualizar crm_message_attachments
+            const { data: existingAttachment } = await client
+                .from('crm_message_attachments')
+                .select('id')
+                .eq('message_id', targetMsg.id)
+                .maybeSingle();
+
+            let filename = body.event?.FileName || body.event?.filename || body.event?.Name || null;
+            if (!filename) {
+                let ext = '.bin';
+                if (mimeType) {
+                    const m = String(mimeType).toLowerCase();
+                    if (m.includes('jpeg') || m.includes('jpg')) ext = '.jpg';
+                    else if (m.includes('png')) ext = '.png';
+                    else if (m.includes('gif')) ext = '.gif';
+                    else if (m.includes('mp4')) ext = '.mp4';
+                    else if (m.includes('ogg')) ext = '.ogg';
+                    else if (m.includes('mp3') || m.includes('mpeg')) ext = '.mp3';
+                    else if (m.includes('pdf')) ext = '.pdf';
+                    else if (m.includes('docx') || m.includes('word')) ext = '.docx';
+                    else if (m.includes('xlsx') || m.includes('excel')) ext = '.xlsx';
+                } else {
+                    if (updatedType === 'image') ext = '.jpg';
+                    else if (updatedType === 'video') ext = '.mp4';
+                    else if (updatedType === 'audio' || updatedType === 'voice') ext = '.mp3';
+                }
+                filename = `documento_${messageId}${ext}`;
+            }
+
+            let sizeBytes = null;
+            if (body.event?.Size || body.event?.size || body.event?.fileLength) {
+                sizeBytes = Number(body.event.Size || body.event.size || body.event.fileLength) || null;
+            }
+            let durationSeconds = null;
+            if (body.event?.duration || body.event?.seconds || body.event?.durationSeconds) {
+                durationSeconds = Number(body.event.duration || body.event.seconds || body.event.durationSeconds) || null;
+            }
+
+            let extraMetadata = sanitizeWebhookPayloadForStorage(body.event || {});
+            if (base64Available) {
+                extraMetadata = {
+                    ...extraMetadata,
+                    base64Available: true,
+                    storagePending: true
+                };
+            }
+
+            const attachmentData = {
+                user_id: targetMsg.user_id,
+                connection_id: targetMsg.connection_id,
+                conversation_id: targetMsg.conversation_id,
+                message_id: targetMsg.id,
+                attachment_type: updatedType,
+                source_url: fileUrl || null,
+                mime_type: mimeType || targetMsg.media_mime_type,
+                filename: filename,
+                size_bytes: sizeBytes,
+                duration_seconds: durationSeconds,
+                raw_metadata: extraMetadata,
+                created_at: new Date()
+            };
+
+            if (existingAttachment) {
+                const { error: updateAttachErr } = await client
+                    .from('crm_message_attachments')
+                    .update(attachmentData)
+                    .eq('id', existingAttachment.id);
+
+                if (updateAttachErr) {
+                    console.error(`[Webhook Uazapi] Erro ao atualizar crm_message_attachments:`, updateAttachErr);
+                } else {
+                    console.log(`[Webhook Uazapi] Attachment atualizado para a mensagem ID: ${targetMsg.id}`);
+                }
+            } else {
+                const { error: insertAttachErr } = await client
+                    .from('crm_message_attachments')
+                    .insert(attachmentData);
+
+                if (insertAttachErr) {
+                    console.error(`[Webhook Uazapi] Erro ao criar crm_message_attachments:`, insertAttachErr);
+                } else {
+                    console.log(`[Webhook Uazapi] Attachment criado para a mensagem ID: ${targetMsg.id}`);
+                }
+            }
+
+            // Atualizar status do webhook_event (Tarefa 8)
+            if (webhookEventId) {
+                await client
+                    .from('crm_webhook_events')
+                    .update({
+                        event_type: 'messages_update',
+                        normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                        processing_status: 'processed',
+                        processed_messages: 0,
+                        error_message: "Mídia vinculada à mensagem existente.",
+                        updated_at: new Date()
+                    })
+                    .eq('id', webhookEventId);
+            }
+
+            return res.json({
+                ok: true,
+                message: "Mídia vinculada com sucesso à mensagem existente."
+            });
+        }
+
         // 4. Tratar eventos de conexão/status da instância
         if (normalized.eventType === 'connection') {
             let connectedPhone = null;
