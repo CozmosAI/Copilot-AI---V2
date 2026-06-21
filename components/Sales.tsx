@@ -55,10 +55,18 @@ const Sales: React.FC = () => {
   // AI & Chat State
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [messageText, setMessageText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // CRM Integration States
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<any | null>(null);
+  const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [conversationsMap, setConversationsMap] = useState<Record<string, any>>({});
 
   // New Lead Form State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -75,19 +83,196 @@ const Sales: React.FC = () => {
       description: ''
   });
 
-  // --- EFEITOS ---
+  // --- REQUISICÕES CRM ---
+  const fetchCrmMessages = async (conversationId: string) => {
+    try {
+      const { data: messages, error } = await supabase
+        .from('crm_messages')
+        .select(`
+          id,
+          conversation_id,
+          lead_id,
+          message_direction,
+          sender_type,
+          message_type,
+          message_text,
+          caption,
+          media_url,
+          media_mime_type,
+          media_filename,
+          message_status,
+          from_me,
+          created_at,
+          sent_at
+        `)
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      if (messages) setChatMessages(messages as any[]);
+    } catch (err) {
+      console.error('Error fetching CRM messages:', err);
+      setChatError('Erro ao carregar mensagens do CRM.');
+    }
+  };
+
+  const fetchConversationForLead = async (lead: Lead) => {
+    setIsChatLoading(true);
+    setChatError(null);
+    setSelectedConversationId(null);
+    setSelectedConversation(null);
+    setChatMessages([]);
+
+    try {
+      let convId = lead.conversation_id;
+
+      if (!convId) {
+        // 1. buscar em crm_conversations por lead_id = lead.id
+        const { data: convByLead } = await supabase
+          .from('crm_conversations')
+          .select('*')
+          .eq('lead_id', lead.id)
+          .maybeSingle();
+
+        if (convByLead) {
+          convId = convByLead.id;
+          setSelectedConversation(convByLead);
+        }
+      } else {
+        // Encontrar o registro correspondente para colocar no estado
+        const { data: convByConvId } = await supabase
+          .from('crm_conversations')
+          .select('*')
+          .eq('id', convId)
+          .maybeSingle();
+        if (convByConvId) {
+          setSelectedConversation(convByConvId);
+        }
+      }
+
+      if (!convId && lead.phone) {
+        // 2. buscar em crm_conversations por contact.phone = lead.phone se necessário
+        const { data: contact } = await supabase
+          .from('crm_contacts')
+          .select('id')
+          .eq('phone', lead.phone)
+          .maybeSingle();
+
+        if (contact) {
+          const { data: convByContact } = await supabase
+            .from('crm_conversations')
+            .select('*')
+            .eq('contact_id', contact.id)
+            .maybeSingle();
+
+          if (convByContact) {
+            convId = convByContact.id;
+            setSelectedConversation(convByContact);
+          }
+        }
+      }
+
+      if (convId) {
+        setSelectedConversationId(convId);
+        await fetchCrmMessages(convId);
+      } else {
+        console.log('Este lead ainda não possui conversa vinculada.');
+      }
+    } catch (err) {
+      console.error('Error fetching conversation for lead:', err);
+      setChatError('Erro ao carregar mensagens do CRM.');
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  // --- EFEITOS DE AUTOCARREGAMENTO & REALTIME ---
   useEffect(() => {
-    if (!activeLead) return;
-    const fetchMessages = async () => {
-        const { data } = await supabase.from('whatsapp_messages').select('*').eq('contact_phone', activeLead.phone).order('created_at', { ascending: true });
-        if (data) setChatMessages(data as ChatMessage[]);
-    };
-    fetchMessages();
-    const channel = supabase.channel(`chat-${activeLead.phone}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'whatsapp_messages', filter: `contact_phone=eq.${activeLead.phone}` }, (payload) => setChatMessages(prev => [...prev, payload.new as ChatMessage]))
-        .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    if (!activeLead) {
+      setSelectedConversationId(null);
+      setSelectedConversation(null);
+      setChatMessages([]);
+      return;
+    }
+    fetchConversationForLead(activeLead);
   }, [activeLead]);
+
+  // Carrega e atualiza o mapeamento de conversas em tempo real
+  useEffect(() => {
+    const fetchConversations = async () => {
+      const { data } = await supabase
+        .from('crm_conversations')
+        .select('*');
+      if (data) {
+        const map: Record<string, any> = {};
+        data.forEach((c: any) => {
+          map[c.id] = c;
+          if (c.lead_id) {
+            map[`lead_${c.lead_id}`] = c;
+          }
+        });
+        setConversationsMap(map);
+      }
+    };
+    fetchConversations();
+
+    const convsChannel = supabase.channel('crm_conversations_all')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'crm_conversations'
+        },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const updatedConv = payload.new;
+            setConversationsMap((prev) => ({
+              ...prev,
+              [updatedConv.id]: updatedConv,
+              [`lead_${updatedConv.lead_id}`]: updatedConv
+            }));
+
+            if (selectedConversationId && updatedConv.id === selectedConversationId) {
+              setSelectedConversation(updatedConv);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(convsChannel);
+    };
+  }, [selectedConversationId]);
+
+  // Canal em tempo real para novas mensagens da conversa selecionada
+  useEffect(() => {
+    if (!selectedConversationId) return;
+
+    const messagesChannel = supabase.channel(`crm_messages_${selectedConversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'crm_messages',
+          filter: `conversation_id=eq.${selectedConversationId}`
+        },
+        (payload) => {
+          const newMsg = payload.new;
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
+    };
+  }, [selectedConversationId]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
 
@@ -171,25 +356,16 @@ const Sales: React.FC = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!activeLead || !messageText.trim()) return;
-      const text = messageText; setMessageText(''); setSendingMsg(true);
-      
-      // Lógica simplificada: Sempre abre o link do WhatsApp Web/App
-      window.open(`https://wa.me/55${activeLead.phone}?text=${encodeURIComponent(text)}`, '_blank'); 
-      setSendingMsg(false);
-
-      /* LÓGICA ANTIGA REMOVIDA
-      if (whatsappConfig?.isConnected && whatsappConfig.instanceName) {
-          try { await sendMessage(whatsappConfig.instanceName, activeLead.phone, text); } catch { alert('Erro API.'); } finally { setSendingMsg(false); }
-      } else {
-          window.open(`https://wa.me/55${activeLead.phone}?text=${encodeURIComponent(text)}`, '_blank'); setSendingMsg(false);
-      }
-      */
+      alert('Envio pelo CRM será ativado no próximo bloco.');
   };
 
   const handleAnalyzeLead = async () => {
     if (!activeLead) return; setIsAnalyzing(true);
-    const historyText = chatMessages.slice(-15).map(m => `${m.sender === 'me' ? 'Eu' : 'Cliente'}: ${m.body}`).join('\n');
+    const historyText = chatMessages.slice(-15).map(m => {
+      const isOutbound = m.from_me === true || m.message_direction === 'outbound' || m.sender_type === 'me' || m.sender_type === 'ai';
+      const content = m.message_text || m.caption || (m.message_type ? `[${m.message_type}]` : '[mensagem]');
+      return `${isOutbound ? 'Eu' : 'Cliente'}: ${content}`;
+    }).join('\n');
     const result = await analyzeLeadConversation(activeLead.name, historyText || 'Sem mensagens.');
     setAiAnalysis(result); setIsAnalyzing(false);
   };
@@ -433,20 +609,75 @@ const Sales: React.FC = () => {
                <div className="p-4 border-b border-slate-200 bg-white">
                   <div className="relative">
                       <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" placeholder="Buscar lead..." className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 transition-all" />
+                      <input 
+                        type="text" 
+                        placeholder="Buscar lead..." 
+                        value={chatSearchQuery}
+                        onChange={(e) => setChatSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 transition-all" 
+                      />
                   </div>
                </div>
                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                   {leads.map(lead => (
-                       <div key={lead.id} onClick={() => setActiveLead(lead)} className={`px-4 py-4 border-b border-slate-100 cursor-pointer hover:bg-white transition-all group ${activeLead?.id === lead.id ? 'bg-white border-l-4 border-l-blue-600 shadow-sm' : 'border-l-4 border-l-transparent'}`}>
-                           <div className="flex justify-between items-center mb-1">
-                               <h4 className={`text-sm font-bold ${activeLead?.id === lead.id ? 'text-blue-600' : 'text-slate-700'}`}>{lead.name}</h4>
-                               <span className="text-[10px] text-slate-400">{lead.lastInteraction || '12:00'}</span>
+                   {leads.filter(lead => {
+                       const nameMatch = lead.name.toLowerCase().includes(chatSearchQuery.toLowerCase());
+                       const phoneMatch = lead.phone ? lead.phone.includes(chatSearchQuery) : false;
+                       return nameMatch || phoneMatch;
+                   }).map(lead => {
+                       const conv = conversationsMap[lead.conversation_id || ''] || conversationsMap[`lead_${lead.id}`];
+                       const displayLastMessage = conv?.last_message_text || lead.lastMessage || '...';
+                       const displayLastInteraction = conv?.last_message_at 
+                         ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                         : (lead.lastInteraction || '');
+                       const unreadCount = conv?.unread_count || 0;
+                       
+                       return (
+                           <div 
+                             key={lead.id} 
+                             id={`lead-item-${lead.id}`}
+                             onClick={() => setActiveLead(lead)} 
+                             className={`px-4 py-4 border-b border-slate-100 cursor-pointer hover:bg-white transition-all group ${
+                               activeLead?.id === lead.id 
+                                 ? 'bg-white border-l-4 border-l-blue-600 shadow-sm' 
+                                 : 'border-l-4 border-l-transparent'
+                             }`}
+                           >
+                               <div className="flex justify-between items-center mb-1">
+                                   <div className="flex items-center gap-1.5 min-w-0">
+                                       <h4 className={`text-sm font-bold truncate ${activeLead?.id === lead.id ? 'text-blue-600' : 'text-slate-700'}`}>
+                                           {lead.name}
+                                       </h4>
+                                       {lead.channel === 'whatsapp' && (
+                                           <span className="shrink-0 text-[8px] bg-green-100 text-green-700 px-1 py-0.2 rounded font-semibold uppercase">
+                                               WhatsApp
+                                           </span>
+                                       )}
+                                   </div>
+                                   <div className="flex items-center gap-1.5 shrink-0">
+                                       <span className="text-[10px] text-slate-400">{displayLastInteraction}</span>
+                                       {unreadCount > 0 && (
+                                           <span className="bg-blue-600 text-white font-bold text-[9px] w-4 h-4 rounded-full flex items-center justify-center shrink-0">
+                                               {unreadCount}
+                                           </span>
+                                       )}
+                                   </div>
+                               </div>
+                               <p className="text-xs text-slate-500 truncate group-hover:text-slate-700">
+                                   {displayLastMessage}
+                               </p>
+                               <div className="flex items-center justify-between mt-1">
+                                   {lead.objective ? (
+                                       <p className="text-[9px] text-slate-400 bg-slate-50 px-1 py-0.5 rounded inline-block">
+                                           {lead.objective}
+                                       </p>
+                                   ) : <div/>}
+                                   {(lead.conversation_id || conv?.id) && (
+                                       <span className="text-[9px] text-blue-500 font-medium">Conversa ativa</span>
+                                   )}
+                               </div>
                            </div>
-                           <p className="text-xs text-slate-500 truncate group-hover:text-slate-700">{lead.lastMessage || '...'}</p>
-                           {lead.objective && <p className="text-[9px] mt-1 text-slate-400 bg-slate-50 px-1 py-0.5 rounded inline-block">{lead.objective}</p>}
-                       </div>
-                   ))}
+                       );
+                   })}
                </div>
             </div>
 
@@ -472,24 +703,65 @@ const Sales: React.FC = () => {
                         <div className="flex-1 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative bg-opacity-50">
                              <div className="absolute inset-0 opacity-[0.05] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] pointer-events-none"></div>
                             {aiAnalysis && <div className="z-10 bg-white/95 backdrop-blur border border-blue-100 p-4 rounded-xl text-xs text-blue-900 shadow-md mx-auto max-w-lg mb-4 text-center leading-relaxed"><strong>🤖 Copilot Insight:</strong> {aiAnalysis}</div>}
-                            {chatMessages.map(msg => (
-                                <div key={msg.id} className={`z-10 max-w-[65%] px-4 py-3 rounded-2xl text-sm shadow-sm relative leading-relaxed ${msg.sender === 'me' ? 'self-end bg-[#d9fdd3] text-slate-800 rounded-br-none' : 'self-start bg-white text-slate-800 rounded-bl-none'}`}>
-                                    {msg.body}
-                                    <span className="text-[10px] text-slate-400 block text-right mt-1 opacity-70">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                </div>
-                            ))}
+                            
+                            {chatError ? (
+                              <div className="flex-1 flex flex-col items-center justify-center text-rose-500 z-10 gap-2">
+                                <span className="text-sm font-semibold">Erro ao carregar mensagens do CRM.</span>
+                              </div>
+                            ) : isChatLoading ? (
+                              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
+                                <span className="animate-spin text-xl animate-bounce">⌛</span>
+                                <span className="text-sm">Carregando mensagens do CRM...</span>
+                              </div>
+                            ) : !selectedConversationId ? (
+                              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
+                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">Este lead ainda não possui conversa vinculada.</p>
+                              </div>
+                            ) : chatMessages.length === 0 ? (
+                              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
+                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">Nenhuma mensagem nesta conversa ainda.</p>
+                              </div>
+                            ) : (
+                              chatMessages.map(msg => {
+                                  const isOutbound = msg.from_me === true || msg.message_direction === 'outbound' || msg.sender_type === 'me' || msg.sender_type === 'ai';
+                                  
+                                  // Content helper
+                                  let txtContent = msg.message_text || '';
+                                  if (!txtContent && msg.caption) {
+                                    txtContent = msg.caption;
+                                  }
+                                  if (!txtContent) {
+                                    const type = (msg.message_type || '').toLowerCase();
+                                    if (type.includes('image')) txtContent = '[imagem]';
+                                    else if (type.includes('audio') || type.includes('ptt') || type.includes('voice')) txtContent = '[áudio]';
+                                    else if (type.includes('video')) txtContent = '[vídeo]';
+                                    else if (type.includes('document') || type.includes('file')) txtContent = '[documento]';
+                                    else txtContent = '[mensagem]';
+                                  }
+
+                                  const msgTime = msg.sent_at || msg.created_at;
+                                  const formattedTime = msgTime ? new Date(msgTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+
+                                  return (
+                                      <div key={msg.id} className={`z-10 max-w-[65%] px-4 py-3 rounded-2xl text-sm shadow-sm relative leading-relaxed ${isOutbound ? 'self-end bg-[#d9fdd3] text-slate-800 rounded-br-none' : 'self-start bg-white text-slate-800 rounded-bl-none'}`}>
+                                          <div>{txtContent}</div>
+                                          <span className="text-[10px] text-slate-400 block text-right mt-1 opacity-70">{formattedTime}</span>
+                                      </div>
+                                  );
+                              })
+                            )}
                             <div ref={messagesEndRef} />
                         </div>
 
                         <form onSubmit={handleSendMessage} className="p-4 bg-slate-100 border-t border-slate-200 flex gap-3">
-                            <input value={messageText} onChange={e => setMessageText(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-blue-500 text-sm shadow-sm" placeholder="Digite uma mensagem..." />
-                            <button disabled={sendingMsg || !messageText} className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md"><Send size={20}/></button>
+                            <input value={messageText} onChange={e => setMessageText(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-blue-500 text-sm shadow-sm bg-slate-50" placeholder="Envio será ativado no próximo bloco" disabled />
+                            <button disabled className="p-3 bg-blue-600/50 text-white rounded-xl transition-all shadow-md cursor-not-allowed"><Send size={20}/></button>
                         </form>
                     </>
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-slate-50/50">
                         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4"><MessageCircle size={32} className="opacity-30"/></div>
-                        <p className="text-sm font-bold uppercase tracking-widest opacity-50">Selecione um lead para iniciar</p>
+                        <p className="text-sm font-bold uppercase tracking-widest opacity-50">Selecione um lead para iniciar.</p>
                     </div>
                 )}
             </div>

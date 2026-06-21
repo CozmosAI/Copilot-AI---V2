@@ -116,6 +116,9 @@ export interface Lead {
   potentialValue?: number;
   source?: string;
   created_at?: string;
+  conversation_id?: string; // Vincular ao CRM
+  channel?: string;
+  external_chat_id?: string;
 }
 
 // --- TABELA: MENSAGENS WHATSAPP ---
