@@ -283,7 +283,7 @@ const Sales: React.FC = () => {
           const newMsg = payload.new;
           setChatMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
+            return [...prev, { ...newMsg, attachments: [] }];
           });
         }
       )
@@ -298,7 +298,49 @@ const Sales: React.FC = () => {
         (payload) => {
           const updatedMsg = payload.new;
           setChatMessages((prev) => {
-            return prev.map((m) => m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m);
+            return prev.map((m) => {
+              if (m.id === updatedMsg.id) {
+                return {
+                  ...m,
+                  ...updatedMsg,
+                  attachments: m.attachments || []
+                };
+              }
+              return m;
+            });
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'crm_message_attachments',
+          filter: `conversation_id=eq.${selectedConversationId}`
+        },
+        (payload) => {
+          const changedAttachment = payload.new as any;
+          if (!changedAttachment) return;
+          setChatMessages((prev) => {
+            return prev.map((m) => {
+              if (m.id === changedAttachment.message_id) {
+                const existingAttachments = m.attachments || [];
+                const hasMatch = existingAttachments.some((a: any) => a.id === changedAttachment.id);
+                const updatedAttachs = hasMatch
+                  ? existingAttachments.map((a: any) => a.id === changedAttachment.id ? changedAttachment : a)
+                  : [...existingAttachments, changedAttachment];
+                
+                return {
+                  ...m,
+                  attachments: updatedAttachs,
+                  media_url: m.media_url || changedAttachment.source_url,
+                  media_mime_type: m.media_mime_type || changedAttachment.mime_type,
+                  media_filename: m.media_filename || changedAttachment.filename
+                };
+              }
+              return m;
+            });
           });
         }
       )
@@ -834,9 +876,9 @@ const Sales: React.FC = () => {
                                               <span className="text-[9px] text-slate-400 italic font-medium block mt-0.5">(editada)</span>
                                           </div>
                                       );
-                                  } else if ((msgType.includes('image') || msgType === 'sticker') && msg.media_url) {
+                                  } else if (msgType.includes('image') || msgType === 'sticker') {
                                       const isSticker = msgType === 'sticker';
-                                      contentElement = (
+                                      contentElement = msg.media_url ? (
                                           <div className="flex flex-col gap-1.5">
                                               <img 
                                                   src={msg.media_url} 
@@ -846,23 +888,50 @@ const Sales: React.FC = () => {
                                               />
                                               {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
                                           </div>
+                                      ) : (
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                              <div className="flex items-center gap-2">
+                                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                                                  <span className="text-xs font-semibold text-slate-500 leading-none">Mídia pendente / baixando...</span>
+                                              </div>
+                                              <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está carregando a imagem.</span>
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
                                       );
-                                  } else if ((msgType.includes('audio') || msgType.includes('ptt') || msgType.includes('voice')) && msg.media_url) {
-                                      contentElement = (
+                                  } else if (msgType.includes('audio') || msgType.includes('ptt') || msgType.includes('voice')) {
+                                      contentElement = msg.media_url ? (
                                           <div className="flex flex-col gap-1 pt-1 min-w-[200px] sm:min-w-[245px]">
                                               <audio src={msg.media_url} controls className="w-full max-w-[260px] h-9" />
                                               {msg.caption && <p className="text-slate-800 text-sm mt-1 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
                                           </div>
+                                      ) : (
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                              <div className="flex items-center gap-2">
+                                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                                                  <span className="text-xs font-semibold text-slate-500 leading-none">Áudio pendente / baixando...</span>
+                                              </div>
+                                              <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está baixando o áudio.</span>
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
                                       );
-                                  } else if (msgType.includes('video') && msg.media_url) {
-                                      contentElement = (
+                                  } else if (msgType.includes('video')) {
+                                      contentElement = msg.media_url ? (
                                           <div className="flex flex-col gap-1.5">
                                               <video src={msg.media_url} controls className="max-w-xs md:max-w-sm max-h-64 rounded-xl shadow-sm border border-slate-200/50" />
                                               {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
                                           </div>
+                                      ) : (
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                              <div className="flex items-center gap-2">
+                                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                                                  <span className="text-xs font-semibold text-slate-500 leading-none">Vídeo pendente / baixando...</span>
+                                              </div>
+                                              <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está processando o arquivo de vídeo.</span>
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
                                       );
-                                  } else if (msgType.includes('document') && msg.media_url) {
-                                      contentElement = (
+                                  } else if (msgType.includes('document')) {
+                                      contentElement = msg.media_url ? (
                                           <div className="flex flex-col gap-1.5">
                                               <a 
                                                   href={msg.media_url} 
@@ -876,6 +945,15 @@ const Sales: React.FC = () => {
                                                   </span>
                                               </a>
                                               {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                          </div>
+                                      ) : (
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                              <div className="flex items-center gap-2">
+                                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                                                  <span className="text-xs font-semibold text-slate-500 leading-none">Documento pendente...</span>
+                                              </div>
+                                              <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está gerando o link do documento.</span>
+                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
                                           </div>
                                       );
                                   } else if (msgType.includes('location')) {

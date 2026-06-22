@@ -2628,15 +2628,59 @@ function sanitizeWebhookPayloadForStorage(obj, depth = 0) {
         
         if (keysToRedact.some(k => lowerKey === k.toLowerCase())) {
             sanitized[key] = "[REDACTED]";
-        } else if (typeof value === 'string' && value.length > 5000) {
+        } else if (typeof value === 'string' && value.length > 5000 && !value.toLowerCase().startsWith('http')) {
             sanitized[key] = "[OMITTED_LARGE_STRING]";
-        } else if (keysForLargePayloads.some(k => lowerKey === k || lowerKey.includes(k)) && typeof value === 'string' && value.length > 100) {
+        } else if (keysForLargePayloads.some(k => lowerKey === k || lowerKey.includes(k)) && typeof value === 'string' && value.length > 100 && !value.toLowerCase().startsWith('http')) {
             sanitized[key] = "[OMITTED_MEDIA_PAYLOAD]";
         } else {
             sanitized[key] = sanitizeWebhookPayloadForStorage(value, depth + 1);
         }
     }
     return sanitized;
+}
+
+function deepFindMediaAndMime(obj) {
+    let fileUrl = null;
+    let mimeType = null;
+
+    if (!obj || typeof obj !== 'object') {
+        return { fileUrl, mimeType };
+    }
+
+    function search(current) {
+        if (!current || typeof current !== 'object') return;
+
+        const urlKeys = ['fileurl', 'url', 'downloadurl', 'mediaurl'];
+        if (!Array.isArray(current)) {
+            for (const [k, v] of Object.entries(current)) {
+                const lowerK = k.toLowerCase();
+                if (urlKeys.includes(lowerK) && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'))) {
+                    if (!fileUrl) fileUrl = v;
+                }
+                const mimeKeys = ['mimetype', 'mime_type'];
+                if (mimeKeys.includes(lowerK) && typeof v === 'string' && v.includes('/')) {
+                    if (!mimeType) mimeType = v;
+                }
+            }
+        }
+
+        if (Array.isArray(current)) {
+            for (const item of current) {
+                search(item);
+                if (fileUrl && mimeType) return;
+            }
+        } else {
+            for (const [k, v] of Object.entries(current)) {
+                if (v && typeof v === 'object') {
+                    search(v);
+                    if (fileUrl && mimeType) return;
+                }
+            }
+        }
+    }
+
+    search(obj);
+    return { fileUrl, mimeType };
 }
 
 function normalizePhone(value) {
@@ -3059,43 +3103,88 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
         console.log(`[Webhook Uazapi] EventType: ${normalized.eventType}`);
         
         // 3. Tratar eventos de status/ack de mensagem (Tarefa 1 e 7)
-        if (normalized.eventType === 'status_update') {
-            let extMessageId = null;
-            let currentStatus = 'sent'; // padrão
-            
-            // Tentar extrair do body/payload
-            const keyId = body.messageId || body.id || body.msgId || body.key?.id || (body.data && (body.data.messageId || body.data.id || body.data.key?.id)) || null;
-            extMessageId = keyId;
+        const statusTypes = ["Read", "Delivered", "Sent", "Failed", "Played", "read", "delivered", "sent", "failed", "played"];
+        
+        // Determinar se é um evento estrito de FileDownloaded
+        const isFileDownloaded = 
+            body.type === "FileDownloadedMessage" ||
+            body.event?.Type === "FileDownloaded" ||
+            body.state === "FileDownloaded";
 
-            let rawStatus = body.status || body.ack || (body.data && (body.data.status || body.data.ack)) || null;
-            if (rawStatus !== null && rawStatus !== undefined) {
-                rawStatus = String(rawStatus).toLowerCase();
-                if (rawStatus === '3' || rawStatus === 'read' || rawStatus === 'viewed') {
+        const hasMessageIDs = body.event?.MessageIDs && Array.isArray(body.event.MessageIDs) && body.event.MessageIDs.length > 0;
+        const isMediaDownloadEvent = isFileDownloaded && hasMessageIDs;
+
+        // É status update se satisfizer condições explícitas de status
+        const isStatusUpdate = 
+            body.type === "ReadReceipt" ||
+            (body.event?.Type && statusTypes.includes(body.event.Type)) ||
+            (body.state && statusTypes.includes(body.state)) ||
+            (body.EventType === "messages_update" && !isMediaDownloadEvent);
+
+        if (isStatusUpdate) {
+            let messageIdsToUpdate = [];
+            if (body.event?.MessageIDs && Array.isArray(body.event.MessageIDs)) {
+                messageIdsToUpdate = body.event.MessageIDs.map(id => cleanMarkdownLink(id)).filter(Boolean);
+            } else if (body?.MessageIDs && Array.isArray(body.MessageIDs)) {
+                messageIdsToUpdate = body.MessageIDs.map(id => cleanMarkdownLink(id)).filter(Boolean);
+            } else if (body.event?.MessageID) {
+                messageIdsToUpdate = [cleanMarkdownLink(body.event.MessageID)].filter(Boolean);
+            } else {
+                const singleId = body.messageId || body.id || body.msgId || body.key?.id || (body.data && (body.data.messageId || body.data.id || body.data.key?.id)) || null;
+                if (singleId) {
+                    messageIdsToUpdate = [cleanMarkdownLink(singleId)].filter(Boolean);
+                }
+            }
+
+            console.log(`[Webhook Uazapi] ReadReceipt recebido para ${messageIdsToUpdate.length} mensagens.`);
+
+            // Mapear status
+            let rawStatus = body.event?.Type || body.state || body.type || body.status || body.ack || (body.data && (body.data.status || body.data.ack)) || 'sent';
+            let currentStatus = 'sent';
+            if (rawStatus) {
+                const sStr = String(rawStatus).toLowerCase();
+                if (sStr === '3' || sStr === 'read' || sStr === 'played' || sStr === 'readreceipt' || sStr === 'viewed') {
                     currentStatus = 'read';
-                } else if (rawStatus === '2' || rawStatus === 'delivered') {
+                } else if (sStr === '2' || sStr === 'delivered') {
                     currentStatus = 'delivered';
-                } else if (rawStatus === '1' || rawStatus === 'sent') {
+                } else if (sStr === '1' || sStr === 'sent') {
                     currentStatus = 'sent';
-                } else if (rawStatus === 'failed' || rawStatus === 'error') {
+                } else if (sStr === 'failed' || sStr === 'error') {
                     currentStatus = 'failed';
                 }
             }
 
-            let updatedOk = false;
-            let finalMsgId = extMessageId ? cleanMarkdownLink(extMessageId) : null;
-            
-            if (finalMsgId) {
+            let updatedCount = 0;
+            for (const messageIdCode of messageIdsToUpdate) {
+                // Busca e update exato
                 const { data: updatedMsgs, error: updateErr } = await client
                     .from('crm_messages')
                     .update({ message_status: currentStatus })
                     .eq('connection_id', connection.id)
-                    .eq('external_message_id', finalMsgId)
+                    .eq('external_message_id', messageIdCode)
                     .select();
 
                 if (updateErr) {
-                    console.error(`[Webhook Uazapi] Erro ao atualizar status de mensagem ${finalMsgId}:`, updateErr);
-                } else if (updatedMsgs && updatedMsgs.length > 0) {
-                    updatedOk = true;
+                    console.error(`[Webhook Uazapi] Erro ao atualizar status exato para ${messageIdCode}:`, updateErr);
+                }
+
+                if (updatedMsgs && updatedMsgs.length > 0) {
+                    updatedCount += updatedMsgs.length;
+                } else {
+                    // Busca e update parcial (por sufixo)
+                    const { data: suffixUpdated, error: suffixUpdateErr } = await client
+                        .from('crm_messages')
+                        .update({ message_status: currentStatus })
+                        .eq('connection_id', connection.id)
+                        .ilike('external_message_id', `%${messageIdCode}`)
+                        .select();
+
+                    if (suffixUpdateErr) {
+                        console.error(`[Webhook Uazapi] Erro ao atualizar status parcial para ${messageIdCode}:`, suffixUpdateErr);
+                    }
+                    if (suffixUpdated && suffixUpdated.length > 0) {
+                        updatedCount += suffixUpdated.length;
+                    }
                 }
             }
 
@@ -3104,36 +3193,22 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     .from('crm_webhook_events')
                     .update({
                         event_type: 'status_update',
-                        normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
+                        normalized_payload: sanitizeWebhookPayloadForStorage(body),
                         processing_status: 'ignored',
                         processed_messages: 0,
-                        error_message: updatedOk 
-                            ? "Evento de status/ack sem bolha de chat." 
-                            : `Evento de status/ack sem bolha de chat. Mensagem ${finalMsgId || 'indefinida'} não encontrada no banco.`,
+                        error_message: "Evento de status/ack sem bolha de chat.",
                         updated_at: new Date()
                     })
                     .eq('id', webhookEventId);
             }
 
-            return res.json({ 
-                ok: true, 
-                message: updatedOk 
-                    ? `Status da mensagem ${finalMsgId} atualizado para ${currentStatus}.` 
-                    : "Evento de status/ack catalogado como ignored sem bolha de chat."
+            return res.json({
+                ok: true,
+                message: "Evento de status processado com sucesso. " + updatedCount + " mensagens atualizadas."
             });
         }
         
-        // 3.5. Tratar eventos de messages_update (FileDownloadedMessage / FileDownloaded) para mídias
-        const isFileDownloaded = 
-            body.type === "FileDownloadedMessage" ||
-            body.event?.Type === "FileDownloaded" ||
-            body.state === "FileDownloaded" ||
-            body.EventType === "messages_update" ||
-            (body.event && body.event.MessageIDs && body.event.MessageIDs.length > 0);
-            
-        const hasMessageIDs = body.event?.MessageIDs && Array.isArray(body.event.MessageIDs) && body.event.MessageIDs.length > 0;
-        const isMediaDownloadEvent = isFileDownloaded && hasMessageIDs;
-
+        // 3.5. Tratar eventos de mídia (FileDownloadedMessage / FileDownloaded)
         if (isMediaDownloadEvent) {
             const rawMessageId = body.event.MessageIDs[0];
             const messageId = rawMessageId ? cleanMarkdownLink(rawMessageId) : null;
@@ -3204,41 +3279,67 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 return res.json({ ok: true, message: "Mensagem original não encontrada para vincular mídia." });
             }
 
-            // Extrair URLs do payload original
-            let fileUrl = body.event?.FileURL || body.event?.fileURL || body.event?.url || body.event?.URL || null;
-            let mimeType = body.event?.MimeType || body.event?.mimeType || body.event?.Mimetype || null;
+            // Tarefa 3 — Extrair FileURL antes da sanitização do original req.body
+            const originalBody = req.body || {};
+            const oEvent = originalBody.event || {};
+            let fileUrl = oEvent.FileURL || oEvent.fileURL || oEvent.URL || oEvent.url || oEvent.downloadUrl || oEvent.mediaUrl || null;
+            if (typeof fileUrl !== 'string' || (!fileUrl.startsWith('http://') && !fileUrl.startsWith('https://'))) {
+                fileUrl = null;
+            }
+
+            let mimeType = oEvent.MimeType || oEvent.mimeType || oEvent.Mimetype || oEvent.mimetype || null;
             let base64Available = false;
             let storagePending = false;
 
-            // Fallback se não vier a URL diretamente no webhook
+            // Tarefa 4 e 5 — Fallbacks Uazapi
             if (!fileUrl && connection.instance_token) {
                 try {
-                    let apiBaseUrl = connection.api_base_url || body.BaseUrl || 'https://task-ai.uazapi.com';
+                    let apiBaseUrl = connection.api_base_url || originalBody.BaseUrl || 'https://task-ai.uazapi.com';
                     apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
                     
                     console.log(`[Webhook Uazapi] FileURL ausente no webhook. Tentando fallback /message/download para ${messageId}`);
-                    const downloadResponse = await fetch(`${apiBaseUrl}/message/download`, {
+                    let downloadResponse = await fetch(`${apiBaseUrl}/message/download`, {
                         method: 'POST',
                         headers: {
                             'token': connection.instance_token,
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            id: messageId,
-                            return_base64: false,
-                            return_link: true
+                            id: messageId
                         })
                     });
 
+                    let downloadData = null;
                     if (downloadResponse.ok) {
-                        const downloadData = await downloadResponse.json();
-                        fileUrl = downloadData.FileURL || downloadData.fileURL || downloadData.url || downloadData.URL || (downloadData.data && (downloadData.data.url || downloadData.data.fileURL || downloadData.data.FileURL)) || null;
-                        if (downloadData.MimeType || downloadData.mimeType) {
-                            mimeType = mimeType || downloadData.MimeType || downloadData.mimeType;
-                        }
-                        if (downloadData.base64 || downloadData.data?.base64) {
+                        downloadData = await downloadResponse.json();
+                        const found = deepFindMediaAndMime(downloadData);
+                        fileUrl = found.fileUrl;
+                        mimeType = mimeType || found.mimeType;
+                        if (downloadData.base64 || downloadData.data?.base64 || (downloadData.content && downloadData.content.base64)) {
                             base64Available = true;
                             storagePending = true;
+                        }
+                    }
+
+                    if (!fileUrl) {
+                        console.log(`[Webhook Uazapi] Tentando variação defensiva /message/download para ${messageId} com return_link: true`);
+                        downloadResponse = await fetch(`${apiBaseUrl}/message/download`, {
+                            method: 'POST',
+                            headers: {
+                                'token': connection.instance_token,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                id: messageId,
+                                return_link: true,
+                                return_base64: false
+                            })
+                        });
+                        if (downloadResponse.ok) {
+                            downloadData = await downloadResponse.json();
+                            const found = deepFindMediaAndMime(downloadData);
+                            fileUrl = found.fileUrl;
+                            mimeType = mimeType || found.mimeType;
                         }
                     }
 
@@ -3259,38 +3360,17 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
                         if (findResponse.ok) {
                             const findData = await findResponse.json();
-                            const searchInObj = (obj) => {
-                                if (!obj || typeof obj !== 'object') return null;
-                                const keysToTry = ['fileURL', 'FileURL', 'url', 'URL', 'downloadUrl', 'mediaUrl'];
-                                for (const k of keysToTry) {
-                                    if (obj[k] && typeof obj[k] === 'string' && obj[k].startsWith('http')) {
-                                        return obj[k];
-                                    }
-                                }
-                                if (obj.content && typeof obj.content === 'object') {
-                                    for (const k of keysToTry) {
-                                        if (obj.content[k] && typeof obj.content[k] === 'string' && obj.content[k].startsWith('http')) {
-                                            return obj.content[k];
-                                        }
-                                    }
-                                }
-                                return null;
-                            };
-
-                            if (Array.isArray(findData)) {
-                                for (const item of findData) {
-                                    const found = searchInObj(item);
-                                    if (found) { fileUrl = found; break; }
-                                }
-                            } else if (findData) {
-                                fileUrl = searchInObj(findData) || searchInObj(findData.data) || searchInObj(findData.message) || null;
-                            }
+                            const found = deepFindMediaAndMime(findData);
+                            fileUrl = found.fileUrl;
+                            mimeType = mimeType || found.mimeType;
                         }
                     }
                 } catch (fallbackErr) {
                     console.error(`[Webhook Uazapi] Erro ao tentar fallback na Uazapi:`, fallbackErr.message || fallbackErr);
                 }
             }
+
+            console.log(`[Webhook Uazapi] FileURL encontrada: ${fileUrl ? 'sim' : 'não'}`);
 
             // Mapear tipo de mensagem com base no MimeType
             let updatedType = targetMsg.message_type || 'unknown';
@@ -3302,13 +3382,13 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     updatedType = mimeLower.includes('ogg') ? 'voice' : 'audio';
                 } else if (mimeLower.startsWith('video/')) {
                     updatedType = 'video';
-                } else if (mimeLower.startsWith('application/') || mimeLower.startsWith('text/')) {
+                } else if (mimeLower.startsWith('application/') || mimeLower.startsWith('text/') || mimeLower.startsWith('doc') || mimeLower.includes('pdf') || mimeLower.includes('word') || mimeLower.includes('excel')) {
                     updatedType = 'document';
                 }
-            }
-
-            if (targetMsg.message_type === 'unknown' || targetMsg.message_type === 'text') {
-                targetMsg.message_type = updatedType;
+            } else {
+                if (targetMsg.message_type && targetMsg.message_type !== 'unknown' && targetMsg.message_type !== 'text') {
+                    updatedType = targetMsg.message_type;
+                }
             }
 
             // Atribuir texto mais específico conforme o placeholder correto
@@ -3323,46 +3403,8 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 else updatedText = '[mensagem]';
             }
 
-            // Atualizar crm_messages
-            const updateMsgFields = {
-                media_url: fileUrl || targetMsg.media_url,
-                media_mime_type: mimeType || targetMsg.media_mime_type,
-                message_type: updatedType,
-                message_text: updatedText,
-                updated_at: new Date()
-            };
-
-            const { error: updateMsgErr } = await client
-                .from('crm_messages')
-                .update(updateMsgFields)
-                .eq('id', targetMsg.id);
-
-            if (updateMsgErr) {
-                console.error(`[Webhook Uazapi] Erro ao atualizar mídias na mensagem ${targetMsg.id}:`, updateMsgErr);
-            } else {
-                console.log(`[Webhook Uazapi] Mídia vinculada à mensagem ${targetMsg.id}`);
-            }
-
-            // Atualizar a conversa correspondente se aplicável
-            if (targetMsg.conversation_id) {
-                await client
-                    .from('crm_conversations')
-                    .update({
-                        last_message_text: updatedText,
-                        last_message_at: new Date(),
-                        updated_at: new Date()
-                    })
-                    .eq('id', targetMsg.conversation_id);
-            }
-
-            // Criar ou atualizar crm_message_attachments
-            const { data: existingAttachment } = await client
-                .from('crm_message_attachments')
-                .select('id')
-                .eq('message_id', targetMsg.id)
-                .maybeSingle();
-
-            let filename = body.event?.FileName || body.event?.filename || body.event?.Name || null;
+            // Atribuir filename correto
+            let filename = oEvent.FileName || oEvent.filename || oEvent.Name || null;
             if (!filename) {
                 let ext = '.bin';
                 if (mimeType) {
@@ -3384,21 +3426,70 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 filename = `documento_${messageId}${ext}`;
             }
 
-            let sizeBytes = null;
-            if (body.event?.Size || body.event?.size || body.event?.fileLength) {
-                sizeBytes = Number(body.event.Size || body.event.size || body.event.fileLength) || null;
-            }
-            let durationSeconds = null;
-            if (body.event?.duration || body.event?.seconds || body.event?.durationSeconds) {
-                durationSeconds = Number(body.event.duration || body.event.seconds || body.event.durationSeconds) || null;
+            // Atualizar crm_messages
+            const updateMsgFields = {
+                media_url: fileUrl || targetMsg.media_url,
+                media_mime_type: mimeType || targetMsg.media_mime_type,
+                media_filename: filename || targetMsg.media_filename,
+                message_type: updatedType,
+                message_text: updatedText,
+                updated_at: new Date()
+            };
+
+            const { error: updateMsgErr } = await client
+                .from('crm_messages')
+                .update(updateMsgFields)
+                .eq('id', targetMsg.id);
+
+            if (updateMsgErr) {
+                console.error(`[Webhook Uazapi] Erro ao atualizar mídias na mensagem ${targetMsg.id}:`, updateMsgErr);
+            } else {
+                console.log(`[Webhook Uazapi] Mídia vinculada à mensagem ${targetMsg.id}`);
             }
 
-            let extraMetadata = sanitizeWebhookPayloadForStorage(body.event || {});
+            console.log(`[Webhook Uazapi] Front receberá UPDATE com media_url: ${fileUrl ? 'sim' : 'não'}`);
+
+            // Atualizar a conversa correspondente se aplicável
+            if (targetMsg.conversation_id) {
+                await client
+                    .from('crm_conversations')
+                    .update({
+                        last_message_text: updatedText,
+                        last_message_at: new Date(),
+                        updated_at: new Date()
+                    })
+                    .eq('id', targetMsg.conversation_id);
+            }
+
+            // Criar ou atualizar crm_message_attachments
+            const { data: existingAttachment } = await client
+                .from('crm_message_attachments')
+                .select('id')
+                .eq('message_id', targetMsg.id)
+                .maybeSingle();
+
+            let sizeBytes = null;
+            if (oEvent.Size || oEvent.size || oEvent.fileLength) {
+                sizeBytes = Number(oEvent.Size || oEvent.size || oEvent.fileLength) || null;
+            }
+            let durationSeconds = null;
+            if (oEvent.duration || oEvent.seconds || oEvent.durationSeconds) {
+                durationSeconds = Number(oEvent.duration || oEvent.seconds || oEvent.durationSeconds) || null;
+            }
+
+            let extraMetadata = sanitizeWebhookPayloadForStorage(oEvent || {});
             if (base64Available) {
                 extraMetadata = {
                     ...extraMetadata,
                     base64Available: true,
                     storagePending: true
+                };
+            }
+            if (!fileUrl) {
+                extraMetadata = {
+                    ...extraMetadata,
+                    mediaUrlPending: true,
+                    downloadAttempted: true
                 };
             }
 
@@ -3427,6 +3518,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     console.error(`[Webhook Uazapi] Erro ao atualizar crm_message_attachments:`, updateAttachErr);
                 } else {
                     console.log(`[Webhook Uazapi] Attachment atualizado para a mensagem ID: ${targetMsg.id}`);
+                    console.log(`[Webhook Uazapi] Attachment atualizado/criado para messageId ${messageId}`);
                 }
             } else {
                 const { error: insertAttachErr } = await client
@@ -3437,19 +3529,27 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     console.error(`[Webhook Uazapi] Erro ao criar crm_message_attachments:`, insertAttachErr);
                 } else {
                     console.log(`[Webhook Uazapi] Attachment criado para a mensagem ID: ${targetMsg.id}`);
+                    console.log(`[Webhook Uazapi] Attachment atualizado/criado para messageId ${messageId}`);
                 }
             }
 
-            // Atualizar status do webhook_event (Tarefa 8)
+            // Atualizar status do webhook_event (Tarefa 10)
             if (webhookEventId) {
+                let statusMsg = "Mídia vinculada à mensagem existente.";
+                let pStatus = "processed";
+                if (!fileUrl) {
+                    statusMsg = "Mídia identificada, mas URL ainda indisponível.";
+                    pStatus = "processed";
+                }
+                
                 await client
                     .from('crm_webhook_events')
                     .update({
                         event_type: 'messages_update',
                         normalized_payload: sanitizeWebhookPayloadForStorage(body),
-                        processing_status: 'processed',
+                        processing_status: pStatus,
                         processed_messages: 0,
-                        error_message: "Mídia vinculada à mensagem existente.",
+                        error_message: statusMsg,
                         updated_at: new Date()
                     })
                     .eq('id', webhookEventId);
@@ -3457,7 +3557,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
             return res.json({
                 ok: true,
-                message: "Mídia vinculada com sucesso à mensagem existente."
+                message: fileUrl ? "Mídia vinculada com sucesso à mensagem existente." : "Mídia vinculada com sucesso, mas URL está pendente."
             });
         }
 

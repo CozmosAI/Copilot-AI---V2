@@ -1358,7 +1358,7 @@ const Integration: React.FC = () => {
                                             'bg-blue-50 text-blue-600 border-blue-200'
                                           }`}>
                                             {evt.processing_status === 'processed' ? 'PROCESSADO' :
-                                             evt.processing_status === 'ignored' ? 'IGNORADO' :
+                                             evt.processing_status === 'ignored' ? 'IGNORADO TÉCNICO' :
                                              evt.processing_status === 'error' ? 'ERRO' : 'RECEBIDO'}
                                           </span>
                                           <span className="font-semibold text-slate-500 bg-slate-100 px-1 py-0.5 rounded text-[7px]">
@@ -1367,8 +1367,14 @@ const Integration: React.FC = () => {
                                         </div>
                                       </div>
                                       {evt.error_message && (
-                                        <div className="bg-rose-50/50 border border-rose-100 text-rose-700 p-1.5 rounded text-[7px] font-mono break-all whitespace-pre-wrap">
-                                          <strong>Erro:</strong> {evt.error_message}
+                                        <div className={`p-1.5 rounded text-[7px] font-mono break-all whitespace-pre-wrap border ${
+                                          isProcessed
+                                            ? 'bg-emerald-50/50 border-emerald-100 text-emerald-700'
+                                            : isIgnored 
+                                              ? 'bg-slate-50 border-slate-200 text-slate-500' 
+                                              : 'bg-rose-50/50 border-rose-100 text-rose-700'
+                                        }`}>
+                                          <strong>{isProcessed ? 'Info:' : isIgnored ? 'Mensagem:' : 'Erro:'}</strong> {evt.error_message}
                                         </div>
                                       )}
                                     </div>
