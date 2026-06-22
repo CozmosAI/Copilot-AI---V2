@@ -2278,12 +2278,13 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
         const activeConnection = connections[0]; // TODO: Seletor de conexão no futuro
 
         // 3. Normalizar telefone e gerar external_chat_id
-        const phoneValidation = normalizeBrazilWhatsAppNumberDetailed(lead.phone);
+        const phoneValidation = normalizeLeadPhoneForBrazil(lead.phone);
         if (!phoneValidation.ok) {
-            console.log(`[CRM Phone] Telefone inválido para lead manual: ${lead.phone} motivo: ${phoneValidation.reason}`);
+            console.log(`[CRM Phone] Telefone inválido para lead manual: ${lead.phone} motivo: ${phoneValidation.error}`);
             return res.status(400).json({
                 ok: false,
-                error: phoneValidation.reason || "Telefone inválido para WhatsApp.",
+                code: "INVALID_LEAD_PHONE",
+                error: "Telefone inválido. Corrija o telefone no cadastro do lead antes de iniciar a conversa.",
                 phone_validation: phoneValidation
             });
         }
@@ -2477,34 +2478,17 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
 
         const client = supabaseAdmin || supabase;
 
-        // 3. Buscar crm_conversations por id = conversationId e user_id = user.id
-        const { data: conversation, error: convErr } = await client
-            .from('crm_conversations')
-            .select('*')
-            .eq('id', conversationId)
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-        if (convErr || !conversation) {
-            return res.status(404).json({
+        const destinationResult = await resolveConversationDestination(client, user.id, conversationId);
+        if (!destinationResult.ok) {
+            return res.status(400).json({
                 ok: false,
-                error: "Conversa não encontrada ou não pertence a este usuário."
+                code: "INVALID_LEAD_PHONE",
+                error: destinationResult.error,
+                phone_validation: destinationResult.phone_validation
             });
         }
 
-        // 4. Buscar crm_contacts usando conversation.contact_id
-        const { data: contact, error: contactErr } = await client
-            .from('crm_contacts')
-            .select('*')
-            .eq('id', conversation.contact_id)
-            .maybeSingle();
-
-        if (contactErr || !contact) {
-            return res.status(404).json({
-                ok: false,
-                error: "Contato associado à conversa não foi encontrado."
-            });
-        }
+        const { destino, contact, conversation } = destinationResult;
 
         // 5. Buscar crm_connections usando database query na tabela crm_connections
         const { data: connection, error: connErr } = await client
@@ -2526,35 +2510,6 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
                 ok: false,
                 error: "Esta rota suporta apenas conexão via o provedor 'uazapi'."
             });
-        }
-
-        // 7. Montar destino para Uazapi
-        let phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.phone);
-        if (!phoneValidation.ok) {
-            phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.external_chat_id, { allowInboundAsSourceOfTruth: true });
-        }
-
-        if (!phoneValidation.ok) {
-            console.log(`[CRM Phone] Telefone inválido para lead manual: ${contact.phone || contact.external_chat_id} motivo: ${phoneValidation.reason}`);
-            return res.status(400).json({
-                ok: false,
-                error: phoneValidation.reason || "Telefone inválido para WhatsApp.",
-                phone_validation: phoneValidation
-            });
-        }
-
-        const destino = phoneValidation.normalized;
-
-        // Tarefa 5 — Atualizar contact se detectar número errado no envio
-        if (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`) {
-            await client
-                .from('crm_contacts')
-                .update({
-                    phone: destino,
-                    external_chat_id: `${destino}@s.whatsapp.net`,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', contact.id);
         }
 
         console.log(`[CRM Send] Enviando mensagem pela Uazapi para conversa ${conversationId}, destino normalizado: ${destino}`);
@@ -2818,34 +2773,18 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
 
         const client = supabaseAdmin || supabase;
 
-        // 3. Buscar crm_conversations por id = conversationId e user_id = user.id
-        const { data: conversation, error: convErr } = await client
-            .from('crm_conversations')
-            .select('*')
-            .eq('id', conversationId)
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-        if (convErr || !conversation) {
-            return res.status(404).json({
+        // 3. Buscar destino resolvido usando a nova lógica centralizada de lead.phone e contact fallback
+        const destinationResult = await resolveConversationDestination(client, user.id, conversationId);
+        if (!destinationResult.ok) {
+            return res.status(400).json({
                 ok: false,
-                error: "Conversa não encontrada ou não pertence a este usuário."
+                code: "INVALID_LEAD_PHONE",
+                error: destinationResult.error,
+                phone_validation: destinationResult.phone_validation
             });
         }
 
-        // 4. Buscar crm_contacts usando conversation.contact_id
-        const { data: contact, error: contactErr } = await client
-            .from('crm_contacts')
-            .select('*')
-            .eq('id', conversation.contact_id)
-            .maybeSingle();
-
-        if (contactErr || !contact) {
-            return res.status(404).json({
-                ok: false,
-                error: "Contato associado à conversa não foi encontrado."
-            });
-        }
+        const { destino, contact, conversation } = destinationResult;
 
         // 5. Buscar crm_connections
         const { data: connection, error: connErr } = await client
@@ -2948,34 +2887,6 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
         console.log(`[CRM Send Media] Arquivo salvo no Storage. Link: ${publicUrl.split('?')[0]}`);
 
         // 9. Montar destino para Uazapi
-        let phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.phone);
-        if (!phoneValidation.ok) {
-            phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.external_chat_id, { allowInboundAsSourceOfTruth: true });
-        }
-
-        if (!phoneValidation.ok) {
-            console.log(`[CRM Phone] Telefone inválido para lead manual em send-media: ${contact.phone || contact.external_chat_id} motivo: ${phoneValidation.reason}`);
-            return res.status(400).json({
-                ok: false,
-                error: phoneValidation.reason || "Telefone inválido para WhatsApp.",
-                phone_validation: phoneValidation
-            });
-        }
-
-        const destino = phoneValidation.normalized;
-
-        // Tarefa 5 — Atualizar contact se detectar número errado no envio
-        if (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`) {
-            await client
-                .from('crm_contacts')
-                .update({
-                    phone: destino,
-                    external_chat_id: `${destino}@s.whatsapp.net`,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', contact.id);
-        }
-
         // 10. Chamar endpoint Uazapi de mídia
         const baseUrl = (connection.api_base_url || connection.base_url || '').replace(/\/$/, '');
         const uazapiUrl = `${baseUrl}/send/media`;
@@ -3604,6 +3515,186 @@ function deepFindMediaAndMime(obj) {
 
     search(obj);
     return { fileUrl, mimeType };
+}
+
+function normalizeLeadPhoneForBrazil(value) {
+    const input = String(value || '');
+    let clean = cleanMarkdownLink(input);
+    clean = String(clean)
+        .trim()
+        .split('@')[0]
+        .replace(/\D/g, '');
+
+    if (!clean) {
+        return {
+            ok: false,
+            input,
+            clean,
+            normalized: null,
+            jid: null,
+            error: "O telefone não pode ser vazio."
+        };
+    }
+
+    // Sem DDI: aceitar apenas 10 ou 11 dígitos.
+    if (!clean.startsWith('55')) {
+        if (clean.length === 10 || clean.length === 11) {
+            const normalized = `55${clean}`;
+            return {
+                ok: true,
+                input,
+                clean,
+                normalized,
+                jid: `${normalized}@s.whatsapp.net`,
+                error: null
+            };
+        }
+        return {
+            ok: false,
+            input,
+            clean,
+            normalized: null,
+            jid: null,
+            error: `Telefone inválido: sem DDI deve ter 10 ou 11 dígitos. Recebido: ${clean.length}. Exemplo correto: 41998734860.`
+        };
+    }
+
+    // Com DDI 55: aceitar apenas 12 ou 13 dígitos.
+    if (clean.startsWith('55')) {
+        if (clean.length === 12 || clean.length === 13) {
+            return {
+                ok: true,
+                input,
+                clean,
+                normalized: clean,
+                jid: `${clean}@s.whatsapp.net`,
+                error: null
+            };
+        }
+        return {
+            ok: false,
+            input,
+            clean,
+            normalized: null,
+            jid: null,
+            error: `Telefone inválido: com DDI 55 deve ter 12 ou 13 dígitos. Recebido: ${clean.length}. Exemplo correto: 5541998734860.`
+        };
+    }
+
+    return {
+        ok: false,
+        input,
+        clean,
+        normalized: null,
+        jid: null,
+        error: "Telefone inválido."
+    };
+}
+
+async function resolveConversationDestination(client, userId, conversationId) {
+    // 1. Buscar conversation
+    const { data: conversation, error: convErr } = await client
+        .from('crm_conversations')
+        .select('*')
+        .eq('id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (convErr || !conversation) {
+        return {
+            ok: false,
+            error: "Conversa não encontrada ou não pertence a este usuário."
+        };
+    }
+
+    // 2. Buscar contact
+    const { data: contact, error: contactErr } = await client
+        .from('crm_contacts')
+        .select('*')
+        .eq('id', conversation.contact_id)
+        .maybeSingle();
+
+    if (contactErr || !contact) {
+        return {
+            ok: false,
+            error: "Contato associado à conversa não foi encontrado."
+        };
+    }
+
+    let destino = null;
+    let source = null;
+
+    // 3. Buscar lead se existir lead_id
+    if (conversation.lead_id) {
+        const { data: lead, error: leadErr } = await client
+            .from('leads')
+            .select('*')
+            .eq('id', conversation.lead_id)
+            .maybeSingle();
+
+        if (lead && lead.phone) {
+            const validation = normalizeLeadPhoneForBrazil(lead.phone);
+            if (validation.ok) {
+                destino = validation.normalized;
+                source = 'lead';
+                console.log(`[CRM Phone] Resolved destination for conversation ${conversationId}: source=lead, normalized=${destino}`);
+            } else {
+                console.log(`[CRM Phone] Lead ${lead.id} phone validation failed: ${validation.error}`);
+            }
+        }
+    }
+
+    // 4. Fallback para contact se não resolveu com o lead
+    if (!destino) {
+        // Validar contact.phone
+        let validation = normalizeLeadPhoneForBrazil(contact.phone);
+        if (!validation.ok) {
+            // Se falhar e external_chat_id tiver, tentar validar o external_chat_id
+            validation = normalizeLeadPhoneForBrazil(contact.external_chat_id);
+        }
+
+        if (validation.ok) {
+            destino = validation.normalized;
+            source = 'contact';
+            console.log(`[CRM Phone] Resolved destination for conversation ${conversationId}: source=contact, normalized=${destino}`);
+        } else {
+            console.log(`[CRM Phone] Contact ${contact.id} phone and external_chat_id validation failed: ${validation.error}`);
+            return {
+                ok: false,
+                error: validation.error || "Telefone do contato inválido para WhatsApp. Revise o cadastro.",
+                phone_validation: validation
+            };
+        }
+    }
+
+    // 5. Atualizar o crm_contacts se estiver diferente e for válido
+    if (destino && (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`)) {
+        console.log(`[CRM Phone] Updating crm_contacts ${contact.id} reference to correct destination: ${destino}`);
+        const { error: updateErr } = await client
+            .from('crm_contacts')
+            .update({
+                phone: destino,
+                external_chat_id: `${destino}@s.whatsapp.net`,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', contact.id);
+
+        if (updateErr) {
+            console.error(`[CRM Phone] Error updating crm_contacts:`, updateErr);
+        } else {
+            contact.phone = destino;
+            contact.external_chat_id = `${destino}@s.whatsapp.net`;
+        }
+    }
+
+    return {
+        ok: true,
+        destino,
+        source,
+        contact,
+        conversation,
+        error: null
+    };
 }
 
 function normalizePhone(value) {

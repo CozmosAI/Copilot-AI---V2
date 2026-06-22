@@ -219,7 +219,29 @@ const Sales: React.FC = () => {
       
       // Update activeLead if it's currently selected
       if (activeLead && activeLead.id === editingLeadData.id) {
+          const oldPhone = activeLead.phone;
           setActiveLead(updatedLead);
+          
+          // Limpar erros de validação de telefone e do composer
+          setPhoneValidationError(null);
+          setChatSendError(null);
+
+          // Se o telefone mudou ou foi corrigido, re-iniciar conversa p/ atualizar crm_contacts e conexões no backend
+          if (oldPhone !== cleanPhone) {
+              setTimeout(async () => {
+                  try {
+                      const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
+                      if (token) {
+                          await apiFetch(`/api/crm/leads/${updatedLead.id}/start-whatsapp-conversation`, {
+                              method: 'POST',
+                              headers: { 'Authorization': `Bearer ${token}` }
+                          });
+                      }
+                  } catch (err) {
+                      console.error("Erro ao sincronizar novo telefone do lead com crm_contacts:", err);
+                  }
+              }, 100);
+          }
       }
       
       setShowEditModal(false);
@@ -717,7 +739,11 @@ const Sales: React.FC = () => {
               setFileCaption('');
               if (fileInputRef.current) fileInputRef.current.value = '';
           } else {
-              alert(`Erro ao salvar/enviar mídia: ${result.error || "Ocorreu um erro desconhecido."}`);
+              if (result.code === "INVALID_LEAD_PHONE" || result.phone_validation) {
+                  setChatSendError("Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 41998734860.");
+              } else {
+                  alert(`Erro ao salvar/enviar mídia: ${result.error || "Ocorreu um erro desconhecido."}`);
+              }
           }
       } catch (err: any) {
           console.error("Erro ao enviar mídia do CRM:", err);
@@ -918,7 +944,11 @@ const Sales: React.FC = () => {
                   };
               });
           } else {
-              setChatSendError(result.error || "Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
+              if (result.code === "INVALID_LEAD_PHONE" || result.phone_validation) {
+                  setChatSendError("Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 41998734860.");
+              } else {
+                  setChatSendError(result.error || "Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
+              }
           }
       } catch (err) {
           console.error("Erro ao enviar mensagem:", err);
