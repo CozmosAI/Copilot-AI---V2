@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         // Redireciona chamadas /api para o servidor Express localmente ou URL remota configurada
+        // Em produção Render, /api pode ser same-origin.
+        // Em AI Studio/dev, VITE_BACKEND_URL deve apontar para o backend real.
+        // apiClient deve priorizar VITE_BACKEND_URL.
         '/api': {
           target: backendTarget,
           changeOrigin: true,

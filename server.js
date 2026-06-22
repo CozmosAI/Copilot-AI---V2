@@ -2205,6 +2205,182 @@ app.get('/api/crm/attachments/:attachmentId/view', async (req, res) => {
     }
 });
 
+// POST /api/crm/conversations/:conversationId/mark-read - Marcar conversa como lida no CRM
+app.post('/api/crm/conversations/:conversationId/mark-read', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { conversationId } = req.params;
+
+        const client = supabaseAdmin || supabase;
+
+        // Atualizar crm_conversations
+        const { data: updatedConv, error: updateErr } = await client
+            .from('crm_conversations')
+            .update({ unread_count: 0 })
+            .eq('id', conversationId)
+            .eq('user_id', user.id)
+            .select()
+            .maybeSingle();
+
+        if (updateErr) throw updateErr;
+
+        if (!updatedConv) {
+             return res.status(404).json({ ok: false, error: "Conversa não encontrada." });
+        }
+
+        return res.status(200).json({ ok: true, conversation: updatedConv });
+
+    } catch (err) {
+        console.error("Erro ao marcar conversa como lida:", err);
+        return res.status(500).json({ ok: false, error: "Erro interno ao marcar conversa como lida." });
+    }
+});
+
+// POST /api/crm/leads/:leadId/start-whatsapp-conversation - Criar conversa com lead manual
+app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { leadId } = req.params;
+
+        const client = supabaseAdmin || supabase;
+
+        // 1. Validar e buscar lead
+        const { data: lead, error: leadErr } = await client
+            .from('leads')
+            .select('*')
+            .eq('id', leadId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (leadErr || !lead) {
+            return res.status(404).json({ ok: false, error: "Lead não encontrado." });
+        }
+
+        if (!lead.phone) {
+            return res.status(400).json({ ok: false, error: "Lead não possui telefone para iniciar WhatsApp." });
+        }
+
+        // 2. Encontrar conexão ativa do usuário
+        const { data: connections, error: connErr } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('provider', 'uazapi')
+            .eq('status', 'connected')
+            .order('created_at', { ascending: false });
+
+        if (connErr) throw connErr;
+        
+        if (!connections || connections.length === 0) {
+            return res.status(400).json({ ok: false, error: "Nenhuma conexão WhatsApp (Uazapi) ativa encontrada." });
+        }
+
+        const activeConnection = connections[0]; // TODO: Seletor de conexão no futuro
+
+        // 3. Normalizar telefone e gerar external_chat_id
+        const phoneDigits = lead.phone.replace(/\D/g, '');
+        if (!phoneDigits) {
+            return res.status(400).json({ ok: false, error: "Telefone inválido." });
+        }
+        
+        // Verifica se inclui 55. Adiciona caso seja Brasil e não tenha
+        let finalPhone = phoneDigits;
+        if (finalPhone.length === 10 || finalPhone.length === 11) {
+            finalPhone = `55${finalPhone}`;
+        }
+        const externalChatId = `${finalPhone}@s.whatsapp.net`;
+
+        // 4. Criar ou buscar contato no CRM
+        let contact;
+        const { data: existingContact } = await client
+            .from('crm_contacts')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('connection_id', activeConnection.id)
+            .eq('external_chat_id', externalChatId)
+            .maybeSingle();
+
+        if (existingContact) {
+            contact = existingContact;
+        } else {
+            const { data: newContact, error: insertContactErr } = await client
+                .from('crm_contacts')
+                .insert({
+                    user_id: user.id,
+                    connection_id: activeConnection.id,
+                    external_chat_id: externalChatId,
+                    display_name: lead.name,
+                    push_name: lead.name,
+                    phone: finalPhone,
+                    is_group: false
+                })
+                .select()
+                .single();
+
+            if (insertContactErr) throw insertContactErr;
+            contact = newContact;
+        }
+
+        // 5. Criar ou buscar conversation
+        let conversation;
+        const { data: existingConv } = await client
+            .from('crm_conversations')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('contact_id', contact.id)
+            .maybeSingle();
+
+        if (existingConv) {
+            conversation = existingConv;
+            
+            // Garantir que a conversa ligue o lead, caso não esteja ligado ainda
+            if (conversation.lead_id !== lead.id) {
+                await client.from('crm_conversations').update({ lead_id: lead.id, status: 'open' }).eq('id', conversation.id);
+            }
+        } else {
+            const { data: newConv, error: insertConvErr } = await client
+                .from('crm_conversations')
+                .insert({
+                    user_id: user.id,
+                    connection_id: activeConnection.id,
+                    contact_id: contact.id,
+                    lead_id: lead.id,
+                    status: 'open',
+                    unread_count: 0
+                })
+                .select()
+                .single();
+
+            if (insertConvErr) throw insertConvErr;
+            conversation = newConv;
+        }
+
+        // 6. Atualizar lead com conversation_id, external_chat_id, e channel
+        const updateLeadPayload = {
+            conversation_id: conversation.id,
+            external_chat_id: externalChatId
+        };
+        // Tentar atualizar channel também se a coluna existir, mas ignoramos eventual erro
+        await client.from('leads').update({ ...updateLeadPayload, channel: 'whatsapp' }).eq('id', lead.id).then(({error})=> {
+            if(error && error.code === 'PGRST204') {
+                // Coluna não existe, tenta sem ela
+                client.from('leads').update(updateLeadPayload).eq('id', lead.id).then(()=>{}).catch(()=>{});
+            }
+        }).catch(()=>{});
+
+        return res.status(200).json({
+            ok: true,
+            contact,
+            conversation,
+            lead: { ...lead, conversation_id: conversation.id, external_chat_id: externalChatId }
+        });
+
+    } catch (err) {
+        console.error("Erro ao iniciar conversa do WhatsApp:", err);
+        return res.status(500).json({ ok: false, error: "Erro interno ao iniciar conversa." });
+    }
+});
+
 // POST /api/crm/conversations/:conversationId/send - Enviar mensagem de texto outbound do CRM via Uazapi e salvar
 app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
     try {
@@ -2606,8 +2782,19 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
 
         // 8. Upload para o Supabase Storage bucket crm-media
         const timestamp = Date.now();
-        const extname = path.extname(originalName);
-        const baseNameWithoutExt = path.basename(originalName, extname);
+        
+        function fixMulterFilenameEncoding(name) {
+            if (!name) return 'arquivo';
+            try {
+                const fixed = Buffer.from(name, 'latin1').toString('utf8');
+                if (fixed && !fixed.includes('')) return fixed;
+            } catch (e) {}
+            return name;
+        }
+
+        const fixedOriginalName = fixMulterFilenameEncoding(req.file.originalname || 'arquivo');
+        const extname = path.extname(fixedOriginalName);
+        const baseNameWithoutExt = path.basename(fixedOriginalName, extname);
         // Sanitizar nome do arquivo de forma segura
         const safeBaseName = baseNameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_');
         const safeOriginalName = `${safeBaseName}${extname || ''}`;
@@ -2680,7 +2867,7 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             "file": publicUrl,
             "text": caption || "",
             "caption": caption || "",
-            "filename": originalName
+            "filename": fixedOriginalName
         };
 
         const body2 = {
@@ -2688,7 +2875,7 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             "type": tipoUazapi,
             "media": publicUrl,
             "caption": caption || "",
-            "filename": originalName
+            "filename": fixedOriginalName
         };
 
         const body3 = {
@@ -2696,7 +2883,7 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             "type": tipoUazapi,
             "url": publicUrl,
             "caption": caption || "",
-            "filename": originalName
+            "filename": fixedOriginalName
         };
 
         let uazapiError = null;
@@ -2803,22 +2990,19 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             contact_id: conversation.contact_id,
             lead_id: conversation.lead_id || null,
             external_message_id: finalExtId,
-            direction: "outbound",
             message_direction: "outbound",
             sender_type: "me",
             message_type: internalMessageType,
             message_text: textBody,
-            text: textBody,
             caption: caption || null,
             media_url: publicUrl,
             media_mime_type: mime,
-            media_filename: originalName,
-            status: finalStatus,
+            media_filename: fixedOriginalName,
             message_status: finalStatus,
             from_me: true,
-            is_from_me: true,
             raw_payload: responseJson ? sanitizePayload(responseJson) : { error: uazapiError },
-            sent_at: new Date().toISOString()
+            sent_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
         };
 
         function sanitizePayload(obj) {
@@ -2877,12 +3061,12 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
                 storage_bucket: "crm-media",
                 storage_path: storagePath,
                 mime_type: mime,
-                filename: originalName,
+                filename: fixedOriginalName,
                 size_bytes: fileSizeBytes,
                 raw_metadata: {
                     direction: "outbound",
                     uazapiSendOk: !uazapiError,
-                    originalName: originalName,
+                    originalName: fixedOriginalName,
                     mime: mime
                 },
                 created_at: new Date()
@@ -2905,8 +3089,8 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             }
         }
 
-        // 13. Atualizar conversa e lead se o envio tiver tido sucesso
-        if (!uazapiError && createdMessage) {
+        // 13. Atualizar conversa e lead (mesmo se falhou o envio para Uazapi, queremos registrar a tentativa no CRM)
+        if (createdMessage) {
             const now = new Date().toISOString();
             
             const { error: updateConvErr } = await client

@@ -7,6 +7,7 @@ import {
   Mail, Link2, Tag, FileText, Activity, GripHorizontal, Edit2, Check, Trash2, Smile, Mic, Image as ImageIcon, Headphones
 } from 'lucide-react';
 import { analyzeLeadConversation } from '../services/geminiService';
+import { apiFetch, apiUrl, safeJsonResponse } from '../services/apiClient';
 // import { sendMessage } from '../services/whatsappService'; // REMOVIDO
 import { useApp } from '../App';
 import { Lead, ChatMessage } from '../types';
@@ -23,6 +24,24 @@ const formatBytes = (bytes: number) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const formatConversationPreview = (conv: any, leadLastMessage?: string) => {
+    const type = conv?.last_message_type?.toLowerCase() || '';
+    const text = conv?.last_message_text || leadLastMessage;
+    const isOutbound = conv?.last_sender === 'me' || conv?.last_sender === 'ai';
+
+    if (type === 'image') return isOutbound ? '📸 Imagem enviada' : '📸 Imagem recebida';
+    if (type === 'audio' || type === 'voice') return isOutbound ? '🎤 Áudio enviado' : '🎤 Áudio recebido';
+    if (type === 'video') return isOutbound ? '🎥 Vídeo enviado' : '🎥 Vídeo recebido';
+    if (type === 'document') return isOutbound ? '📄 Documento enviado' : '📄 Documento recebido';
+    if (type === 'sticker') return isOutbound ? '✨ Figurinha enviada' : '✨ Figurinha recebida';
+    
+    if (text && text.trim().length > 0 && text !== '[mensagem]' && text !== '[documento]') {
+        return text;
+    }
+    
+    return 'Sem mensagens ainda';
 };
 
 // Estrutura para colunas dinâmicas
@@ -76,6 +95,7 @@ const Sales: React.FC = () => {
   const [selectedConversation, setSelectedConversation] = useState<any | null>(null);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [conversationsMap, setConversationsMap] = useState<Record<string, any>>({});
 
@@ -136,15 +156,15 @@ const Sales: React.FC = () => {
               return;
           }
 
-          const response = await fetch(`/api/crm/attachments/${attachment.id}/download`, {
+          const response = await fetch(apiUrl(`/api/crm/attachments/${attachment.id}/download`), {
               headers: {
                   'Authorization': `Bearer ${token}`
               }
           });
 
           if (!response.ok) {
-              const errData = await response.json().catch(() => ({}));
-              alert(errData.error || "O arquivo ainda não está disponível para download.");
+              const errData = await safeJsonResponse(response).catch(() => ({}));
+              alert(errData.error || "O arquivo ainda não está disponível para download. Servidor pode ter retornado erro ou HTML.");
               return;
           }
 
@@ -285,6 +305,38 @@ const Sales: React.FC = () => {
       if (convId) {
         setSelectedConversationId(convId);
         await fetchCrmMessages(convId);
+        
+        // Marcar como lida e zerar unread_count
+        const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
+        if (token) {
+            try {
+                const response = await apiFetch(`/api/crm/conversations/${convId}/mark-read`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                // Trata a response mas ignora erro para nao quebrar UI
+                await safeJsonResponse(response).catch(()=>({}));
+                
+                // Atualizar estado local para remover badge imediatamente
+                setConversationsMap(prev => {
+                    const existing = prev[convId];
+                    if (!existing) return prev;
+                    const updated = { ...existing, unread_count: 0 };
+                    return {
+                        ...prev,
+                        [convId]: updated,
+                        ...(updated.lead_id ? { [`lead_${updated.lead_id}`]: updated } : {})
+                    };
+                });
+                if (selectedConversation) {
+                    setSelectedConversation((prev: any) => prev ? { ...prev, unread_count: 0 } : null);
+                }
+            } catch (err) {
+                console.error("Erro ao marcar conversa como lida:", err);
+            }
+        }
+
       } else {
         console.log('Este lead ainda não possui conversa vinculada.');
       }
@@ -547,7 +599,7 @@ const Sales: React.FC = () => {
           formData.append('file', file);
           formData.append('caption', caption);
 
-          const response = await fetch(`/api/crm/conversations/${selectedConversationId}/send-media`, {
+          const response = await apiFetch(`/api/crm/conversations/${selectedConversationId}/send-media`, {
               method: 'POST',
               headers: {
                   'Authorization': `Bearer ${token}`
@@ -555,9 +607,9 @@ const Sales: React.FC = () => {
               body: formData
           });
 
-          const result = await response.json();
+          const result = await safeJsonResponse(response);
 
-          if (result.ok || result.message) {
+          if (result.ok) {
               if (result.message) {
                   const newMsg = result.message;
                   setChatMessages(prev => {
@@ -565,18 +617,24 @@ const Sales: React.FC = () => {
                       return [...prev, newMsg];
                   });
               }
-              // Limpar preview e arquivo
+              // Limpar preview e arquivo apenas em caso de sucesso
               setSelectedFileForUpload(null);
               setFileCaption('');
-              if (!result.ok && result.error) {
-                  alert(result.error);
-              }
+              if (fileInputRef.current) fileInputRef.current.value = '';
           } else {
-              alert(result.error || "Erro ao enviar o arquivo de mídia.");
+              if (result.message) {
+                  // Pode ter salvo a mensagem (failed) mesmo com erro. Atualizamos estado.
+                  const newMsg = result.message;
+                  setChatMessages(prev => {
+                      if (prev.some(m => m.id === newMsg.id)) return prev;
+                      return [...prev, newMsg];
+                  });
+              }
+              alert(`Erro ao salvar/enviar mídia: ${result.error || "Ocorreu um erro desconhecido."}`);
           }
       } catch (err: any) {
           console.error("Erro ao enviar mídia do CRM:", err);
-          alert("Ocorreu uma falha de conexão ao enviar o arquivo.");
+          alert(`Erro ao salvar/enviar mídia: Ocorreu uma falha de conexão.`);
       } finally {
           setSendingMsg(false);
       }
@@ -600,6 +658,45 @@ const Sales: React.FC = () => {
       }, 0);
   };
 
+  const handleStartWhatsAppConversation = async () => {
+      if (!activeLead || !activeLead.phone) return;
+      setIsStartingConversation(true);
+      setChatError(null);
+      try {
+          const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
+          if (!token) throw new Error("Não autenticado");
+
+          const response = await apiFetch(`/api/crm/leads/${activeLead.id}/start-whatsapp-conversation`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          const result = await safeJsonResponse(response);
+          if (result.ok && result.conversation) {
+              setSelectedConversationId(result.conversation.id);
+              setSelectedConversation(result.conversation);
+              setChatMessages([]);
+              
+              // Update local maps
+              setConversationsMap(prev => ({
+                  ...prev,
+                  [result.conversation.id]: result.conversation,
+                  [`lead_${activeLead.id}`]: result.conversation
+              }));
+              
+              // Refresh lead on screen (with conv ID)
+              setActiveLead(result.lead);
+          } else {
+              setChatError(result.error || 'Não consegui iniciar a conversa. A rota CRM retornou resposta inválida. Verifique VITE_BACKEND_URL ou deploy do backend.');
+          }
+      } catch (err) {
+          console.error("Erro ao iniciar conversa:", err);
+          setChatError('Não consegui iniciar a conversa. A rota CRM retornou resposta inválida. Verifique VITE_BACKEND_URL ou deploy do backend.');
+      } finally {
+          setIsStartingConversation(false);
+      }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!selectedConversationId || !messageText.trim() || sendingMsg) return;
@@ -617,7 +714,7 @@ const Sales: React.FC = () => {
               return;
           }
 
-          const response = await fetch(`/api/crm/conversations/${selectedConversationId}/send`, {
+          const response = await apiFetch(`/api/crm/conversations/${selectedConversationId}/send`, {
               method: 'POST',
               headers: {
                   'Content-Type': 'application/json',
@@ -626,7 +723,7 @@ const Sales: React.FC = () => {
               body: JSON.stringify({ text: bodyText })
           });
 
-          const result = await response.json();
+          const result = await safeJsonResponse(response);
 
           if (result.ok || result.message) {
               setMessageText('');
@@ -636,16 +733,35 @@ const Sales: React.FC = () => {
                       if (prev.some(m => m.id === newMsg.id)) return prev;
                       return [...prev, newMsg];
                   });
+                  
+                  // Atualizar local map para preview imediato
+                  setConversationsMap(prev => {
+                      const existing = prev[selectedConversationId];
+                      if (!existing) return prev;
+                      const updated = { 
+                          ...existing, 
+                          last_message_text: newMsg.message_text,
+                          last_message_type: 'text',
+                          last_sender: 'me',
+                          last_message_at: newMsg.sent_at || newMsg.created_at,
+                          unread_count: 0
+                      };
+                      return {
+                          ...prev,
+                          [selectedConversationId]: updated,
+                          ...(updated.lead_id ? { [`lead_${updated.lead_id}`]: updated } : {})
+                      };
+                  });
               }
               if (!result.ok && result.error) {
-                  alert("Falha ao enviar mensagem.");
+                  alert(result.error);
               }
           } else {
-              alert("Falha ao enviar mensagem.");
+              alert(result.error || "Erro no backend CRM ao enviar mensagem. Verifique URL do backend.");
           }
       } catch (err) {
           console.error("Erro ao enviar mensagem:", err);
-          alert("Falha ao enviar mensagem.");
+          alert("Erro no backend CRM ao enviar mensagem. Verifique URL do backend.");
       } finally {
           setSendingMsg(false);
       }
@@ -915,9 +1031,19 @@ const Sales: React.FC = () => {
                        const nameMatch = lead.name.toLowerCase().includes(chatSearchQuery.toLowerCase());
                        const phoneMatch = lead.phone ? lead.phone.includes(chatSearchQuery) : false;
                        return nameMatch || phoneMatch;
-                   }).map(lead => {
+                   })
+                   .sort((a, b) => {
+                       const convA = conversationsMap[a.conversation_id || ''] || conversationsMap[`lead_${a.id}`];
+                       const convB = conversationsMap[b.conversation_id || ''] || conversationsMap[`lead_${b.id}`];
+                       
+                       const timeA = convA?.last_message_at ? new Date(convA.last_message_at).getTime() : new Date(a.created_at || 0).getTime();
+                       const timeB = convB?.last_message_at ? new Date(convB.last_message_at).getTime() : new Date(b.created_at || 0).getTime();
+                       
+                       return timeB - timeA; // Descending
+                   })
+                   .map(lead => {
                        const conv = conversationsMap[lead.conversation_id || ''] || conversationsMap[`lead_${lead.id}`];
-                       const displayLastMessage = conv?.last_message_text || lead.lastMessage || '...';
+                       const displayLastMessage = formatConversationPreview(conv, lead.lastMessage);
                        const displayLastInteraction = conv?.last_message_at 
                          ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
                          : (lead.lastInteraction || '');
@@ -1006,12 +1132,29 @@ const Sales: React.FC = () => {
                                 <span className="text-sm">Carregando mensagens do CRM...</span>
                               </div>
                             ) : !selectedConversationId ? (
-                              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
-                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">Este lead ainda não possui conversa vinculada.</p>
+                              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-3">
+                                {!activeLead.phone ? (
+                                    <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm text-center">Este lead não possui telefone para iniciar WhatsApp.</p>
+                                ) : (
+                                    <>
+                                        <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm mb-2">Este lead ainda não tem uma conversa.</p>
+                                        <button 
+                                            onClick={handleStartWhatsAppConversation} 
+                                            disabled={isStartingConversation}
+                                            className="px-6 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                        >
+                                            {isStartingConversation ? (
+                                                <><span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span> Iniciando...</>
+                                            ) : (
+                                                <><MessageCircle size={20} className="fill-white/20" /> Iniciar conversa no WhatsApp</>
+                                            )}
+                                        </button>
+                                    </>
+                                )}
                               </div>
                             ) : chatMessages.length === 0 ? (
                               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
-                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">Nenhuma mensagem nesta conversa ainda.</p>
+                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">Conversa iniciada. Envie a primeira mensagem.</p>
                               </div>
                             ) : (
                               chatMessages.map(msg => {
