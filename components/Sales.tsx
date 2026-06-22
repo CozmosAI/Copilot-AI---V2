@@ -139,6 +139,9 @@ const Sales: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const formatPhoneWithMask = (value: string) => {
       const clean = value.replace(/\D/g, '');
+      if (clean.startsWith('55')) {
+          return clean;
+      }
       if (clean.length > 11) {
           return clean;
       }
@@ -148,18 +151,38 @@ const Sales: React.FC = () => {
       return `(${clean.slice(0, 2)}) ${clean.slice(2, 7)}-${clean.slice(7)}`;
   };
 
-  const validateLeadPhone = (phone: string): { ok: boolean; error: string | null } => {
-      const clean = phone.replace(/\D/g, '');
+  const validateLeadPhone = (phone: string): { ok: boolean; error: string | null; clean?: string } => {
+      const clean = String(phone || '').replace(/\D/g, '');
+
       if (!clean) {
           return { ok: false, error: "O telefone não pode ser vazio." };
       }
-      if (clean.length === 12 && !clean.startsWith('55')) {
+
+      // Sem DDI: aceitar apenas 10 ou 11 dígitos.
+      if (!clean.startsWith('55')) {
+          if (clean.length === 10 || clean.length === 11) {
+              return { ok: true, error: null, clean };
+          }
           return {
               ok: false,
-              error: "Telefone parece inválido: 12 dígitos sem DDI. Revise o número antes de salvar. Use DDD + número, exemplo: 41998734860, ou DDI + DDD + número, exemplo: 5541998734860."
+              clean,
+              error: `Telefone inválido: sem DDI deve ter 10 ou 11 dígitos. Recebido: ${clean.length}. Exemplo correto: 41998734860.`
           };
       }
-      return { ok: true, error: null };
+
+      // Com DDI 55: aceitar apenas 12 ou 13 dígitos.
+      if (clean.startsWith('55')) {
+          if (clean.length === 12 || clean.length === 13) {
+              return { ok: true, error: null, clean };
+          }
+          return {
+              ok: false,
+              clean,
+              error: `Telefone inválido: com DDI 55 deve ter 12 ou 13 dígitos. Recebido: ${clean.length}. Exemplo correto: 5541998734860.`
+          };
+      }
+
+      return { ok: false, clean, error: "Telefone inválido." };
   };
 
   const [editingLeadData, setEditingLeadData] = useState<Lead | null>(null);
@@ -189,7 +212,7 @@ const Sales: React.FC = () => {
           return;
       }
 
-      const cleanPhone = editingLeadData.phone.replace(/\D/g, '');
+      const cleanPhone = validation.clean!;
       const updatedLead = { ...editingLeadData, phone: cleanPhone };
 
       await updateLead(updatedLead);
@@ -926,7 +949,7 @@ const Sales: React.FC = () => {
           return;
       }
 
-      const cleanPhone = newLeadData.phone.replace(/\D/g, '');
+      const cleanPhone = validation.clean!;
 
       await addLead({ 
           id: '', 
@@ -1862,6 +1885,11 @@ const Sales: React.FC = () => {
                                   <div className="space-y-1.5">
                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Telefone (WhatsApp) *</label>
                                      <input required value={editingLeadData.phone} onChange={e => setEditingLeadData({...editingLeadData, phone: formatPhoneWithMask(e.target.value)})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                      {!validateLeadPhone(editingLeadData.phone).ok && (
+                                          <p className="text-amber-600 text-xs font-semibold mt-1 bg-amber-50 p-2 rounded border border-amber-100">
+                                              Telefone inválido. Corrija antes de salvar.
+                                          </p>
+                                      )}
                                       {editLeadPhoneError && <p className="text-rose-500 text-xs font-semibold mt-1 bg-rose-50 p-2 rounded border border-rose-100">{editLeadPhoneError}</p>}
                                   </div>
                                   <div className="space-y-1.5 md:col-span-2">

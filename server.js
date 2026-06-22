@@ -2303,17 +2303,39 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
         if (existingContact) {
             contact = existingContact;
         } else {
-            // se não encontrar, buscar por user_id + phone antigo também para recuperar contatos criados antes da correção
-            const phoneDigitsRaw = lead.phone.replace(/\D/g, '');
-            const { data: legacyContact } = await client
-                .from('crm_contacts')
-                .select('*')
+            // Verificar se temos uma conversa existente com este lead_id
+            const { data: convWithLead } = await client
+                .from('crm_conversations')
+                .select('contact_id')
                 .eq('user_id', user.id)
-                .eq('phone', phoneDigitsRaw)
+                .eq('lead_id', lead.id)
                 .maybeSingle();
 
-            if (legacyContact) {
-                contact = legacyContact;
+            if (convWithLead && convWithLead.contact_id) {
+                const { data: contactByConv } = await client
+                    .from('crm_contacts')
+                    .select('*')
+                    .eq('id', convWithLead.contact_id)
+                    .maybeSingle();
+                
+                if (contactByConv) {
+                    contact = contactByConv;
+                }
+            }
+
+            if (!contact) {
+                // se não encontrar, buscar por user_id + phone antigo também para recuperar contatos criados antes da correção
+                const phoneDigitsRaw = lead.phone.replace(/\D/g, '');
+                const { data: legacyContact } = await client
+                    .from('crm_contacts')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .eq('phone', phoneDigitsRaw)
+                    .maybeSingle();
+
+                if (legacyContact) {
+                    contact = legacyContact;
+                }
             }
         }
 
