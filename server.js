@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 import PDFDocument from 'pdfkit';
 import crypto from 'crypto';
+import multer from 'multer';
 
 // Carrega variáveis de ambiente
 dotenv.config();
@@ -2490,6 +2491,478 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
         res.status(err.status || 500).json({
             ok: false,
             error: err.message || 'Erro interno ao processar envio de mensagem do CRM'
+        });
+    }
+});
+
+// CONFIGURAÇÃO LOCAL DO MULTER COM MEMORY STORAGE E LIMITE DE 50MB
+const uploadMiddleware = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 }
+});
+
+// POST /api/crm/conversations/:conversationId/send-media — Enviar mídia do CRM via Uazapi e salvar
+app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.single('file'), async (req, res) => {
+    try {
+        console.log(`[CRM Send Media] Iniciando processamento de envio de mídia.`);
+        
+        // 1. Validar Authorization Bearer com getAuthUser(req)
+        const user = await getAuthUser(req);
+        const { conversationId } = req.params;
+        const caption = req.body.caption || '';
+
+        // 2. Validar arquivo obrigatório
+        if (!req.file) {
+            return res.status(400).json({
+                ok: false,
+                error: "O arquivo é obrigatório no campo 'file'."
+            });
+        }
+
+        const mime = req.file.mimetype || 'application/octet-stream';
+        const originalName = req.file.originalname || 'arquivo';
+        const fileSizeBytes = req.file.size;
+
+        console.log(`[CRM Send Media] Upload recebido: tipo=${mime}/tamanho=${fileSizeBytes} bytes/nome=${originalName}`);
+
+        const client = supabaseAdmin || supabase;
+
+        // 3. Buscar crm_conversations por id = conversationId e user_id = user.id
+        const { data: conversation, error: convErr } = await client
+            .from('crm_conversations')
+            .select('*')
+            .eq('id', conversationId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (convErr || !conversation) {
+            return res.status(404).json({
+                ok: false,
+                error: "Conversa não encontrada ou não pertence a este usuário."
+            });
+        }
+
+        // 4. Buscar crm_contacts usando conversation.contact_id
+        const { data: contact, error: contactErr } = await client
+            .from('crm_contacts')
+            .select('*')
+            .eq('id', conversation.contact_id)
+            .maybeSingle();
+
+        if (contactErr || !contact) {
+            return res.status(404).json({
+                ok: false,
+                error: "Contato associado à conversa não foi encontrado."
+            });
+        }
+
+        // 5. Buscar crm_connections
+        const { data: connection, error: connErr } = await client
+            .from('crm_connections')
+            .select('*')
+            .eq('id', conversation.connection_id)
+            .maybeSingle();
+
+        if (connErr || !connection) {
+            return res.status(404).json({
+                ok: false,
+                error: "Conexão de CRM associada não encontrada."
+            });
+        }
+
+        // 6. Validar provider = 'uazapi' e tokens
+        if (connection.provider !== 'uazapi') {
+            return res.status(400).json({
+                ok: false,
+                error: "Esta rota suporta apenas conexão via o provedor 'uazapi'."
+            });
+        }
+
+        const uazapiToken = connection.instance_token || connection.provider_token;
+        if (!uazapiToken) {
+            return res.status(400).json({
+                ok: false,
+                error: "Token do provedor Uazapi não configurado para esta conexão."
+            });
+        }
+
+        // 7. Determinar tipos (Uazapi e interno)
+        let tipoUazapi = 'document';
+        let internalMessageType = 'document';
+
+        if (mime.startsWith('image/')) {
+            tipoUazapi = 'image';
+            internalMessageType = 'image';
+        } else if (mime.startsWith('video/')) {
+            tipoUazapi = 'video';
+            internalMessageType = 'video';
+        } else if (mime.startsWith('audio/')) {
+            tipoUazapi = 'audio';
+            internalMessageType = 'audio';
+        } else {
+            tipoUazapi = 'document';
+            internalMessageType = 'document';
+        }
+
+        // 8. Upload para o Supabase Storage bucket crm-media
+        const timestamp = Date.now();
+        const extname = path.extname(originalName);
+        const baseNameWithoutExt = path.basename(originalName, extname);
+        // Sanitizar nome do arquivo de forma segura
+        const safeBaseName = baseNameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const safeOriginalName = `${safeBaseName}${extname || ''}`;
+        const storagePath = `${user.id}/${connection.id}/${conversation.id}/outbound/${timestamp}_${safeOriginalName}`;
+
+        console.log(`[CRM Send Media] Tentando upload para bucket crm-media, path: ${storagePath} (${fileSizeBytes} bytes)`);
+
+        const { data: uploadData, error: uploadErr } = await supabaseAdmin.storage
+            .from('crm-media')
+            .upload(storagePath, req.file.buffer, {
+                contentType: mime,
+                upsert: true
+            });
+
+        if (uploadErr) {
+            console.error(`[CRM Send Media] Erro ao subir para o Supabase Storage:`, uploadErr);
+            return res.status(500).json({
+                ok: false,
+                error: "Erro ao realizar o upload do arquivo para o storage da AXIS."
+            });
+        }
+
+        // Obter URL pública
+        const { data: publicUrlData } = supabaseAdmin.storage
+            .from('crm-media')
+            .getPublicUrl(storagePath);
+
+        const publicUrl = publicUrlData?.publicUrl;
+        if (!publicUrl) {
+            return res.status(500).json({
+                ok: false,
+                error: "Erro ao recuperar o link público do arquivo armazenado."
+            });
+        }
+
+        console.log(`[CRM Send Media] Arquivo salvo no Storage. Link: ${publicUrl.split('?')[0]}`);
+
+        // 9. Montar destino para Uazapi
+        let destino = null;
+        if (contact.phone) {
+            destino = normalizePhone(contact.phone);
+        }
+        if (!destino && contact.external_chat_id) {
+            destino = normalizePhone(contact.external_chat_id);
+        }
+        if (!destino && contact.external_chat_id) {
+            destino = contact.external_chat_id;
+        }
+
+        if (!destino) {
+            return res.status(400).json({
+                ok: false,
+                error: "Nenhum número de telefone ou ID externo válido foi encontrado para este contato."
+            });
+        }
+
+        // 10. Chamar endpoint Uazapi de mídia
+        const baseUrl = (connection.api_base_url || connection.base_url || '').replace(/\/$/, '');
+        const uazapiUrl = `${baseUrl}/send/media`;
+
+        const headers = {
+            'Content-Type': 'application/json',
+            'token': uazapiToken,
+            'Authorization': `Bearer ${uazapiToken}`
+        };
+
+        const body1 = {
+            "number": destino,
+            "type": tipoUazapi,
+            "file": publicUrl,
+            "text": caption || "",
+            "caption": caption || "",
+            "filename": originalName
+        };
+
+        const body2 = {
+            "number": destino,
+            "type": tipoUazapi,
+            "media": publicUrl,
+            "caption": caption || "",
+            "filename": originalName
+        };
+
+        const body3 = {
+            "number": destino,
+            "type": tipoUazapi,
+            "url": publicUrl,
+            "caption": caption || "",
+            "filename": originalName
+        };
+
+        let uazapiError = null;
+        let responseJson = null;
+        let extMessageId = null;
+
+        console.log(`[CRM Send Media] Enviando mídia via Uazapi para conversa ${conversationId}, destino: ${destino}`);
+
+        // Tentativa de envio com fallback
+        const controller1 = new AbortController();
+        const timeoutId1 = setTimeout(() => controller1.abort(), 15000);
+
+        try {
+            const response = await fetch(uazapiUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body1),
+                signal: controller1.signal
+            });
+            const responseText = await response.text();
+            clearTimeout(timeoutId1);
+
+            if (!response.ok) {
+                console.log(`[CRM Send Media] Endpoint principal de mídia recusado (${response.status}), tentando fallback 1...`);
+                const controller2 = new AbortController();
+                const timeoutId2 = setTimeout(() => controller2.abort(), 15000);
+                try {
+                    const fallbackResponse = await fetch(uazapiUrl, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(body2),
+                        signal: controller2.signal
+                    });
+                    const fbText = await fallbackResponse.text();
+                    clearTimeout(timeoutId2);
+
+                    if (!fallbackResponse.ok) {
+                        console.log(`[CRM Send Media] Fallback 1 recusado (${fallbackResponse.status}), tentando fallback 2...`);
+                        const controller3 = new AbortController();
+                        const timeoutId3 = setTimeout(() => controller3.abort(), 15000);
+                        try {
+                            const fallbackResponse2 = await fetch(uazapiUrl, {
+                                method: 'POST',
+                                headers,
+                                body: JSON.stringify(body3),
+                                signal: controller3.signal
+                            });
+                            const fbText2 = await fallbackResponse2.text();
+                            clearTimeout(timeoutId3);
+
+                            if (!fallbackResponse2.ok) {
+                                throw new Error(`Falha total em todos os corpos do payload da Uazapi.`);
+                            } else {
+                                responseJson = JSON.parse(fbText2);
+                            }
+                        } catch (err3) {
+                            clearTimeout(timeoutId3);
+                            throw err3;
+                        }
+                    } else {
+                        responseJson = JSON.parse(fbText);
+                    }
+                } catch (err2) {
+                    clearTimeout(timeoutId2);
+                    throw err2;
+                }
+            } else {
+                responseJson = JSON.parse(responseText);
+            }
+
+            if (responseJson && responseJson.key && responseJson.key.id) {
+                extMessageId = responseJson.key.id;
+            } else if (responseJson && responseJson.id) {
+                extMessageId = responseJson.id;
+            } else if (responseJson && responseJson.messageId) {
+                extMessageId = responseJson.messageId;
+            } else {
+                extMessageId = "axis_out_" + Date.now();
+            }
+
+        } catch (fetchErr) {
+            clearTimeout(timeoutId1);
+            console.error(`[CRM Send Media] Erro ao chamar endpoint de envio Uazapi:`, fetchErr.message || fetchErr);
+            uazapiError = fetchErr.message || String(fetchErr);
+        }
+
+        // 11. Salvar crm_messages outbound
+        const finalStatus = uazapiError ? "failed" : "sent";
+        const finalExtId = extMessageId || ("axis_out_" + Date.now());
+
+        const defaultPlaceholder = {
+            'image': '[imagem]',
+            'video': '[vídeo]',
+            'audio': '[áudio]',
+            'document': '[documento]'
+        }[internalMessageType] || '[documento]';
+
+        const textBody = caption || defaultPlaceholder;
+
+        const outMessageData = {
+            user_id: user.id,
+            connection_id: conversation.connection_id,
+            conversation_id: conversation.id,
+            contact_id: conversation.contact_id,
+            lead_id: conversation.lead_id || null,
+            external_message_id: finalExtId,
+            direction: "outbound",
+            message_direction: "outbound",
+            sender_type: "me",
+            message_type: internalMessageType,
+            message_text: textBody,
+            text: textBody,
+            caption: caption || null,
+            media_url: publicUrl,
+            media_mime_type: mime,
+            media_filename: originalName,
+            status: finalStatus,
+            message_status: finalStatus,
+            from_me: true,
+            is_from_me: true,
+            raw_payload: responseJson ? sanitizePayload(responseJson) : { error: uazapiError },
+            sent_at: new Date().toISOString()
+        };
+
+        function sanitizePayload(obj) {
+            if (!obj) return obj;
+            const cloned = JSON.parse(JSON.stringify(obj));
+            delete cloned.token;
+            delete cloned.instance_token;
+            delete cloned.instanceToken;
+            return cloned;
+        }
+
+        let createdMessage = null;
+        try {
+            const { data: insertedMsg, error: insertErr } = await client
+                .from('crm_messages')
+                .insert(outMessageData)
+                .select()
+                .single();
+
+            if (insertErr) {
+                if (insertErr.code === '23505') {
+                    console.log(`[CRM Send Media] Mensagem de mídia duplicada ignorada (external_message_id unique): ${finalExtId}`);
+                    const { data: extMsg } = await client
+                        .from('crm_messages')
+                        .select('*')
+                        .eq('connection_id', conversation.connection_id)
+                        .eq('external_message_id', finalExtId)
+                        .maybeSingle();
+                    createdMessage = extMsg;
+                } else {
+                    throw insertErr;
+                }
+            } else {
+                createdMessage = insertedMsg;
+            }
+        } catch (dbErr) {
+            console.error(`[CRM Send Media] Falha ao tentar salvar em crm_messages:`, dbErr);
+            return res.status(500).json({
+                ok: false,
+                error: "Erro do banco de dados ao salvar a tentativa de envio da mídia."
+            });
+        }
+
+        console.log(`[CRM Send Media] Mensagem outbound salva. ID: ${createdMessage?.id}`);
+
+        // 12. Salvar crm_message_attachments outbound
+        let createdAttachment = null;
+        if (createdMessage) {
+            const attachmentData = {
+                user_id: user.id,
+                connection_id: conversation.connection_id,
+                conversation_id: conversation.id,
+                message_id: createdMessage.id,
+                attachment_type: internalMessageType,
+                source_url: publicUrl,
+                storage_bucket: "crm-media",
+                storage_path: storagePath,
+                mime_type: mime,
+                filename: originalName,
+                size_bytes: fileSizeBytes,
+                raw_metadata: {
+                    direction: "outbound",
+                    uazapiSendOk: !uazapiError,
+                    originalName: originalName,
+                    mime: mime
+                },
+                created_at: new Date()
+            };
+
+            try {
+                const { data: insertedAttach, error: attachErr } = await client
+                    .from('crm_message_attachments')
+                    .insert(attachmentData)
+                    .select()
+                    .single();
+
+                if (attachErr) {
+                    console.error(`[CRM Send Media] Erro ao criar crm_message_attachments:`, attachErr);
+                } else {
+                    createdAttachment = insertedAttach;
+                }
+            } catch (dbAttachErr) {
+                console.error(`[CRM Send Media] Exceção ao gravar crm_message_attachments:`, dbAttachErr);
+            }
+        }
+
+        // 13. Atualizar conversa e lead se o envio tiver tido sucesso
+        if (!uazapiError && createdMessage) {
+            const now = new Date().toISOString();
+            
+            const { error: updateConvErr } = await client
+                .from('crm_conversations')
+                .update({
+                    last_message_text: textBody,
+                    last_message_type: internalMessageType,
+                    last_message_at: now,
+                    last_sender: "me",
+                    unread_count: 0,
+                    updated_at: now
+                })
+                .eq('id', conversationId);
+
+            if (updateConvErr) {
+                console.error(`[CRM Send Media] Falha ao atualizar crm_conversations com última mensagem:`, updateConvErr);
+            }
+
+            if (conversation.lead_id) {
+                const { error: updateLeadErr } = await client
+                    .from('leads')
+                    .update({
+                        last_message: textBody,
+                        last_sender: "me",
+                        last_interaction: now
+                    })
+                    .eq('id', conversation.lead_id);
+
+                if (updateLeadErr) {
+                    console.error(`[CRM Send Media] Falha ao atualizar lead correspondente à conversa:`, updateLeadErr);
+                }
+            }
+        }
+
+        if (uazapiError) {
+            console.log(`[CRM Send Media] Falha de envio pelo Uazapi: ${uazapiError}`);
+            return res.json({
+                ok: false,
+                message: createdMessage,
+                attachment: createdAttachment,
+                error: "Falha ao enviar pela Uazapi, mensagem registrada como failed."
+            });
+        }
+
+        console.log(`[CRM Send Media] Mídia enviada e salva com sucesso absoluto.`);
+        return res.json({
+            ok: true,
+            message: createdMessage,
+            attachment: createdAttachment
+        });
+
+    } catch (err) {
+        console.error('Erro geral no endpoint de envio de mídia CRM:', err);
+        res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || 'Erro interno ao processar envio de mídia do CRM'
         });
     }
 });

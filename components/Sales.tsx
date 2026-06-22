@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
-  MessageCircle, Clock, Search, Send, Plus, X, Download,
+  MessageCircle, Clock, Search, Send, Plus, X, Download, Paperclip,
   BarChart3, LayoutGrid, List as ListIcon, 
   Filter, MoreHorizontal, Calendar, DollarSign,
   TrendingUp, Users, PieChart as PieChartIcon, ArrowRight,
@@ -16,6 +16,14 @@ import {
 } from 'recharts';
 
 type ViewMode = 'kanban' | 'chat' | 'list' | 'metrics';
+
+const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
 // Estrutura para colunas dinâmicas
 interface KanbanColumnData {
@@ -59,6 +67,7 @@ const Sales: React.FC = () => {
   const [messageText, setMessageText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // CRM Integration States
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -80,6 +89,10 @@ const Sales: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Outbound Media Sending State
+  const [selectedFileForUpload, setSelectedFileForUpload] = useState<File | null>(null);
+  const [fileCaption, setFileCaption] = useState<string>('');
 
   // New Lead Form State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -503,6 +516,67 @@ const Sales: React.FC = () => {
                 await addFinancialEntry({ id: crypto.randomUUID(), type: 'receivable', category: 'Consulta Particular', name: `Consulta - ${lead.name}`, unitValue: user?.ticketValue || 450, total: user?.ticketValue || 450, status: 'efetuada', date: new Date().toISOString().split('T')[0], discount: 0, addition: 0 });
              }
           }
+      }
+  };
+
+  const handleSendAttachment = async (file: File | null, caption: string) => {
+      if (!selectedConversationId) {
+          alert("Nenhuma conversa selecionada.");
+          return;
+      }
+      if (!file) {
+          alert("Por favor, selecione um arquivo.");
+          return;
+      }
+
+      setSendingMsg(true);
+
+      try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+
+          if (!token) {
+              alert("Sessão expirada. Por favor, faça login novamente.");
+              setSendingMsg(false);
+              return;
+          }
+
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('caption', caption);
+
+          const response = await fetch(`/api/crm/conversations/${selectedConversationId}/send-media`, {
+              method: 'POST',
+              headers: {
+                  'Authorization': `Bearer ${token}`
+              },
+              body: formData
+          });
+
+          const result = await response.json();
+
+          if (result.ok || result.message) {
+              if (result.message) {
+                  const newMsg = result.message;
+                  setChatMessages(prev => {
+                      if (prev.some(m => m.id === newMsg.id)) return prev;
+                      return [...prev, newMsg];
+                  });
+              }
+              // Limpar preview e arquivo
+              setSelectedFileForUpload(null);
+              setFileCaption('');
+              if (!result.ok && result.error) {
+                  alert(result.error);
+              }
+          } else {
+              alert(result.error || "Erro ao enviar o arquivo de mídia.");
+          }
+      } catch (err: any) {
+          console.error("Erro ao enviar mídia do CRM:", err);
+          alert("Ocorreu uma falha de conexão ao enviar o arquivo.");
+      } finally {
+          setSendingMsg(false);
       }
   };
 
@@ -1135,6 +1209,31 @@ const Sales: React.FC = () => {
                         </div>
 
                         <form onSubmit={handleSendMessage} className="p-4 bg-slate-100 border-t border-slate-200 flex gap-3">
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                        setSelectedFileForUpload(e.target.files[0]);
+                                        setFileCaption('');
+                                    }
+                                }}
+                                accept="image/*,video/*,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain"
+                                className="hidden"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={!selectedConversationId || sendingMsg}
+                                className={`p-3 rounded-xl transition-all shadow-md flex items-center justify-center ${
+                                    (!selectedConversationId || sendingMsg)
+                                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                        : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                                }`}
+                                title="Anexar arquivo"
+                            >
+                                <Paperclip size={20} />
+                            </button>
                             <input 
                                 value={messageText} 
                                 onChange={e => setMessageText(e.target.value)} 
@@ -1370,6 +1469,107 @@ const Sales: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* OVERLAY DIALOG / FILE UPLOAD PREVIEW MODAL */}
+      {selectedFileForUpload && (() => {
+        const isImage = selectedFileForUpload.type.startsWith('image/');
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full flex flex-col overflow-hidden max-h-[90vh]">
+              
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+                <h3 className="font-semibold text-slate-800 text-base">Enviar Arquivo Comercial</h3>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setSelectedFileForUpload(null);
+                    setFileCaption('');
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Content Preview */}
+              <div className="p-6 flex flex-col items-center gap-4 overflow-y-auto flex-1">
+                {isImage ? (
+                  <div className="w-full max-h-[220px] flex items-center justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
+                    <img 
+                      src={URL.createObjectURL(selectedFileForUpload)} 
+                      alt="Preview" 
+                      className="max-w-full max-h-[220px] object-contain rounded-lg"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-[84px] h-[84px] bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center border border-blue-100 shadow-sm">
+                    <FileText size={40} />
+                  </div>
+                )}
+
+                <div className="text-center w-full">
+                  <p className="font-semibold text-slate-800 break-all text-sm px-2">{selectedFileForUpload.name}</p>
+                  <p className="text-xs text-slate-400 mt-1 font-mono">{formatBytes(selectedFileForUpload.size)} • {selectedFileForUpload.type || 'arquivo indocumentado'}</p>
+                </div>
+
+                {/* Optional Caption Field */}
+                <div className="w-full mt-2">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Legenda (Opcional)</label>
+                  <input 
+                    type="text"
+                    value={fileCaption}
+                    onChange={(e) => setFileCaption(e.target.value)}
+                    placeholder="Adicione uma legenda ou mensagem para acompanhar o arquivo..."
+                    className="w-full px-4 py-3 border border-slate-200 focus:outline-none focus:border-blue-500 rounded-xl text-sm shadow-xs bg-slate-50/50"
+                    disabled={sendingMsg}
+                  />
+                </div>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={sendingMsg}
+                  onClick={() => {
+                    setSelectedFileForUpload(null);
+                    setFileCaption('');
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium text-sm transition-all focus:outline-none disabled:opacity-50 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                
+                <button
+                  type="button"
+                  disabled={sendingMsg}
+                  onClick={async () => {
+                    await handleSendAttachment(selectedFileForUpload, fileCaption);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 min-w-[120px] focus:outline-none disabled:opacity-50 cursor-pointer"
+                >
+                  {sendingMsg ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Enviando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={16} />
+                      <span>Enviar Mídia</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
