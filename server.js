@@ -320,6 +320,9 @@ app.get('/api/google-ads/status/:userId', async (req, res) => {
 // 3. BUSCAR DADOS (Usando Token do Banco)
 // ==============================================================================
 
+// Mapa para evitar múltiplas renovações de token simulâneas do mesmo usuário
+const googleAdsRefreshLocks = new Map();
+
 // Helper para validar e renovar token
 async function getValidAccessToken(user_id, overrideCustomerId = null) {
     // 1. Buscar credenciais no banco
@@ -346,32 +349,59 @@ async function getValidAccessToken(user_id, overrideCustomerId = null) {
 
     // 2. Verificar Validade e Renovar se necessário
     if (Date.now() > (integration.token_expires_at - 60000)) { // 1 min de margem
-        console.log("Token vencido. Renovando...");
-        const refreshResp = await fetch('https://oauth2.googleapis.com/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                client_id: GOOGLE_CLIENT_ID,
-                client_secret: GOOGLE_CLIENT_SECRET,
-                refresh_token: refreshToken,
-                grant_type: 'refresh_token'
-            })
-        });
+        const lockKey = user_id;
 
-        const refreshData = await refreshResp.json();
-        if (refreshData.error) {
-            await supabase.from('google_ads_integrations').update({ status: 'error' }).eq('user_id', user_id);
-            throw new Error('Falha ao renovar token. Reconecte a conta.');
+        if (googleAdsRefreshLocks.has(lockKey)) {
+            // Aguarda o refresh que já está em andamento
+            await googleAdsRefreshLocks.get(lockKey);
+            // Busca o token fresco do banco recém salvo pela outra promise
+            const { data: freshIntegration } = await supabase
+                .from('google_ads_integrations')
+                .select('access_token')
+                .eq('user_id', user_id)
+                .single();
+            if (freshIntegration && freshIntegration.access_token) {
+                accessToken = freshIntegration.access_token;
+            }
+        } else {
+            const refreshPromise = (async () => {
+                console.log(`Token vencido. Renovando uma única vez para user: ${user_id}...`);
+                const refreshResp = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        client_id: GOOGLE_CLIENT_ID,
+                        client_secret: GOOGLE_CLIENT_SECRET,
+                        refresh_token: refreshToken,
+                        grant_type: 'refresh_token'
+                    })
+                });
+
+                const refreshData = await refreshResp.json();
+                if (refreshData.error) {
+                    await supabase.from('google_ads_integrations').update({ status: 'error' }).eq('user_id', user_id);
+                    throw new Error(`Falha ao renovar token. Reconecte a conta. Detalhe: ${refreshData.error_description || refreshData.error}`);
+                }
+
+                const newAccessToken = refreshData.access_token;
+                const newExpiry = Date.now() + (refreshData.expires_in * 1000);
+
+                await supabase.from('google_ads_integrations').update({
+                    access_token: newAccessToken,
+                    token_expires_at: newExpiry,
+                    status: 'active'
+                }).eq('user_id', user_id);
+                
+                return newAccessToken;
+            })();
+
+            googleAdsRefreshLocks.set(lockKey, refreshPromise);
+            try {
+                accessToken = await refreshPromise;
+            } finally {
+                googleAdsRefreshLocks.delete(lockKey);
+            }
         }
-
-        accessToken = refreshData.access_token;
-        const newExpiry = Date.now() + (refreshData.expires_in * 1000);
-
-        await supabase.from('google_ads_integrations').update({
-            access_token: accessToken,
-            token_expires_at: newExpiry,
-            status: 'active'
-        }).eq('user_id', user_id);
     }
 
     // Lógica de Override (MCC View)
@@ -886,7 +916,7 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
             FROM change_event 
             WHERE change_event.change_resource_type = 'CAMPAIGN' 
             AND change_event.resource_change_operation = 'UPDATE' 
-            AND change_event.change_time DURING LAST_24_HOURS
+            AND change_event.change_time DURING TODAY
             LIMIT 50
         `;
 
@@ -895,27 +925,32 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
             
             pausedResults.forEach(row => {
                 // Verifica se o novo status é PAUSED e se o campo status foi alterado
-                const changedFields = row.changeEvent.changedFields?.paths || [];
-                if (changedFields.includes('status') && row.changeEvent.newResource.campaign.status === 'PAUSED') {
+                const changedFields = row.changeEvent?.changedFields?.paths || [];
+                if (changedFields.includes('status') && row.changeEvent?.newResource?.campaign?.status === 'PAUSED') {
                     const name = row.changeEvent.newResource.campaign.name || 'Campanha';
                     alerts.push({
                         id: `paused-${row.changeEvent.changeTime}`,
                         type: 'status_change',
                         severity: 'high',
-                        message: `A campanha "${name}" foi pausada nas últimas 24h.`
+                        message: `A campanha "${name}" foi pausada hoje.`
                     });
                 }
             });
         } catch (e) {
-            console.error("Erro ao verificar campanhas pausadas:", e);
-            // change_event pode falhar dependendo das permissões ou tipo de conta, não bloqueamos o resto
+            console.error(`[Google Ads Alerts] Falha ao consultar change_event: ${e.message || String(e)}`);
+            // Retorna JSON controlado sem falhar toda a rota para o front
+            return res.json({
+                ok: false,
+                alerts: alerts,
+                error: "Não foi possível verificar alertas do Google Ads no momento."
+            });
         }
 
-        res.json({ alerts });
+        res.json({ ok: true, alerts });
 
     } catch (error) {
         console.error("Alert Check Error:", error);
-        res.status(500).json({ error: error.message });
+        res.json({ ok: false, alerts: [], error: "Não foi possível verificar alertas do Google Ads no momento." });
     }
 });
 
