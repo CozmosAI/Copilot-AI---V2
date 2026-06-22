@@ -2290,6 +2290,7 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
         }
         const finalPhone = phoneValidation.normalized;
         const externalChatId = phoneValidation.jid;
+        console.log(`[CRM Phone] raw=${lead.phone}, clean=${phoneValidation.clean}, normalized=${finalPhone}, source=lead`);
 
         // 4. Criar ou buscar contato no CRM
         let contact = null;
@@ -3637,7 +3638,7 @@ async function resolveConversationDestination(client, userId, conversationId) {
             if (validation.ok) {
                 destino = validation.normalized;
                 source = 'lead';
-                console.log(`[CRM Phone] Resolved destination for conversation ${conversationId}: source=lead, normalized=${destino}`);
+                console.log(`[CRM Phone] raw=${lead.phone}, clean=${validation.clean}, normalized=${destino}, source=lead`);
             } else {
                 console.log(`[CRM Phone] Lead ${lead.id} phone validation failed: ${validation.error}`);
             }
@@ -3656,7 +3657,7 @@ async function resolveConversationDestination(client, userId, conversationId) {
         if (validation.ok) {
             destino = validation.normalized;
             source = 'contact';
-            console.log(`[CRM Phone] Resolved destination for conversation ${conversationId}: source=contact, normalized=${destino}`);
+            console.log(`[CRM Phone] raw=${contact.phone || contact.external_chat_id}, clean=${validation.clean}, normalized=${destino}, source=contact`);
         } else {
             console.log(`[CRM Phone] Contact ${contact.id} phone and external_chat_id validation failed: ${validation.error}`);
             return {
