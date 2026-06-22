@@ -2236,6 +2236,18 @@ app.post('/api/crm/conversations/:conversationId/mark-read', async (req, res) =>
     }
 });
 
+// GET /api/crm/debug/phone-normalize
+app.get('/api/crm/debug/phone-normalize', async (req, res) => {
+    try {
+        await getAuthUser(req);
+        const phone = req.query.phone || '';
+        const result = normalizeLeadPhoneForBrazil(phone);
+        return res.json(result);
+    } catch (err) {
+        return res.status(401).json({ ok: false, error: "Não autorizado" });
+    }
+});
+
 // POST /api/crm/leads/:leadId/start-whatsapp-conversation - Criar conversa com lead manual
 app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) => {
     try {
