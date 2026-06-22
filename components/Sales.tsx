@@ -95,6 +95,10 @@ const Sales: React.FC = () => {
   const [selectedConversation, setSelectedConversation] = useState<any | null>(null);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [chatSendError, setChatSendError] = useState<string | null>(null);
+  const [phoneValidationError, setPhoneValidationError] = useState<string | null>(null);
+  const [addLeadPhoneError, setAddLeadPhoneError] = useState<string | null>(null);
+  const [editLeadPhoneError, setEditLeadPhoneError] = useState<string | null>(null);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [conversationsMap, setConversationsMap] = useState<Record<string, any>>({});
@@ -133,6 +137,31 @@ const Sales: React.FC = () => {
 
   // Edit Lead Form State
   const [showEditModal, setShowEditModal] = useState(false);
+  const formatPhoneWithMask = (value: string) => {
+      const clean = value.replace(/\D/g, '');
+      if (clean.length > 11) {
+          return clean;
+      }
+      if (clean.length <= 2) return clean;
+      if (clean.length <= 6) return `(${clean.slice(0, 2)}) ${clean.slice(2)}`;
+      if (clean.length <= 10) return `(${clean.slice(0, 2)}) ${clean.slice(2, 6)}-${clean.slice(6)}`;
+      return `(${clean.slice(0, 2)}) ${clean.slice(2, 7)}-${clean.slice(7)}`;
+  };
+
+  const validateLeadPhone = (phone: string): { ok: boolean; error: string | null } => {
+      const clean = phone.replace(/\D/g, '');
+      if (!clean) {
+          return { ok: false, error: "O telefone não pode ser vazio." };
+      }
+      if (clean.length === 12 && !clean.startsWith('55')) {
+          return {
+              ok: false,
+              error: "Telefone parece inválido: 12 dígitos sem DDI. Revise o número antes de salvar. Use DDD + número, exemplo: 41998734860, ou DDI + DDD + número, exemplo: 5541998734860."
+          };
+      }
+      return { ok: true, error: null };
+  };
+
   const [editingLeadData, setEditingLeadData] = useState<Lead | null>(null);
 
   const handleOpenEditModal = (lead: Lead) => {
@@ -152,11 +181,22 @@ const Sales: React.FC = () => {
   const handleEditLeadSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!editingLeadData) return;
-      await updateLead(editingLeadData);
+      setEditLeadPhoneError(null);
+
+      const validation = validateLeadPhone(editingLeadData.phone);
+      if (!validation.ok) {
+          setEditLeadPhoneError(validation.error);
+          return;
+      }
+
+      const cleanPhone = editingLeadData.phone.replace(/\D/g, '');
+      const updatedLead = { ...editingLeadData, phone: cleanPhone };
+
+      await updateLead(updatedLead);
       
       // Update activeLead if it's currently selected
       if (activeLead && activeLead.id === editingLeadData.id) {
-          setActiveLead(editingLeadData);
+          setActiveLead(updatedLead);
       }
       
       setShowEditModal(false);
@@ -757,6 +797,7 @@ const Sales: React.FC = () => {
       if (!activeLead || !activeLead.phone) return;
       setIsStartingConversation(true);
       setChatError(null);
+      setPhoneValidationError(null);
       try {
           const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
           if (!token) throw new Error("Não autenticado");
@@ -783,10 +824,16 @@ const Sales: React.FC = () => {
               setActiveLead(result.lead);
           } else {
               setChatError(result.error || 'Não consegui iniciar a conversa. Verifique as conexões do CRM.');
+              if (result.phone_validation) {
+                  setPhoneValidationError(result.phone_validation.reason || result.error);
+              } else {
+                  setPhoneValidationError(result.error);
+              }
           }
       } catch (err: any) {
           console.error("Erro ao iniciar conversa:", err);
           setChatError(err?.message || 'Falha ao conectar com o servidor e iniciar a conversa.');
+          setPhoneValidationError(err?.message || 'Falha ao conectar com o servidor e iniciar a conversa.');
       } finally {
           setIsStartingConversation(false);
       }
@@ -798,13 +845,14 @@ const Sales: React.FC = () => {
 
       const bodyText = messageText.trim();
       setSendingMsg(true);
+      setChatSendError(null);
 
       try {
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
 
           if (!token) {
-              alert("Sessão expirada. Por favor, faça login novamente.");
+              setChatSendError("Sessão expirada. Por favor, faça login novamente.");
               setSendingMsg(false);
               return;
           }
@@ -847,11 +895,11 @@ const Sales: React.FC = () => {
                   };
               });
           } else {
-              alert(result.error || "Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
+              setChatSendError(result.error || "Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
           }
       } catch (err) {
           console.error("Erro ao enviar mensagem:", err);
-          alert("Erro no backend CRM ao enviar mensagem. Verifique URL do backend.");
+          setChatSendError("Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
       } finally {
           setSendingMsg(false);
       }
@@ -870,10 +918,20 @@ const Sales: React.FC = () => {
 
   const handleAddLeadSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
+      setAddLeadPhoneError(null);
+
+      const validation = validateLeadPhone(newLeadData.phone);
+      if (!validation.ok) {
+          setAddLeadPhoneError(validation.error);
+          return;
+      }
+
+      const cleanPhone = newLeadData.phone.replace(/\D/g, '');
+
       await addLead({ 
           id: '', 
           name: newLeadData.name, 
-          phone: newLeadData.phone, 
+          phone: cleanPhone, 
           email: newLeadData.email,
           status: 'Novo', 
           temperature: 'Cold', 
@@ -1250,6 +1308,12 @@ const Sales: React.FC = () => {
                                                 <><MessageCircle size={20} className="fill-white/20" /> Iniciar conversa no WhatsApp</>
                                             )}
                                         </button>
+                                        {phoneValidationError && (
+                                            <div className="mt-3 text-center px-4 py-2 bg-rose-50 border border-rose-200 text-rose-600 text-xs rounded-xl max-w-sm font-semibold">
+                                                <p className="font-bold mb-1">Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 41998734860.</p>
+                                                <p className="opacity-80">Motivo: {phoneValidationError}</p>
+                                            </div>
+                                        )}
                                     </>
                                 )}
                               </div>
@@ -1477,6 +1541,13 @@ const Sales: React.FC = () => {
                             <div ref={messagesEndRef} />
                         </div>
 
+                        {chatSendError && (
+                            <div className="px-4 py-2 bg-rose-50 border-t border-b border-rose-200 text-rose-655 text-sm font-semibold flex justify-between items-center z-20">
+                                <span>{chatSendError}</span>
+                                <button type="button" onClick={() => setChatSendError(null)} className="text-rose-400 hover:text-rose-600 font-bold ml-2 text-lg">×</button>
+                            </div>
+                        )}
+
                         <form onSubmit={handleSendMessage} className="px-4 py-3 bg-[#f0f2f5] border-t border-slate-200 flex items-center gap-2 relative">
                             {/* Attachment Menu Popover */}
                             {showAttachmentMenu && (
@@ -1681,7 +1752,8 @@ const Sales: React.FC = () => {
                                   </div>
                                   <div className="space-y-1.5">
                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Telefone (WhatsApp) *</label>
-                                     <input required value={newLeadData.phone} onChange={e => setNewLeadData({...newLeadData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="Ex: 11999999999" />
+                                     <input required value={newLeadData.phone} onChange={e => setNewLeadData({...newLeadData, phone: formatPhoneWithMask(e.target.value)})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" placeholder="Ex: (11) 99999-9999" />
+                                     {addLeadPhoneError && <p className="text-rose-500 text-xs font-semibold mt-1 bg-rose-50 p-2 rounded border border-rose-100">{addLeadPhoneError}</p>}
                                   </div>
                                   <div className="space-y-1.5 md:col-span-2">
                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail</label>
@@ -1789,7 +1861,8 @@ const Sales: React.FC = () => {
                                   </div>
                                   <div className="space-y-1.5">
                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Telefone (WhatsApp) *</label>
-                                     <input required value={editingLeadData.phone} onChange={e => setEditingLeadData({...editingLeadData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                     <input required value={editingLeadData.phone} onChange={e => setEditingLeadData({...editingLeadData, phone: formatPhoneWithMask(e.target.value)})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                      {editLeadPhoneError && <p className="text-rose-500 text-xs font-semibold mt-1 bg-rose-50 p-2 rounded border border-rose-100">{editLeadPhoneError}</p>}
                                   </div>
                                   <div className="space-y-1.5 md:col-span-2">
                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail</label>

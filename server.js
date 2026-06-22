@@ -2278,11 +2278,17 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
         const activeConnection = connections[0]; // TODO: Seletor de conexão no futuro
 
         // 3. Normalizar telefone e gerar external_chat_id
-        const finalPhone = normalizeBrazilWhatsAppNumber(lead.phone);
-        if (!finalPhone) {
-            return res.status(400).json({ ok: false, error: "Telefone inválido para WhatsApp." });
+        const phoneValidation = normalizeBrazilWhatsAppNumberDetailed(lead.phone);
+        if (!phoneValidation.ok) {
+            console.log(`[CRM Phone] Telefone inválido para lead manual: ${lead.phone} motivo: ${phoneValidation.reason}`);
+            return res.status(400).json({
+                ok: false,
+                error: phoneValidation.reason || "Telefone inválido para WhatsApp.",
+                phone_validation: phoneValidation
+            });
         }
-        const externalChatId = `${finalPhone}@s.whatsapp.net`;
+        const finalPhone = phoneValidation.normalized;
+        const externalChatId = phoneValidation.jid;
 
         // 4. Criar ou buscar contato no CRM
         let contact = null;
@@ -2501,16 +2507,21 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
         }
 
         // 7. Montar destino para Uazapi
-        let destino =
-            normalizeBrazilWhatsAppNumber(contact.phone) ||
-            normalizeBrazilWhatsAppNumber(contact.external_chat_id);
+        let phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.phone);
+        if (!phoneValidation.ok) {
+            phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.external_chat_id, { allowInboundAsSourceOfTruth: true });
+        }
 
-        if (!destino) {
+        if (!phoneValidation.ok) {
+            console.log(`[CRM Phone] Telefone inválido para lead manual: ${contact.phone || contact.external_chat_id} motivo: ${phoneValidation.reason}`);
             return res.status(400).json({
                 ok: false,
-                error: "Nenhum número de telefone ou ID externo no formato correto foi encontrado para o contato."
+                error: phoneValidation.reason || "Telefone inválido para WhatsApp.",
+                phone_validation: phoneValidation
             });
         }
+
+        const destino = phoneValidation.normalized;
 
         // Tarefa 5 — Atualizar contact se detectar número errado no envio
         if (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`) {
@@ -2915,16 +2926,21 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
         console.log(`[CRM Send Media] Arquivo salvo no Storage. Link: ${publicUrl.split('?')[0]}`);
 
         // 9. Montar destino para Uazapi
-        let destino =
-            normalizeBrazilWhatsAppNumber(contact.phone) ||
-            normalizeBrazilWhatsAppNumber(contact.external_chat_id);
+        let phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.phone);
+        if (!phoneValidation.ok) {
+            phoneValidation = normalizeBrazilWhatsAppNumberDetailed(contact.external_chat_id, { allowInboundAsSourceOfTruth: true });
+        }
 
-        if (!destino) {
+        if (!phoneValidation.ok) {
+            console.log(`[CRM Phone] Telefone inválido para lead manual em send-media: ${contact.phone || contact.external_chat_id} motivo: ${phoneValidation.reason}`);
             return res.status(400).json({
                 ok: false,
-                error: "Nenhum número de telefone ou ID externo válido foi encontrado para este contato."
+                error: phoneValidation.reason || "Telefone inválido para WhatsApp.",
+                phone_validation: phoneValidation
             });
         }
+
+        const destino = phoneValidation.normalized;
 
         // Tarefa 5 — Atualizar contact se detectar número errado no envio
         if (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`) {
@@ -3577,8 +3593,18 @@ function normalizePhone(value) {
     return clean || null;
 }
 
-function normalizeBrazilWhatsAppNumber(value) {
-    if (!value) return null;
+function normalizeBrazilWhatsAppNumberDetailed(value, options = {}) {
+    const allowInboundAsSourceOfTruth = Boolean(options.allowInboundAsSourceOfTruth);
+
+    if (!value) {
+        return {
+            ok: false,
+            raw: value,
+            normalized: null,
+            jid: null,
+            reason: "Telefone vazio."
+        };
+    }
 
     let clean = cleanMarkdownLink(value);
     clean = String(clean)
@@ -3586,36 +3612,97 @@ function normalizeBrazilWhatsAppNumber(value) {
         .split('@')[0]
         .replace(/\D/g, '');
 
-    if (!clean) return null;
+    if (!clean) {
+        return {
+            ok: false,
+            raw: value,
+            normalized: null,
+            jid: null,
+            reason: "Telefone sem dígitos válidos."
+        };
+    }
 
-    // Remove prefixo 00, exemplo 0055...
     if (clean.startsWith('00')) {
         clean = clean.slice(2);
     }
 
-    // Se vier com zero de operadora/tronco antes do DDD, remove.
-    // Exemplo: 041998734860 -> 41998734860
-    if (clean.startsWith('0') && clean.length >= 12) {
+    if (clean.startsWith('0') && clean.length >= 11) {
         clean = clean.slice(1);
     }
 
-    // Se já começa com 55, mantém.
+    // Se veio do WhatsApp/Uazapi inbound, aceitar como fonte de verdade,
+    // desde que tenha pelo menos 10 dígitos.
+    if (allowInboundAsSourceOfTruth && clean.startsWith('55') && clean.length >= 12 && clean.length <= 13) {
+        return {
+            ok: true,
+            raw: value,
+            normalized: clean,
+            jid: `${clean}@s.whatsapp.net`,
+            reason: null
+        };
+    }
+
+    // Já vem com DDI 55.
     if (clean.startsWith('55')) {
-        return clean;
+        if (clean.length === 12 || clean.length === 13) {
+            return {
+                ok: true,
+                raw: value,
+                normalized: clean,
+                jid: `${clean}@s.whatsapp.net`,
+                reason: null
+            };
+        }
+
+        return {
+            ok: false,
+            raw: value,
+            normalized: clean,
+            jid: null,
+            reason: `Telefone com DDI 55 deve ter 12 ou 13 dígitos. Recebido: ${clean.length}.`
+        };
     }
 
-    // Se parece número brasileiro com DDD sem DDI, adiciona 55.
-    // Aceitar 10, 11 e também 12 dígitos porque há leads cadastrados fora do padrão.
-    if (clean.length >= 10 && clean.length <= 12) {
-        return `55${clean}`;
+    // Sem DDI: aceitar só 10 ou 11 dígitos.
+    if (clean.length === 10 || clean.length === 11) {
+        const normalized = `55${clean}`;
+        return {
+            ok: true,
+            raw: value,
+            normalized,
+            jid: `${normalized}@s.whatsapp.net`,
+            reason: null
+        };
     }
 
-    return clean;
+    // Caso comum de erro: 12 dígitos sem DDI.
+    if (clean.length === 12) {
+        return {
+            ok: false,
+            raw: value,
+            normalized: null,
+            jid: null,
+            reason: "Telefone parece inválido: possui 12 dígitos sem DDI. Revise o número. Use DDD + número, exemplo 41998734860, ou DDI + DDD + número, exemplo 5541998734860."
+        };
+    }
+
+    return {
+        ok: false,
+        raw: value,
+        normalized: null,
+        jid: null,
+        reason: `Telefone com quantidade inválida de dígitos: ${clean.length}.`
+    };
 }
 
-function buildWhatsappJid(phone) {
-    const normalized = normalizeBrazilWhatsAppNumber(phone);
-    return normalized ? `${normalized}@s.whatsapp.net` : null;
+function normalizeBrazilWhatsAppNumber(value, options = {}) {
+    const result = normalizeBrazilWhatsAppNumberDetailed(value, options);
+    return result.ok ? result.normalized : null;
+}
+
+function buildWhatsappJid(phone, options = {}) {
+    const result = normalizeBrazilWhatsAppNumberDetailed(phone, options);
+    return result.ok ? result.jid : null;
 }
 
 async function downloadUazapiMedia({ baseUrl, token, messageId }) {
