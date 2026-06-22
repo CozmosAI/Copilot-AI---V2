@@ -3519,8 +3519,8 @@ function deepFindMediaAndMime(obj) {
 }
 
 function normalizeLeadPhoneForBrazil(value) {
-    const input = String(value || '');
-    let clean = cleanMarkdownLink(input);
+    const raw = String(value || '');
+    let clean = cleanMarkdownLink(raw);
     clean = String(clean)
         .trim()
         .split('@')[0]
@@ -3529,66 +3529,62 @@ function normalizeLeadPhoneForBrazil(value) {
     if (!clean) {
         return {
             ok: false,
-            input,
+            raw,
             clean,
             normalized: null,
             jid: null,
-            error: "O telefone não pode ser vazio."
+            reason: "O telefone não pode ser vazio.",
+            hasCountryCode: false
         };
     }
 
+    const hasCountryCode = clean.startsWith('55');
+
     // Sem DDI: aceitar apenas 10 ou 11 dígitos.
-    if (!clean.startsWith('55')) {
+    if (!hasCountryCode) {
         if (clean.length === 10 || clean.length === 11) {
             const normalized = `55${clean}`;
             return {
                 ok: true,
-                input,
+                raw,
                 clean,
                 normalized,
                 jid: `${normalized}@s.whatsapp.net`,
-                error: null
+                reason: null,
+                hasCountryCode: false
             };
         }
         return {
             ok: false,
-            input,
+            raw,
             clean,
             normalized: null,
             jid: null,
-            error: `Telefone inválido: sem DDI deve ter 10 ou 11 dígitos. Recebido: ${clean.length}. Exemplo correto: 41998734860.`
+            reason: `Telefone inválido: sem DDI deve ter 10 ou 11 dígitos. Recebido: ${clean.length}. Exemplo correto: 4187348600 ou 41998734860.`,
+            hasCountryCode: false
         };
     }
 
     // Com DDI 55: aceitar apenas 12 ou 13 dígitos.
-    if (clean.startsWith('55')) {
-        if (clean.length === 12 || clean.length === 13) {
-            return {
-                ok: true,
-                input,
-                clean,
-                normalized: clean,
-                jid: `${clean}@s.whatsapp.net`,
-                error: null
-            };
-        }
+    if (clean.length === 12 || clean.length === 13) {
         return {
-            ok: false,
-            input,
+            ok: true,
+            raw,
             clean,
-            normalized: null,
-            jid: null,
-            error: `Telefone inválido: com DDI 55 deve ter 12 ou 13 dígitos. Recebido: ${clean.length}. Exemplo correto: 5541998734860.`
+            normalized: clean,
+            jid: `${clean}@s.whatsapp.net`,
+            reason: null,
+            hasCountryCode: true
         };
     }
-
     return {
         ok: false,
-        input,
+        raw,
         clean,
         normalized: null,
         jid: null,
-        error: "Telefone inválido."
+        reason: `Telefone inválido: com DDI 55 deve ter 12 ou 13 dígitos. Recebido: ${clean.length}. Exemplo correto: 554187348600 ou 5541998734860.`,
+        hasCountryCode: true
     };
 }
 
@@ -3640,7 +3636,7 @@ async function resolveConversationDestination(client, userId, conversationId) {
                 source = 'lead';
                 console.log(`[CRM Phone] raw=${lead.phone}, clean=${validation.clean}, normalized=${destino}, source=lead`);
             } else {
-                console.log(`[CRM Phone] Lead ${lead.id} phone validation failed: ${validation.error}`);
+                console.log(`[CRM Phone] Lead ${lead.id} phone validation failed: ${validation.reason}`);
             }
         }
     }
@@ -3659,10 +3655,10 @@ async function resolveConversationDestination(client, userId, conversationId) {
             source = 'contact';
             console.log(`[CRM Phone] raw=${contact.phone || contact.external_chat_id}, clean=${validation.clean}, normalized=${destino}, source=contact`);
         } else {
-            console.log(`[CRM Phone] Contact ${contact.id} phone and external_chat_id validation failed: ${validation.error}`);
+            console.log(`[CRM Phone] Contact ${contact.id} phone and external_chat_id validation failed: ${validation.reason}`);
             return {
                 ok: false,
-                error: validation.error || "Telefone do contato inválido para WhatsApp. Revise o cadastro.",
+                error: validation.reason || "Telefone do contato inválido para WhatsApp. Revise o cadastro.",
                 phone_validation: validation
             };
         }
@@ -4054,11 +4050,23 @@ function normalizeUazapiWebhookPayload(payload) {
                 const parts = rawPhone.split(':');
                 rawPhone = parts[parts.length - 1];
             }
-            phone = normalizePhone(rawPhone);
+            const validation = normalizeLeadPhoneForBrazil(rawPhone);
+            if (validation.ok) {
+                phone = validation.normalized;
+                console.log(`[CRM Phone] raw=${rawPhone}, clean=${validation.clean}, normalized=${phone}, source=inbound_rawPhone`);
+            } else {
+                phone = validation.clean; // Fallback to numbers only
+            }
         }
         
         if (!phone && externalChatId && !isGroup) {
-            phone = normalizePhone(externalChatId);
+            const validation = normalizeLeadPhoneForBrazil(externalChatId);
+            if (validation.ok) {
+                phone = validation.normalized;
+                console.log(`[CRM Phone] raw=${externalChatId}, clean=${validation.clean}, normalized=${phone}, source=inbound_externalChatId`);
+            } else {
+                phone = validation.clean; // Fallback to numbers only
+            }
         }
 
         const externalMessageId = cleanMarkdownLink(raw.messageId || raw.id || raw.messageid || key.id || (raw.key && raw.key.id) || null);

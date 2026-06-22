@@ -151,38 +151,36 @@ const Sales: React.FC = () => {
       return `(${clean.slice(0, 2)}) ${clean.slice(2, 7)}-${clean.slice(7)}`;
   };
 
-  const validateLeadPhone = (phone: string): { ok: boolean; error: string | null; clean?: string } => {
+  const validateLeadPhone = (phone: string): { ok: boolean; error: string | null; clean?: string; normalized?: string } => {
       const clean = String(phone || '').replace(/\D/g, '');
 
       if (!clean) {
           return { ok: false, error: "O telefone não pode ser vazio." };
       }
 
+      const hasCountryCode = clean.startsWith('55');
+
       // Sem DDI: aceitar apenas 10 ou 11 dígitos.
-      if (!clean.startsWith('55')) {
+      if (!hasCountryCode) {
           if (clean.length === 10 || clean.length === 11) {
-              return { ok: true, error: null, clean };
+              return { ok: true, error: null, clean, normalized: `55${clean}` };
           }
           return {
               ok: false,
               clean,
-              error: `Telefone inválido: sem DDI deve ter 10 ou 11 dígitos. Recebido: ${clean.length}. Exemplo correto: 41998734860.`
+              error: `Telefone inválido. Use DDD + número, com ou sem DDI 55. Ex: 4187348600 ou 554187348600.`
           };
       }
 
       // Com DDI 55: aceitar apenas 12 ou 13 dígitos.
-      if (clean.startsWith('55')) {
-          if (clean.length === 12 || clean.length === 13) {
-              return { ok: true, error: null, clean };
-          }
-          return {
-              ok: false,
-              clean,
-              error: `Telefone inválido: com DDI 55 deve ter 12 ou 13 dígitos. Recebido: ${clean.length}. Exemplo correto: 5541998734860.`
-          };
+      if (clean.length === 12 || clean.length === 13) {
+          return { ok: true, error: null, clean, normalized: clean };
       }
-
-      return { ok: false, clean, error: "Telefone inválido." };
+      return {
+          ok: false,
+          clean,
+          error: `Telefone inválido. Use DDD + número, com ou sem DDI 55. Ex: 4187348600 ou 554187348600.`
+      };
   };
 
   const [editingLeadData, setEditingLeadData] = useState<Lead | null>(null);
@@ -212,8 +210,8 @@ const Sales: React.FC = () => {
           return;
       }
 
-      const cleanPhone = validation.clean!;
-      const updatedLead = { ...editingLeadData, phone: cleanPhone };
+      const finalPhone = validation.normalized!;
+      const updatedLead = { ...editingLeadData, phone: finalPhone };
 
       await updateLead(updatedLead);
       
@@ -227,7 +225,7 @@ const Sales: React.FC = () => {
           setChatSendError(null);
 
           // Se o telefone mudou ou foi corrigido, re-iniciar conversa p/ atualizar crm_contacts e conexões no backend
-          if (oldPhone !== cleanPhone) {
+          if (oldPhone !== finalPhone) {
               setTimeout(async () => {
                   try {
                       const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
@@ -740,7 +738,7 @@ const Sales: React.FC = () => {
               if (fileInputRef.current) fileInputRef.current.value = '';
           } else {
               if (result.code === "INVALID_LEAD_PHONE" || result.phone_validation) {
-                  setChatSendError("Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 41998734860.");
+                  setChatSendError("Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 4187348600 ou 554187348600.");
               } else {
                   alert(`Erro ao salvar/enviar mídia: ${result.error || "Ocorreu um erro desconhecido."}`);
               }
@@ -945,7 +943,7 @@ const Sales: React.FC = () => {
               });
           } else {
               if (result.code === "INVALID_LEAD_PHONE" || result.phone_validation) {
-                  setChatSendError("Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 41998734860.");
+                  setChatSendError("Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 4187348600 ou 554187348600.");
               } else {
                   setChatSendError(result.error || "Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
               }
@@ -979,12 +977,12 @@ const Sales: React.FC = () => {
           return;
       }
 
-      const cleanPhone = validation.clean!;
+      const finalPhone = validation.normalized!;
 
       await addLead({ 
           id: '', 
           name: newLeadData.name, 
-          phone: cleanPhone, 
+          phone: finalPhone, 
           email: newLeadData.email,
           status: 'Novo', 
           temperature: 'Cold', 
@@ -1363,7 +1361,7 @@ const Sales: React.FC = () => {
                                         </button>
                                         {phoneValidationError && (
                                             <div className="mt-3 text-center px-4 py-2 bg-rose-50 border border-rose-200 text-rose-600 text-xs rounded-xl max-w-sm font-semibold">
-                                                <p className="font-bold mb-1">Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 41998734860.</p>
+                                                <p className="font-bold mb-1">Telefone inválido. Revise o cadastro do lead. Use DDD + número, exemplo: 4187348600 ou 554187348600.</p>
                                                 <p className="opacity-80">Motivo: {phoneValidationError}</p>
                                             </div>
                                         )}
