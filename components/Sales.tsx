@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
-  MessageCircle, Clock, Search, Send, Plus, X, 
+  MessageCircle, Clock, Search, Send, Plus, X, Download,
   BarChart3, LayoutGrid, List as ListIcon, 
   Filter, MoreHorizontal, Calendar, DollarSign,
   TrendingUp, Users, PieChart as PieChartIcon, ArrowRight,
@@ -68,6 +68,19 @@ const Sales: React.FC = () => {
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [conversationsMap, setConversationsMap] = useState<Record<string, any>>({});
 
+  // Image Preview Modal state and esc listener
+  const [selectedImagePreview, setSelectedImagePreview] = useState<{ src: string; attachment?: any; msg?: any } | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedImagePreview(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // New Lead Form State
   const [showAddModal, setShowAddModal] = useState(false);
   const [newLeadData, setNewLeadData] = useState({ 
@@ -82,6 +95,58 @@ const Sales: React.FC = () => {
       procedure: '',
       description: ''
   });
+
+  // SECURE PROXY ATTACHMENT DOWNLOAD HELPER
+  const downloadAttachment = async (attachment: any, msg: any) => {
+      if (!attachment || !attachment.id) {
+          const directUrl = attachment?.source_url || msg?.media_url;
+          if (directUrl) {
+              const a = document.createElement('a');
+              a.href = directUrl;
+              a.target = '_blank';
+              a.download = attachment?.filename || msg?.media_filename || "arquivo";
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+          } else {
+              alert("Link do arquivo não disponível.");
+          }
+          return;
+      }
+      try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) {
+              alert("Sessão expirada. Por favor, faça login novamente.");
+              return;
+          }
+
+          const response = await fetch(`/api/crm/attachments/${attachment.id}/download`, {
+              headers: {
+                  'Authorization': `Bearer ${token}`
+              }
+          });
+
+          if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              alert(errData.error || "O arquivo ainda não está disponível para download.");
+              return;
+          }
+
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = attachment.filename || msg?.media_filename || "arquivo";
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+      } catch (err: any) {
+          console.error("Erro no download do anexo:", err);
+          alert("Falha ao realizar o download do arquivo.");
+      }
+  };
 
   // --- REQUISICÕES CRM ---
   const fetchCrmMessages = async (conversationId: string) => {
@@ -872,6 +937,33 @@ const Sales: React.FC = () => {
                                                     (attachment?.raw_metadata?.mediaUrlPending === 'true') ||
                                                     ((msg as any).raw_metadata?.mediaUrlPending === true);
 
+                                  // Helper de formatação de bytes
+                                  const formatBytes = (bytesNum: number) => {
+                                      if (!bytesNum) return '';
+                                      const k = 1024;
+                                      const dm = 1;
+                                      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                                      const i = Math.floor(Math.log(bytesNum) / Math.log(k));
+                                      return parseFloat((bytesNum / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+                                  };
+
+                                  // Coleta da legenda/caption normalizada
+                                  const getLegenda = () => {
+                                      if (msg.caption && String(msg.caption).trim() !== '') {
+                                          return msg.caption;
+                                      }
+                                      const text = msg.message_text;
+                                      if (text) {
+                                          const lowerText = text.trim().toLowerCase();
+                                          const placeholders = ['[imagem]', '[áudio]', '[documento]', '[vídeo]', '[sticker]', '[mensagem]'];
+                                          if (!placeholders.includes(lowerText)) {
+                                              return text;
+                                          }
+                                      }
+                                      return null;
+                                  };
+                                  const legenda = getLegenda();
+
                                   let contentElement = null;
 
                                   if (msgType === 'deleted' || msg.message_text === 'Mensagem apagada') {
@@ -898,81 +990,94 @@ const Sales: React.FC = () => {
                                   } else if (msgType.includes('image') || msgType === 'sticker') {
                                       const isSticker = msgType === 'sticker';
                                       contentElement = (sourceUrl && !isPending) ? (
-                                          <div className="flex flex-col gap-1.5">
-                                              <img 
-                                                  src={sourceUrl} 
-                                                  alt="Mídia WhatsApp" 
-                                                  className={isSticker ? "w-24 h-24 object-contain rounded-lg" : "max-w-xs md:max-w-sm max-h-64 object-cover rounded-xl shadow-sm border border-slate-200/50"} 
-                                                  referrerPolicy="no-referrer" 
-                                              />
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                          <div className="flex flex-col gap-1.5 text-left font-sans">
+                                              <div 
+                                                  onClick={() => !isSticker && setSelectedImagePreview({ src: sourceUrl, attachment, msg })}
+                                                  className={isSticker ? "cursor-default" : "cursor-pointer group relative overflow-hidden rounded-xl border border-slate-200/50 shadow-sm"}
+                                              >
+                                                  <img 
+                                                      src={sourceUrl} 
+                                                      alt="Mídia WhatsApp" 
+                                                      className={isSticker ? "w-24 h-24 object-contain rounded-lg" : "max-w-xs md:max-w-sm max-h-64 object-cover rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"} 
+                                                      referrerPolicy="no-referrer" 
+                                                  />
+                                                  {!isSticker && (
+                                                      <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center animate-fade-in" />
+                                                  )}
+                                              </div>
+                                              {legenda && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       ) : (
-                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px] text-left font-sans">
                                               <div className="flex items-center gap-2">
                                                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
                                                   <span className="text-xs font-semibold text-slate-500 leading-none">Mídia pendente / baixando...</span>
                                               </div>
                                               <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está carregando a imagem.</span>
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                              {legenda && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       );
                                   } else if (msgType.includes('audio') || msgType.includes('ptt') || msgType.includes('voice')) {
                                       contentElement = (sourceUrl && !isPending) ? (
-                                          <div className="flex flex-col gap-1 pt-1 min-w-[200px] sm:min-w-[245px]">
+                                          <div className="flex flex-col gap-1.5 pt-1 min-w-[200px] sm:min-w-[245px] text-left font-sans">
                                               <audio src={sourceUrl} controls className="w-full max-w-[260px] h-9" />
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-1 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                              {legenda && <p className="text-slate-800 text-sm mt-1 max-w-[250px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       ) : (
-                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px] text-left font-sans">
                                               <div className="flex items-center gap-2">
                                                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
                                                   <span className="text-xs font-semibold text-slate-500 leading-none">Áudio pendente / baixando...</span>
                                               </div>
                                               <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está baixando o áudio.</span>
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                              {legenda && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       );
                                   } else if (msgType.includes('video')) {
                                       contentElement = (sourceUrl && !isPending) ? (
-                                          <div className="flex flex-col gap-1.5">
+                                          <div className="flex flex-col gap-1.5 text-left font-sans">
                                               <video src={sourceUrl} controls className="max-w-xs md:max-w-sm max-h-64 rounded-xl shadow-sm border border-slate-200/50" />
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                              {legenda && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       ) : (
-                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px] text-left font-sans">
                                               <div className="flex items-center gap-2">
                                                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
                                                   <span className="text-xs font-semibold text-slate-500 leading-none">Vídeo pendente / baixando...</span>
                                               </div>
                                               <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está processando o arquivo de vídeo.</span>
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                              {legenda && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       );
                                   } else if (msgType.includes('document')) {
+                                      const docFilename = attachment?.filename || msg.media_filename || 'documento';
+                                      const sizeText = attachment?.size_bytes ? ` (${formatBytes(attachment.size_bytes)})` : '';
                                       contentElement = (sourceUrl && !isPending) ? (
-                                          <div className="flex flex-col gap-1.5">
-                                              <a 
-                                                  href={sourceUrl} 
-                                                  target="_blank" 
-                                                  rel="noreferrer" 
-                                                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/60 transition-colors text-blue-600 font-bold shadow-xs"
+                                          <div className="flex flex-col gap-1.5 text-left font-sans">
+                                              <button 
+                                                  onClick={() => downloadAttachment(attachment, msg)}
+                                                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/60 transition-colors text-blue-600 font-bold shadow-xs cursor-pointer text-left w-full outline-hidden"
                                               >
-                                                  <FileText size={18} className="text-blue-500 flex-shrink-0" />
-                                                  <span className="text-xs truncate max-w-[170px]" title={msg.media_filename || 'Documento'}>
-                                                      {msg.media_filename || 'Download Documento'}
-                                                  </span>
-                                              </a>
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
+                                                  <FileText size={20} className="text-blue-500 flex-shrink-0" />
+                                                  <div className="flex-1 min-w-0">
+                                                      <span className="text-xs truncate block max-w-[170px] text-blue-600 font-semibold" title={docFilename}>
+                                                          {docFilename}
+                                                      </span>
+                                                      {sizeText && (
+                                                          <span className="text-[10px] text-slate-400 font-medium font-mono">{sizeText}</span>
+                                                      )}
+                                                  </div>
+                                              </button>
+                                              {legenda && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       ) : (
-                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px]">
+                                          <div className="flex flex-col p-2 text-slate-400 bg-slate-50/40 rounded-xl border border-slate-100 min-w-[200px] text-left font-sans">
                                               <div className="flex items-center gap-2">
                                                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
                                                   <span className="text-xs font-semibold text-slate-500 leading-none">Documento pendente...</span>
                                               </div>
                                               <span className="text-[10px] text-slate-400 mt-1 font-sans">Uazapi está gerando o link do documento.</span>
-                                              {msg.caption && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
+                                              {legenda && <p className="text-slate-800 text-sm mt-2 max-w-[250px] leading-relaxed break-words">{legenda}</p>}
                                           </div>
                                       );
                                   } else if (msgType.includes('location')) {
@@ -1208,6 +1313,62 @@ const Sales: React.FC = () => {
                   </div>
               </div>
           </div>
+      )}
+
+      {/* OVERLAY DIALOG / IMAGE PREVIEW MODAL */}
+      {selectedImagePreview && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-4 transition-all animate-fade-in">
+          {/* Top toolbar */}
+          <div className="absolute top-4 right-4 flex items-center gap-3">
+            {selectedImagePreview.attachment && (
+              <button 
+                onClick={() => downloadAttachment(selectedImagePreview.attachment, selectedImagePreview.msg)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-all border border-slate-700 shadow-lg flex items-center gap-1.5 cursor-pointer outline-hidden"
+                title="Download"
+              >
+                <Download size={14} />
+                <span>Baixar</span>
+              </button>
+            )}
+            <button 
+              onClick={() => setSelectedImagePreview(null)}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full transition-all border border-slate-700 shadow-lg cursor-pointer outline-hidden"
+              title="Fechar"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Centered Image */}
+          <div className="max-w-4xl max-h-[80vh] flex flex-col items-center justify-center overflow-hidden">
+            <img 
+              src={selectedImagePreview.src} 
+              alt="Visualização" 
+              className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl border border-white/10"
+              referrerPolicy="no-referrer"
+            />
+            {/* Show normalized caption if available below the image */}
+            {selectedImagePreview.msg && (() => {
+                const text = selectedImagePreview.msg.message_text;
+                const caption = selectedImagePreview.msg.caption;
+                let modalLegenda = null;
+                if (caption && String(caption).trim() !== '') {
+                    modalLegenda = caption;
+                } else if (text) {
+                    const lowerText = text.trim().toLowerCase();
+                    const placeholders = ['[imagem]', '[áudio]', '[documento]', '[vídeo]', '[sticker]', '[mensagem]'];
+                    if (!placeholders.includes(lowerText)) {
+                        modalLegenda = text;
+                    }
+                }
+                return modalLegenda ? (
+                  <p className="text-white/90 text-sm mt-4 bg-black/40 px-4 py-2 rounded-lg border border-white/5 backdrop-blur-xs max-w-lg text-center leading-relaxed break-words shadow-sm">
+                    {modalLegenda}
+                  </p>
+                ) : null;
+            })()}
+          </div>
+        </div>
       )}
     </div>
   );

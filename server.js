@@ -1181,7 +1181,10 @@ async function getAuthUser(req) {
         error.status = 500;
         throw error;
     }
-    const authHeader = req.headers.authorization || req.headers.Authorization;
+    let authHeader = req.headers.authorization || req.headers.Authorization;
+    if (!authHeader && req.query && req.query.token) {
+        authHeader = `Bearer ${req.query.token}`;
+    }
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         const error = new Error('Não autorizado - Bearer token ausente');
         error.status = 401;
@@ -2092,6 +2095,112 @@ app.get('/api/crm/connections/:connectionId/webhook-events', async (req, res) =>
             ok: false,
             error: err.message || 'Erro ao buscar eventos'
         });
+    }
+});
+
+// GET /api/crm/attachments/:attachmentId/download — Download seguro pela AXIS
+app.get('/api/crm/attachments/:attachmentId/download', async (req, res) => {
+    const { attachmentId } = req.params;
+    console.log(`[CRM Attachment] Download solicitado: attachmentId ${attachmentId}`);
+    try {
+        const user = await getAuthUser(req);
+        const client = supabaseAdmin || supabase;
+
+        const { data: attachment, error: fetchErr } = await client
+            .from('crm_message_attachments')
+            .select('*')
+            .eq('id', attachmentId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (fetchErr || !attachment) {
+            console.log(`[CRM Attachment] Attachment não encontrado para id ${attachmentId}`);
+            return res.status(404).json({ ok: false, error: "Anexo não encontrado." });
+        }
+
+        const sourceUrl = attachment.source_url;
+        if (!sourceUrl) {
+            console.log(`[CRM Attachment] Source indisponível para attachmentId ${attachmentId}`);
+            return res.status(404).json({ ok: false, error: "Arquivo ainda não disponível." });
+        }
+
+        const cleanLogUrl = String(sourceUrl).split('?')[0];
+        console.log(`[CRM Attachment] Realizando fetch server-side de ${cleanLogUrl}`);
+
+        const response = await fetch(sourceUrl);
+        if (!response.ok) {
+            console.log(`[CRM Attachment] Erro na requisição ao arquivo remoto. Status: ${response.status}`);
+            return res.status(response.status).json({ ok: false, error: "Erro ao baixar o arquivo de mídia." });
+        }
+
+        const filename = attachment.filename || "arquivo";
+        const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+
+        res.setHeader('Content-Type', attachment.mime_type || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        console.log(`[CRM Attachment] Arquivo servido com filename ${filename} (${buffer.length} bytes)`);
+        return res.send(buffer);
+    } catch (err) {
+        console.error(`[CRM Attachment] Erro na rota /download:`, err.message || err);
+        return res.status(err.status || 500).json({ ok: false, error: err.message || 'Erro interno do servidor' });
+    }
+});
+
+// GET /api/crm/attachments/:attachmentId/view — Visualização inline segura pela AXIS
+app.get('/api/crm/attachments/:attachmentId/view', async (req, res) => {
+    const { attachmentId } = req.params;
+    console.log(`[CRM Attachment] Visualização (view) solicitada: attachmentId ${attachmentId}`);
+    try {
+        const user = await getAuthUser(req);
+        const client = supabaseAdmin || supabase;
+
+        const { data: attachment, error: fetchErr } = await client
+            .from('crm_message_attachments')
+            .select('*')
+            .eq('id', attachmentId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (fetchErr || !attachment) {
+            console.log(`[CRM Attachment] Attachment não encontrado para id ${attachmentId}`);
+            return res.status(404).json({ ok: false, error: "Anexo não encontrado." });
+        }
+
+        const sourceUrl = attachment.source_url;
+        if (!sourceUrl) {
+            console.log(`[CRM Attachment] Source indisponível para attachmentId ${attachmentId}`);
+            return res.status(404).json({ ok: false, error: "Arquivo ainda não disponível." });
+        }
+
+        const cleanLogUrl = String(sourceUrl).split('?')[0];
+        console.log(`[CRM Attachment] Realizando fetch server-side de ${cleanLogUrl}`);
+
+        const response = await fetch(sourceUrl);
+        if (!response.ok) {
+            console.log(`[CRM Attachment] Erro na requisição ao arquivo remoto. Status: ${response.status}`);
+            return res.status(response.status).json({ ok: false, error: "Erro ao obter o arquivo de mídia." });
+        }
+
+        const filename = attachment.filename || "arquivo";
+        const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+
+        res.setHeader('Content-Type', attachment.mime_type || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodedFilename}`);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        console.log(`[CRM Attachment] Arquivo servido para visualização com filename ${filename} (${buffer.length} bytes)`);
+        return res.send(buffer);
+    } catch (err) {
+        console.error(`[CRM Attachment] Erro na rota /view:`, err.message || err);
+        return res.status(err.status || 500).json({ ok: false, error: err.message || 'Erro interno do servidor' });
     }
 });
 
@@ -3118,11 +3227,64 @@ function normalizeUazapiWebhookPayload(payload) {
             if (!mediaMimeType) {
                 mediaMimeType = actualMessage.mimetype || actualMessage.mimeType || raw.mediaMimeType || raw.mimeType || raw.mimetype || null;
             }
-            if (!mediaFilename) {
-                mediaFilename = actualMessage.fileName || actualMessage.filename || raw.mediaFilename || raw.filename || raw.fileName || null;
+
+            // Extract filename following Task 1 guidelines
+            let extractedFilename = null;
+            const messageContentObj = actualMessage.content || raw.content || (raw.message && raw.message.content) || {};
+            if (messageContentObj.fileName) extractedFilename = messageContentObj.fileName;
+            else if (messageContentObj.title) extractedFilename = messageContentObj.title;
+            else if (actualMessage.fileName) extractedFilename = actualMessage.fileName;
+            else if (actualMessage.filename) extractedFilename = actualMessage.filename;
+            else if (raw.fileName) extractedFilename = raw.fileName;
+            else if (raw.filename) extractedFilename = raw.filename;
+            else if (payload.chat && payload.chat.wa_lastMessageFileName) extractedFilename = payload.chat.wa_lastMessageFileName;
+
+            if (extractedFilename) {
+                mediaFilename = extractedFilename;
+            } else if (finalType !== 'text' && finalType !== 'deleted' && finalType !== 'reaction' && finalType !== 'unknown') {
+                let ext = 'bin';
+                if (mediaMimeType) {
+                    const m = String(mediaMimeType).toLowerCase();
+                    if (m.includes('jpeg') || m.includes('jpg')) ext = 'jpg';
+                    else if (m.includes('png')) ext = 'png';
+                    else if (m.includes('gif')) ext = 'gif';
+                    else if (m.includes('mp4')) ext = 'mp4';
+                    else if (m.includes('ogg') || m.includes('opus')) ext = 'ogg';
+                    else if (m.includes('mp3') || m.includes('mpeg')) ext = 'mp3';
+                    else if (m.includes('pdf')) ext = 'pdf';
+                    else if (m.includes('docx') || m.includes('word')) ext = 'docx';
+                    else if (m.includes('xlsx') || m.includes('excel')) ext = 'xlsx';
+                }
+                mediaFilename = `${finalType}_${externalMessageId}.${ext}`;
             }
-            if (!caption) {
-                caption = actualMessage.caption || raw.caption || null;
+
+            // Extract caption following Task 2 guidelines
+            let extractedCaption = null;
+            if (messageContentObj.caption) extractedCaption = messageContentObj.caption;
+            else if (actualMessage.caption) extractedCaption = actualMessage.caption;
+            else if (raw.caption) extractedCaption = raw.caption;
+            else if (actualMessage.text) extractedCaption = actualMessage.text;
+            else if (raw.text) extractedCaption = raw.text;
+            else if (actualMessage.body) extractedCaption = actualMessage.body;
+            else if (messageContentObj.text) extractedCaption = messageContentObj.text;
+            else if (messageContentObj.conversation) extractedCaption = messageContentObj.conversation;
+
+            // Se for mensagem de mídia
+            if (['image', 'audio', 'voice', 'video', 'document', 'sticker'].includes(finalType)) {
+                if (extractedCaption && String(extractedCaption).trim() !== '') {
+                    caption = String(extractedCaption).trim();
+                    text = caption;
+                } else {
+                    caption = null;
+                    if (finalType === 'image') text = '[imagem]';
+                    else if (finalType === 'audio' || finalType === 'voice') text = '[áudio]';
+                    else if (finalType === 'video') text = '[vídeo]';
+                    else if (finalType === 'document') text = '[documento]';
+                    else if (finalType === 'sticker') text = '[sticker]';
+                    else text = '[mensagem]';
+                }
+            } else {
+                caption = null;
             }
         }
 
@@ -3522,7 +3684,14 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             }
 
             // Atribuir filename correto
-            let filename = oEvent.FileName || oEvent.filename || oEvent.Name || null;
+            let filename = null;
+            if (oEvent.content?.fileName) filename = oEvent.content.fileName;
+            else if (oEvent.content?.title) filename = oEvent.content.title;
+            else if (oEvent.fileName) filename = oEvent.fileName;
+            else if (oEvent.filename) filename = oEvent.filename;
+            else if (oEvent.Name) filename = oEvent.Name;
+            else if (originalBody?.chat?.wa_lastMessageFileName) filename = originalBody.chat.wa_lastMessageFileName;
+
             if (!filename) {
                 let ext = '.bin';
                 if (mimeType) {
@@ -3541,7 +3710,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     else if (updatedType === 'video') ext = '.mp4';
                     else if (updatedType === 'audio' || updatedType === 'voice') ext = '.mp3';
                 }
-                filename = `documento_${messageId}${ext}`;
+                filename = `${updatedType}_${messageId}${ext}`;
             }
 
             // Atualizar crm_messages
