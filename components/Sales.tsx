@@ -654,14 +654,6 @@ const Sales: React.FC = () => {
               setFileCaption('');
               if (fileInputRef.current) fileInputRef.current.value = '';
           } else {
-              if (result.message) {
-                  // Pode ter salvo a mensagem (failed) mesmo com erro. Atualizamos estado.
-                  const newMsg = result.message;
-                  setChatMessages(prev => {
-                      if (prev.some(m => m.id === newMsg.id)) return prev;
-                      return [...prev, newMsg];
-                  });
-              }
               alert(`Erro ao salvar/enviar mídia: ${result.error || "Ocorreu um erro desconhecido."}`);
           }
       } catch (err: any) {
@@ -828,39 +820,34 @@ const Sales: React.FC = () => {
 
           const result = await safeJsonResponse(response);
 
-          if (result.ok || result.message) {
+          if (result.ok && result.message) {
               setMessageText('');
-              if (result.message) {
-                  const newMsg = result.message;
-                  setChatMessages(prev => {
-                      if (prev.some(m => m.id === newMsg.id)) return prev;
-                      return [...prev, newMsg];
-                  });
-                  
-                  // Atualizar local map para preview imediato
-                  setConversationsMap(prev => {
-                      const existing = prev[selectedConversationId];
-                      if (!existing) return prev;
-                      const updated = { 
-                          ...existing, 
-                          last_message_text: newMsg.message_text,
-                          last_message_type: 'text',
-                          last_sender: 'me',
-                          last_message_at: newMsg.sent_at || newMsg.created_at,
-                          unread_count: 0
-                      };
-                      return {
-                          ...prev,
-                          [selectedConversationId]: updated,
-                          ...(updated.lead_id ? { [`lead_${updated.lead_id}`]: updated } : {})
-                      };
-                  });
-              }
-              if (!result.ok && result.error) {
-                  alert(result.error);
-              }
+              const newMsg = result.message;
+              setChatMessages(prev => {
+                  if (prev.some(m => m.id === newMsg.id)) return prev;
+                  return [...prev, newMsg];
+              });
+              
+              // Atualizar local map para preview imediato
+              setConversationsMap(prev => {
+                  const existing = prev[selectedConversationId];
+                  if (!existing) return prev;
+                  const updated = { 
+                      ...existing, 
+                      last_message_text: newMsg.message_text,
+                      last_message_type: 'text',
+                      last_sender: 'me',
+                      last_message_at: newMsg.sent_at || newMsg.created_at,
+                      unread_count: 0
+                  };
+                  return {
+                      ...prev,
+                      [selectedConversationId]: updated,
+                      ...(updated.lead_id ? { [`lead_${updated.lead_id}`]: updated } : {})
+                  };
+              });
           } else {
-              alert(result.error || "Erro no backend CRM ao enviar mensagem. Verifique URL do backend.");
+              alert(result.error || "Erro no backend CRM ao enviar mensagem. Verifique a conexão.");
           }
       } catch (err) {
           console.error("Erro ao enviar mensagem:", err);

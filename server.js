@@ -2278,20 +2278,14 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
         const activeConnection = connections[0]; // TODO: Seletor de conexão no futuro
 
         // 3. Normalizar telefone e gerar external_chat_id
-        const phoneDigits = lead.phone.replace(/\D/g, '');
-        if (!phoneDigits) {
-            return res.status(400).json({ ok: false, error: "Telefone inválido." });
-        }
-        
-        // Verifica se inclui 55. Adiciona caso seja Brasil e não tenha
-        let finalPhone = phoneDigits;
-        if (finalPhone.length === 10 || finalPhone.length === 11) {
-            finalPhone = `55${finalPhone}`;
+        const finalPhone = normalizeBrazilWhatsAppNumber(lead.phone);
+        if (!finalPhone) {
+            return res.status(400).json({ ok: false, error: "Telefone inválido para WhatsApp." });
         }
         const externalChatId = `${finalPhone}@s.whatsapp.net`;
 
         // 4. Criar ou buscar contato no CRM
-        let contact;
+        let contact = null;
         const { data: existingContact } = await client
             .from('crm_contacts')
             .select('*')
@@ -2302,6 +2296,40 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
 
         if (existingContact) {
             contact = existingContact;
+        } else {
+            // se não encontrar, buscar por user_id + phone antigo também para recuperar contatos criados antes da correção
+            const phoneDigitsRaw = lead.phone.replace(/\D/g, '');
+            const { data: legacyContact } = await client
+                .from('crm_contacts')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('phone', phoneDigitsRaw)
+                .maybeSingle();
+
+            if (legacyContact) {
+                contact = legacyContact;
+            }
+        }
+
+        if (contact) {
+            if (contact.phone !== finalPhone || contact.external_chat_id !== externalChatId) {
+                const { data: updatedContact, error: updateContactErr } = await client
+                    .from('crm_contacts')
+                    .update({
+                        phone: finalPhone,
+                        external_chat_id: externalChatId,
+                        display_name: lead.name || contact.display_name,
+                        push_name: lead.name || contact.push_name,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', contact.id)
+                    .select()
+                    .single();
+
+                if (!updateContactErr && updatedContact) {
+                    contact = updatedContact;
+                }
+            }
         } else {
             const { data: newContact, error: insertContactErr } = await client
                 .from('crm_contacts')
@@ -2473,16 +2501,9 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
         }
 
         // 7. Montar destino para Uazapi
-        let destino = null;
-        if (contact.phone) {
-            destino = normalizePhone(contact.phone);
-        }
-        if (!destino && contact.external_chat_id) {
-            destino = normalizePhone(contact.external_chat_id);
-        }
-        if (!destino && contact.external_chat_id) {
-            destino = contact.external_chat_id;
-        }
+        let destino =
+            normalizeBrazilWhatsAppNumber(contact.phone) ||
+            normalizeBrazilWhatsAppNumber(contact.external_chat_id);
 
         if (!destino) {
             return res.status(400).json({
@@ -2491,7 +2512,19 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
             });
         }
 
-        console.log(`[CRM Send] Enviando mensagem pela Uazapi para conversa ${conversationId}, destino: ${destino}`);
+        // Tarefa 5 — Atualizar contact se detectar número errado no envio
+        if (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`) {
+            await client
+                .from('crm_contacts')
+                .update({
+                    phone: destino,
+                    external_chat_id: `${destino}@s.whatsapp.net`,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', contact.id);
+        }
+
+        console.log(`[CRM Send] Enviando mensagem pela Uazapi para conversa ${conversationId}, destino normalizado: ${destino}`);
 
         // 8. Chamar Uazapi /send/text de forma defensiva com Timeout de 15 segundos
         const uazapiUrl = `${connection.api_base_url.replace(/\/$/, '')}/send/text`;
@@ -2514,6 +2547,7 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
             "message": text
         };
 
+        let isNotOnWhatsApp = false;
         let uazapiError = null;
         let responseJson = null;
         let extMessageId = null;
@@ -2533,6 +2567,10 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
             const responseText = await response.text();
             clearTimeout(timeoutId);
 
+            if (responseText && (responseText.toLowerCase().includes("is not on whatsapp") || responseText.toLowerCase().includes("not on whatsapp"))) {
+                isNotOnWhatsApp = true;
+            }
+
             if (!response.ok) {
                 // Try fallback body
                 const fallbackController = new AbortController();
@@ -2548,6 +2586,10 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
                 const fallbackText = await fallbackResponse.text();
                 clearTimeout(fallbackTimeoutId);
 
+                if (fallbackText && (fallbackText.toLowerCase().includes("is not on whatsapp") || fallbackText.toLowerCase().includes("not on whatsapp"))) {
+                    isNotOnWhatsApp = true;
+                }
+
                 if (!fallbackResponse.ok) {
                     throw new Error(`Uazapi HTTP Error first body: ${responseText}, fallback body: ${fallbackText}`);
                 } else {
@@ -2555,6 +2597,10 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
                 }
             } else {
                 responseJson = JSON.parse(responseText);
+            }
+
+            if (responseJson && JSON.stringify(responseJson).toLowerCase().includes("not on whatsapp")) {
+                isNotOnWhatsApp = true;
             }
 
             if (responseJson && responseJson.key && responseJson.key.id) {
@@ -2571,6 +2617,13 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
             clearTimeout(timeoutId);
             console.error(`[CRM Send] Erro de rede ou timeout ao chamar Uazapi:`, fetchErr);
             uazapiError = fetchErr.message || String(fetchErr);
+            if (uazapiError.toLowerCase().includes("is not on whatsapp") || uazapiError.toLowerCase().includes("not on whatsapp")) {
+                isNotOnWhatsApp = true;
+            }
+        }
+
+        if (isNotOnWhatsApp) {
+            uazapiError = "A Uazapi informou que este número não possui WhatsApp ou está cadastrado incorretamente. Verifique o telefone do lead com DDI/DDD.";
         }
 
         // 9. Salvar mensagem outbound
@@ -2677,10 +2730,17 @@ app.post('/api/crm/conversations/:conversationId/send', async (req, res) => {
             });
         } else {
             console.log(`[CRM Send] Falha ao enviar pela Uazapi: ${uazapiError || 'Desconhecido'}`);
+            if (isNotOnWhatsApp) {
+                return res.json({
+                    ok: false,
+                    message: createdMessage,
+                    error: "A Uazapi informou que este número não possui WhatsApp ou está cadastrado incorretamente. Verifique o telefone do lead com DDI/DDD."
+                });
+            }
             return res.json({
                 ok: false,
                 message: createdMessage,
-                error: "Erro ao enviar pela Uazapi."
+                error: (typeof uazapiError === 'string' && uazapiError) || "Erro ao enviar pela Uazapi."
             });
         }
 
@@ -2855,22 +2915,27 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
         console.log(`[CRM Send Media] Arquivo salvo no Storage. Link: ${publicUrl.split('?')[0]}`);
 
         // 9. Montar destino para Uazapi
-        let destino = null;
-        if (contact.phone) {
-            destino = normalizePhone(contact.phone);
-        }
-        if (!destino && contact.external_chat_id) {
-            destino = normalizePhone(contact.external_chat_id);
-        }
-        if (!destino && contact.external_chat_id) {
-            destino = contact.external_chat_id;
-        }
+        let destino =
+            normalizeBrazilWhatsAppNumber(contact.phone) ||
+            normalizeBrazilWhatsAppNumber(contact.external_chat_id);
 
         if (!destino) {
             return res.status(400).json({
                 ok: false,
                 error: "Nenhum número de telefone ou ID externo válido foi encontrado para este contato."
             });
+        }
+
+        // Tarefa 5 — Atualizar contact se detectar número errado no envio
+        if (contact.phone !== destino || contact.external_chat_id !== `${destino}@s.whatsapp.net`) {
+            await client
+                .from('crm_contacts')
+                .update({
+                    phone: destino,
+                    external_chat_id: `${destino}@s.whatsapp.net`,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', contact.id);
         }
 
         // 10. Chamar endpoint Uazapi de mídia
@@ -2908,6 +2973,7 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             "filename": fixedOriginalName
         };
 
+        let isNotOnWhatsApp = false;
         let uazapiError = null;
         let responseJson = null;
         let extMessageId = null;
@@ -2928,6 +2994,10 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             const responseText = await response.text();
             clearTimeout(timeoutId1);
 
+            if (responseText && (responseText.toLowerCase().includes("is not on whatsapp") || responseText.toLowerCase().includes("not on whatsapp"))) {
+                isNotOnWhatsApp = true;
+            }
+
             if (!response.ok) {
                 console.log(`[CRM Send Media] Endpoint principal de mídia recusado (${response.status}), tentando fallback 1...`);
                 const controller2 = new AbortController();
@@ -2942,6 +3012,10 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
                     const fbText = await fallbackResponse.text();
                     clearTimeout(timeoutId2);
 
+                    if (fbText && (fbText.toLowerCase().includes("is not on whatsapp") || fbText.toLowerCase().includes("not on whatsapp"))) {
+                        isNotOnWhatsApp = true;
+                    }
+
                     if (!fallbackResponse.ok) {
                         console.log(`[CRM Send Media] Fallback 1 recusado (${fallbackResponse.status}), tentando fallback 2...`);
                         const controller3 = new AbortController();
@@ -2955,6 +3029,10 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
                             });
                             const fbText2 = await fallbackResponse2.text();
                             clearTimeout(timeoutId3);
+
+                            if (fbText2 && (fbText2.toLowerCase().includes("is not on whatsapp") || fbText2.toLowerCase().includes("not on whatsapp"))) {
+                                isNotOnWhatsApp = true;
+                            }
 
                             if (!fallbackResponse2.ok) {
                                 throw new Error(`Falha total em todos os corpos do payload da Uazapi.`);
@@ -2976,6 +3054,10 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
                 responseJson = JSON.parse(responseText);
             }
 
+            if (responseJson && JSON.stringify(responseJson).toLowerCase().includes("not on whatsapp")) {
+                isNotOnWhatsApp = true;
+            }
+
             if (responseJson && responseJson.key && responseJson.key.id) {
                 extMessageId = responseJson.key.id;
             } else if (responseJson && responseJson.id) {
@@ -2990,6 +3072,13 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
             clearTimeout(timeoutId1);
             console.error(`[CRM Send Media] Erro ao chamar endpoint de envio Uazapi:`, fetchErr.message || fetchErr);
             uazapiError = fetchErr.message || String(fetchErr);
+            if (uazapiError.toLowerCase().includes("is not on whatsapp") || uazapiError.toLowerCase().includes("not on whatsapp")) {
+                isNotOnWhatsApp = true;
+            }
+        }
+
+        if (isNotOnWhatsApp) {
+            uazapiError = "A Uazapi informou que este número não possui WhatsApp ou está cadastrado incorretamente. Verifique o telefone do lead com DDI/DDD.";
         }
 
         // 11. Salvar crm_messages outbound
@@ -3149,11 +3238,19 @@ app.post('/api/crm/conversations/:conversationId/send-media', uploadMiddleware.s
 
         if (uazapiError) {
             console.log(`[CRM Send Media] Falha de envio pelo Uazapi: ${uazapiError}`);
+            if (isNotOnWhatsApp) {
+                return res.json({
+                    ok: false,
+                    message: createdMessage,
+                    attachment: createdAttachment,
+                    error: "A Uazapi informou que este número não possui WhatsApp ou está cadastrado incorretamente. Verifique o telefone do lead com DDI/DDD."
+                });
+            }
             return res.json({
                 ok: false,
                 message: createdMessage,
                 attachment: createdAttachment,
-                error: "Falha ao enviar pela Uazapi, mensagem registrada como failed."
+                error: (typeof uazapiError === 'string' && uazapiError) || "Falha ao enviar pela Uazapi, mensagem registrada como failed."
             });
         }
 
@@ -3478,6 +3575,47 @@ function normalizePhone(value) {
     clean = clean.split('@')[0];
     clean = clean.replace(/\D/g, '');
     return clean || null;
+}
+
+function normalizeBrazilWhatsAppNumber(value) {
+    if (!value) return null;
+
+    let clean = cleanMarkdownLink(value);
+    clean = String(clean)
+        .trim()
+        .split('@')[0]
+        .replace(/\D/g, '');
+
+    if (!clean) return null;
+
+    // Remove prefixo 00, exemplo 0055...
+    if (clean.startsWith('00')) {
+        clean = clean.slice(2);
+    }
+
+    // Se vier com zero de operadora/tronco antes do DDD, remove.
+    // Exemplo: 041998734860 -> 41998734860
+    if (clean.startsWith('0') && clean.length >= 12) {
+        clean = clean.slice(1);
+    }
+
+    // Se já começa com 55, mantém.
+    if (clean.startsWith('55')) {
+        return clean;
+    }
+
+    // Se parece número brasileiro com DDD sem DDI, adiciona 55.
+    // Aceitar 10, 11 e também 12 dígitos porque há leads cadastrados fora do padrão.
+    if (clean.length >= 10 && clean.length <= 12) {
+        return `55${clean}`;
+    }
+
+    return clean;
+}
+
+function buildWhatsappJid(phone) {
+    const normalized = normalizeBrazilWhatsAppNumber(phone);
+    return normalized ? `${normalized}@s.whatsapp.net` : null;
 }
 
 async function downloadUazapiMedia({ baseUrl, token, messageId }) {
