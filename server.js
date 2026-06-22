@@ -2692,6 +2692,147 @@ function normalizePhone(value) {
     return clean || null;
 }
 
+async function downloadUazapiMedia({ baseUrl, token, messageId }) {
+    if (!baseUrl || !token || !messageId) {
+        console.log("[CRM Media] Sem parâmetros necessários para downloadUazapiMedia.");
+        return { fileUrl: null, mimeType: null, base64: null };
+    }
+    const cleanUrl = baseUrl.replace(/\/+$/, '');
+    const cleanMsgId = cleanMarkdownLink(messageId);
+    console.log(`[CRM Media] Baixando mídia via Uazapi. messageId: ${cleanMsgId}, baseUrl: ${cleanUrl}`);
+
+    const endpoints = [
+        {
+            path: '/message/download',
+            body: { id: cleanMsgId }
+        },
+        {
+            path: '/message/download',
+            body: { id: cleanMsgId, return_link: true, return_base64: false }
+        },
+        {
+            path: '/message/find',
+            body: { id: cleanMsgId, limit: 1 }
+        }
+    ];
+
+    for (const ep of endpoints) {
+        try {
+            console.log(`[CRM Media] Tentando POST ${ep.path} para ID ${cleanMsgId}...`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+            const response = await fetch(`${cleanUrl}${ep.path}`, {
+                method: 'POST',
+                headers: {
+                    'token': token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(ep.body),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                const data = await response.json();
+                const found = deepFindMediaAndMime(data);
+                
+                // Extrair base64 se disponível
+                let base64 = data.base64 || data.data?.base64 || (data.content && data.content.base64) || null;
+                if (!base64 && typeof data.data === 'string' && data.data.startsWith('data:')) {
+                    const parts = data.data.split(',');
+                    base64 = parts[1] || parts[0];
+                }
+
+                if (found.fileUrl || base64) {
+                    console.log(`[CRM Media] Download resolvido por URL: ${found.fileUrl ? 'sim' : 'não'} (Mime: ${found.mimeType || 'não'}), base64: ${base64 ? 'sim' : 'não'}`);
+                    return {
+                        fileUrl: found.fileUrl,
+                        mimeType: found.mimeType,
+                        base64: base64
+                    };
+                }
+            } else {
+                console.log(`[CRM Media] Resposta mal-sucedida do endpoint ${ep.path}: ${response.status}`);
+            }
+        } catch (err) {
+            console.error(`[CRM Media] Erro ao tentar endpoint ${ep.path}:`, err.message || err);
+        }
+    }
+
+    console.log(`[CRM Media] Todas as tentativas de download falharam para a mensagem ID ${cleanMsgId}`);
+    return { fileUrl: null, mimeType: null, base64: null };
+}
+
+async function uploadMediaToSupabaseStorage({ base64, userId, connectionId, conversationId, messageId, mimeType }) {
+    if (!base64) return null;
+    try {
+        console.log(`[CRM Media] Base64 recebido, subindo para Supabase Storage... MessageId: ${messageId}`);
+        // Determinar extensão
+        let ext = 'bin';
+        if (mimeType) {
+            const m = String(mimeType).toLowerCase();
+            if (m.includes('jpeg') || m.includes('jpg')) ext = 'jpg';
+            else if (m.includes('png')) ext = 'png';
+            else if (m.includes('gif')) ext = 'gif';
+            else if (m.includes('mp4')) ext = 'mp4';
+            else if (m.includes('ogg') || m.includes('opus')) ext = 'ogg';
+            else if (m.includes('mp3') || m.includes('mpeg')) ext = 'mp3';
+            else if (m.includes('pdf')) ext = 'pdf';
+            else if (m.includes('docx') || m.includes('word')) ext = 'docx';
+            else if (m.includes('xlsx') || m.includes('excel')) ext = 'xlsx';
+        }
+        
+        const cleanMsgId = cleanMarkdownLink(messageId);
+        const storagePath = `${userId}/${connectionId}/${conversationId}/${cleanMsgId}.${ext}`;
+        const buffer = Buffer.from(base64, 'base64');
+
+        console.log(`[CRM Media] Tentando upload para bucket crm-media, path: ${storagePath} (size: ${buffer.length} bytes, mime: ${mimeType || 'auto'})`);
+
+        // Usar supabaseAdmin no backend para service role
+        const { data, error } = await supabaseAdmin.storage
+            .from('crm-media')
+            .upload(storagePath, buffer, {
+                contentType: mimeType || 'application/octet-stream',
+                upsert: true
+            });
+
+        if (error) {
+            console.error(`[CRM Media] Erro ao subir mídia para o Supabase Storage:`, error);
+            return null;
+        }
+
+        // Obter publicURL
+        const { data: publicUrlData } = supabaseAdmin.storage
+            .from('crm-media')
+            .getPublicUrl(storagePath);
+
+        const publicUrl = publicUrlData?.publicUrl || null;
+        console.log(`[CRM Media] Mídia salva em Storage: sim. PublicUrl: ${publicUrl}`);
+        
+        return {
+            storageBucket: 'crm-media',
+            storagePath: storagePath,
+            publicUrl: publicUrl
+        };
+    } catch (err) {
+        console.error(`[CRM Media] Erro na função uploadMediaToSupabaseStorage:`, err.message || err);
+        return null;
+    }
+}
+
+function isEncryptedUrl(url, metadata) {
+    if (!url) return false;
+    const u = String(url).toLowerCase();
+    if (u.includes('mmg.whatsapp.net') || u.includes('.enc')) {
+        return true;
+    }
+    if (metadata && (metadata.mediaKey || metadata.media_key || metadata.directPath || metadata.direct_path || metadata.fileEncSHA256 || metadata.file_enc_sha256)) {
+        return true;
+    }
+    return false;
+}
+
 // Normaliza external_chat_id (usa valor existente ou phone, preserva identificador do grupo)
 function normalizeExternalChatId(value, phone) {
     if (value) return String(value);
@@ -3290,87 +3431,64 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             let mimeType = oEvent.MimeType || oEvent.mimeType || oEvent.Mimetype || oEvent.mimetype || null;
             let base64Available = false;
             let storagePending = false;
+            let encryptedUrlFound = null;
+
+            if (isEncryptedUrl(fileUrl, oEvent)) {
+                console.log(`[CRM Media] Detectada mídia criptografada WhatsApp. Baixando via Uazapi... Url: ${fileUrl}`);
+                encryptedUrlFound = fileUrl;
+                fileUrl = null;
+            }
+
+            let base64Data = null;
+            let storageBucket = null;
+            let storagePath = null;
 
             // Tarefa 4 e 5 — Fallbacks Uazapi
-            if (!fileUrl && connection.instance_token) {
+            if ((!fileUrl || encryptedUrlFound) && connection.instance_token) {
                 try {
-                    let apiBaseUrl = connection.api_base_url || originalBody.BaseUrl || 'https://task-ai.uazapi.com';
-                    apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
-                    
-                    console.log(`[Webhook Uazapi] FileURL ausente no webhook. Tentando fallback /message/download para ${messageId}`);
-                    let downloadResponse = await fetch(`${apiBaseUrl}/message/download`, {
-                        method: 'POST',
-                        headers: {
-                            'token': connection.instance_token,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            id: messageId
-                        })
+                    const apiBaseUrl = connection.api_base_url || originalBody.BaseUrl || 'https://task-ai.uazapi.com';
+                    const downloadResult = await downloadUazapiMedia({
+                        baseUrl: apiBaseUrl,
+                        token: connection.instance_token,
+                        messageId: messageId
                     });
 
-                    let downloadData = null;
-                    if (downloadResponse.ok) {
-                        downloadData = await downloadResponse.json();
-                        const found = deepFindMediaAndMime(downloadData);
-                        fileUrl = found.fileUrl;
-                        mimeType = mimeType || found.mimeType;
-                        if (downloadData.base64 || downloadData.data?.base64 || (downloadData.content && downloadData.content.base64)) {
-                            base64Available = true;
-                            storagePending = true;
-                        }
+                    if (downloadResult.fileUrl && !isEncryptedUrl(downloadResult.fileUrl)) {
+                        fileUrl = downloadResult.fileUrl;
                     }
-
-                    if (!fileUrl) {
-                        console.log(`[Webhook Uazapi] Tentando variação defensiva /message/download para ${messageId} com return_link: true`);
-                        downloadResponse = await fetch(`${apiBaseUrl}/message/download`, {
-                            method: 'POST',
-                            headers: {
-                                'token': connection.instance_token,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                id: messageId,
-                                return_link: true,
-                                return_base64: false
-                            })
-                        });
-                        if (downloadResponse.ok) {
-                            downloadData = await downloadResponse.json();
-                            const found = deepFindMediaAndMime(downloadData);
-                            fileUrl = found.fileUrl;
-                            mimeType = mimeType || found.mimeType;
-                        }
+                    if (downloadResult.mimeType) {
+                        mimeType = mimeType || downloadResult.mimeType;
                     }
-
-                    if (!fileUrl) {
-                        console.log(`[Webhook Uazapi] FileURL ausente no fallback /message/download. Tentando fallback /message/find para ${messageId}`);
-                        const findResponse = await fetch(`${apiBaseUrl}/message/find`, {
-                            method: 'POST',
-                            headers: {
-                                'token': connection.instance_token,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                id: messageId,
-                                limit: 20,
-                                offset: 0
-                            })
-                        });
-
-                        if (findResponse.ok) {
-                            const findData = await findResponse.json();
-                            const found = deepFindMediaAndMime(findData);
-                            fileUrl = found.fileUrl;
-                            mimeType = mimeType || found.mimeType;
-                        }
+                    if (downloadResult.base64) {
+                        base64Data = downloadResult.base64;
+                        base64Available = true;
+                        storagePending = true;
                     }
                 } catch (fallbackErr) {
                     console.error(`[Webhook Uazapi] Erro ao tentar fallback na Uazapi:`, fallbackErr.message || fallbackErr);
                 }
             }
 
-            console.log(`[Webhook Uazapi] FileURL encontrada: ${fileUrl ? 'sim' : 'não'}`);
+            // Subir base64 para Supabase se disponível
+            if (base64Data) {
+                const uploadResult = await uploadMediaToSupabaseStorage({
+                    base64: base64Data,
+                    userId: connection.user_id,
+                    connectionId: connection.id,
+                    conversationId: targetMsg.conversation_id,
+                    messageId: messageId,
+                    mimeType: mimeType
+                });
+
+                if (uploadResult) {
+                    fileUrl = uploadResult.publicUrl;
+                    storageBucket = uploadResult.storageBucket;
+                    storagePath = uploadResult.storagePath;
+                    storagePending = false;
+                }
+            }
+
+            console.log(`[Webhook Uazapi] FileURL encontrada: ${fileUrl ? 'sim' : 'não'}, Base64: ${base64Data ? 'sim' : 'não'}, Saved to bucket: ${storageBucket ? 'sim' : 'não'}`);
 
             // Mapear tipo de mensagem com base no MimeType
             let updatedType = targetMsg.message_type || 'unknown';
@@ -3482,14 +3600,22 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 extraMetadata = {
                     ...extraMetadata,
                     base64Available: true,
-                    storagePending: true
+                    storagePending: !storagePath
                 };
             }
             if (!fileUrl) {
                 extraMetadata = {
                     ...extraMetadata,
                     mediaUrlPending: true,
-                    downloadAttempted: true
+                    downloadAttempted: true,
+                    encrypted_url: encryptedUrlFound
+                };
+            } else {
+                extraMetadata = {
+                    ...extraMetadata,
+                    mediaUrlPending: false,
+                    downloadResolved: true,
+                    encrypted_url: encryptedUrlFound
                 };
             }
 
@@ -3500,6 +3626,8 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 message_id: targetMsg.id,
                 attachment_type: updatedType,
                 source_url: fileUrl || null,
+                storage_bucket: storageBucket || null,
+                storage_path: storagePath || null,
                 mime_type: mimeType || targetMsg.media_mime_type,
                 filename: filename,
                 size_bytes: sizeBytes,
@@ -4029,6 +4157,14 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         }
                     }
 
+                    let encryptedUrlFound = null;
+                    let initialMediaUrl = mediaUrl || null;
+                    if (isEncryptedUrl(initialMediaUrl, extraInfo)) {
+                        console.log(`[CRM Media] URL criptografada detectada no recebimento de mensagens: ${initialMediaUrl}`);
+                        encryptedUrlFound = initialMediaUrl;
+                        initialMediaUrl = null;
+                    }
+
                     const insertMsgData = {
                         user_id: connection.user_id,
                         connection_id: connection.id,
@@ -4041,7 +4177,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         message_type: messageType || 'text',
                         message_text: finalMessageText,
                         caption: caption || null,
-                        media_url: mediaUrl || null,
+                        media_url: initialMediaUrl,
                         media_mime_type: mediaMimeType || null,
                         media_filename: mediaFilename || null,
                         message_status: fromMe ? "sent" : "received",
@@ -4101,13 +4237,26 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             if (!isNaN(parsed)) finalDuration = parsed;
                         }
 
+                        let encryptedUrlFound = null;
+                        let initialMediaUrl = mediaUrl || null;
+                        if (isEncryptedUrl(initialMediaUrl, extraInfo)) {
+                            encryptedUrlFound = initialMediaUrl;
+                            initialMediaUrl = null;
+                        }
+
+                        const initialMeta = {
+                            ...(extraInfo || {}),
+                            mediaUrlPending: (messageType !== 'location' && messageType !== 'contact') && !initialMediaUrl,
+                            encrypted_url: encryptedUrlFound
+                        };
+
                         const attachmentData = {
                             user_id: connection.user_id,
                             connection_id: connection.id,
                             conversation_id: conversationId,
                             message_id: actualSavedMsgId,
                             attachment_type: messageType || 'unknown',
-                            source_url: mediaUrl || null,
+                            source_url: initialMediaUrl,
                             storage_bucket: null,
                             storage_path: null,
                             mime_type: mediaMimeType || null,
@@ -4117,7 +4266,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             width: extraInfo?.width || null,
                             height: extraInfo?.height || null,
                             thumbnail_url: thumbnailUrl || null,
-                            raw_metadata: sanitizeWebhookPayloadForStorage(extraInfo || {}),
+                            raw_metadata: initialMeta,
                             created_at: new Date()
                         };
 
@@ -4129,6 +4278,79 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             console.error(`[Webhook Uazapi] Erro ao criar crm_message_attachments para mensagem ${actualSavedMsgId}:`, attachErr);
                         } else {
                             console.log(`[Webhook Uazapi] Anexo de mídia registrado com sucesso para a mensagem ID ${actualSavedMsgId}`);
+                        }
+
+                        // Chamar downloadUazapiMedia em background controlado se for mídia criptografada ou pendente
+                        if ((messageType !== 'location' && messageType !== 'contact') && (!initialMediaUrl || encryptedUrlFound) && connection.instance_token) {
+                            // Executa em background (não bloqueia resposta do webhook)
+                            (async () => {
+                                try {
+                                    console.log(`[CRM Media] [Background] Iniciando download para mensagem ID ${actualSavedMsgId} (externo: ${finalExternalMessageId})`);
+                                    const apiBaseUrl = connection.api_base_url || originalBody.BaseUrl || 'https://task-ai.uazapi.com';
+                                    const downloadResult = await downloadUazapiMedia({
+                                        baseUrl: apiBaseUrl,
+                                        token: connection.instance_token,
+                                        messageId: finalExternalMessageId
+                                    });
+
+                                    let finalUrl = downloadResult.fileUrl;
+                                    let storageBucket = null;
+                                    let storagePath = null;
+
+                                    if (downloadResult.base64) {
+                                        const uploadResult = await uploadMediaToSupabaseStorage({
+                                            base64: downloadResult.base64,
+                                            userId: connection.user_id,
+                                            connectionId: connection.id,
+                                            conversationId: conversationId,
+                                            messageId: finalExternalMessageId,
+                                            mimeType: downloadResult.mimeType || mediaMimeType
+                                        });
+                                        if (uploadResult) {
+                                            finalUrl = uploadResult.publicUrl;
+                                            storageBucket = uploadResult.storageBucket;
+                                            storagePath = uploadResult.storagePath;
+                                        }
+                                    }
+
+                                    if (finalUrl && !isEncryptedUrl(finalUrl)) {
+                                        // 1. Atualizar crm_messages
+                                        await client
+                                            .from('crm_messages')
+                                            .update({
+                                                media_url: finalUrl,
+                                                media_mime_type: downloadResult.mimeType || mediaMimeType,
+                                                updated_at: new Date()
+                                            })
+                                            .eq('id', actualSavedMsgId);
+
+                                        // 2. Atualizar crm_message_attachments
+                                        const extraMeta = {
+                                            ...(extraInfo || {}),
+                                            mediaUrlPending: false,
+                                            downloadResolved: true,
+                                            encrypted_url: encryptedUrlFound
+                                        };
+
+                                        await client
+                                            .from('crm_message_attachments')
+                                            .update({
+                                                source_url: finalUrl,
+                                                storage_bucket: storageBucket,
+                                                storage_path: storagePath,
+                                                mime_type: downloadResult.mimeType || mediaMimeType,
+                                                raw_metadata: extraMeta
+                                            })
+                                            .eq('message_id', actualSavedMsgId);
+
+                                        console.log(`[CRM Media] [Background] Mídia de mensagem ID ${actualSavedMsgId} resolvida com sucesso! URL: ${finalUrl}`);
+                                    } else {
+                                        console.log(`[CRM Media] [Background] Mídia de mensagem ID ${actualSavedMsgId} não pôde ser resolvida.`);
+                                    }
+                                } catch (bgErr) {
+                                    console.error(`[CRM Media] [Background] Erro ao resolver mídia da mensagem ${actualSavedMsgId}:`, bgErr);
+                                }
+                            })();
                         }
                     }
                 }

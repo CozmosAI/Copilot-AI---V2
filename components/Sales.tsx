@@ -117,16 +117,26 @@ const Sales: React.FC = () => {
           .select('*')
           .eq('conversation_id', conversationId);
         
-        const mergedMessages = (messages as any[]).map(m => {
-          const msgAttachs = attachments ? attachments.filter((a: any) => a.message_id === m.id) : [];
-          return {
-            ...m,
-            attachments: msgAttachs,
-            media_url: m.media_url || (msgAttachs[0]?.source_url || null),
-            media_mime_type: m.media_mime_type || (msgAttachs[0]?.mime_type || null),
-            media_filename: m.media_filename || (msgAttachs[0]?.filename || null)
-          };
-        });
+         const mergedMessages = (messages as any[]).map(m => {
+           const msgAttachs = attachments ? attachments.filter((a: any) => a.message_id === m.id) : [];
+           const parsedAttach = msgAttachs[0];
+           
+           let cleanUrl = m.media_url || parsedAttach?.source_url || null;
+           if (cleanUrl) {
+             const urlStr = String(cleanUrl).toLowerCase();
+             if (urlStr.includes('.enc') || urlStr.includes('mmg.whatsapp.net') || parsedAttach?.raw_metadata?.mediaUrlPending === true || parsedAttach?.raw_metadata?.mediaUrlPending === 'true') {
+               cleanUrl = null;
+             }
+           }
+           
+           return {
+             ...m,
+             attachments: msgAttachs,
+             media_url: cleanUrl,
+             media_mime_type: m.media_mime_type || (parsedAttach?.mime_type || null),
+             media_filename: m.media_filename || (parsedAttach?.filename || null)
+           };
+         });
 
         setChatMessages(mergedMessages);
       }
@@ -853,6 +863,15 @@ const Sales: React.FC = () => {
                                   const formattedTime = msgTime ? new Date(msgTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
 
                                   // Elemento de renderização dinâmico conforme o tipo
+                                  const attachment = (msg as any).attachments && (msg as any).attachments[0];
+                                  const sourceUrl = attachment?.source_url || msg.media_url;
+                                  const isPending = !sourceUrl || 
+                                                    sourceUrl.includes('.enc') || 
+                                                    sourceUrl.includes('mmg.whatsapp.net') || 
+                                                    (attachment?.raw_metadata?.mediaUrlPending === true) || 
+                                                    (attachment?.raw_metadata?.mediaUrlPending === 'true') ||
+                                                    ((msg as any).raw_metadata?.mediaUrlPending === true);
+
                                   let contentElement = null;
 
                                   if (msgType === 'deleted' || msg.message_text === 'Mensagem apagada') {
@@ -878,10 +897,10 @@ const Sales: React.FC = () => {
                                       );
                                   } else if (msgType.includes('image') || msgType === 'sticker') {
                                       const isSticker = msgType === 'sticker';
-                                      contentElement = msg.media_url ? (
+                                      contentElement = (sourceUrl && !isPending) ? (
                                           <div className="flex flex-col gap-1.5">
                                               <img 
-                                                  src={msg.media_url} 
+                                                  src={sourceUrl} 
                                                   alt="Mídia WhatsApp" 
                                                   className={isSticker ? "w-24 h-24 object-contain rounded-lg" : "max-w-xs md:max-w-sm max-h-64 object-cover rounded-xl shadow-sm border border-slate-200/50"} 
                                                   referrerPolicy="no-referrer" 
@@ -899,9 +918,9 @@ const Sales: React.FC = () => {
                                           </div>
                                       );
                                   } else if (msgType.includes('audio') || msgType.includes('ptt') || msgType.includes('voice')) {
-                                      contentElement = msg.media_url ? (
+                                      contentElement = (sourceUrl && !isPending) ? (
                                           <div className="flex flex-col gap-1 pt-1 min-w-[200px] sm:min-w-[245px]">
-                                              <audio src={msg.media_url} controls className="w-full max-w-[260px] h-9" />
+                                              <audio src={sourceUrl} controls className="w-full max-w-[260px] h-9" />
                                               {msg.caption && <p className="text-slate-800 text-sm mt-1 max-w-[250px] leading-relaxed break-words">{msg.caption}</p>}
                                           </div>
                                       ) : (
@@ -915,9 +934,9 @@ const Sales: React.FC = () => {
                                           </div>
                                       );
                                   } else if (msgType.includes('video')) {
-                                      contentElement = msg.media_url ? (
+                                      contentElement = (sourceUrl && !isPending) ? (
                                           <div className="flex flex-col gap-1.5">
-                                              <video src={msg.media_url} controls className="max-w-xs md:max-w-sm max-h-64 rounded-xl shadow-sm border border-slate-200/50" />
+                                              <video src={sourceUrl} controls className="max-w-xs md:max-w-sm max-h-64 rounded-xl shadow-sm border border-slate-200/50" />
                                               {msg.caption && <p className="text-slate-800 text-sm mt-0.5 max-w-[280px] leading-relaxed break-words">{msg.caption}</p>}
                                           </div>
                                       ) : (
@@ -931,10 +950,10 @@ const Sales: React.FC = () => {
                                           </div>
                                       );
                                   } else if (msgType.includes('document')) {
-                                      contentElement = msg.media_url ? (
+                                      contentElement = (sourceUrl && !isPending) ? (
                                           <div className="flex flex-col gap-1.5">
                                               <a 
-                                                  href={msg.media_url} 
+                                                  href={sourceUrl} 
                                                   target="_blank" 
                                                   rel="noreferrer" 
                                                   className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/60 transition-colors text-blue-600 font-bold shadow-xs"
