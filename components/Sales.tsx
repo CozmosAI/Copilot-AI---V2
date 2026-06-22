@@ -131,6 +131,38 @@ const Sales: React.FC = () => {
       description: ''
   });
 
+  // Edit Lead Form State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingLeadData, setEditingLeadData] = useState<Lead | null>(null);
+
+  const handleOpenEditModal = (lead: Lead) => {
+      setEditingLeadData({
+          ...lead,
+          potentialValue: lead.potentialValue || 0,
+          email: lead.email || '',
+          notes: lead.notes || '',
+          source: lead.source || 'Manual',
+          procedure: lead.procedure || '',
+          objective: lead.objective || 'Consulta',
+          adName: lead.adName || ''
+      });
+      setShowEditModal(true);
+  };
+
+  const handleEditLeadSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editingLeadData) return;
+      await updateLead(editingLeadData);
+      
+      // Update activeLead if it's currently selected
+      if (activeLead && activeLead.id === editingLeadData.id) {
+          setActiveLead(editingLeadData);
+      }
+      
+      setShowEditModal(false);
+      setEditingLeadData(null);
+  };
+
   // SECURE PROXY ATTACHMENT DOWNLOAD HELPER
   const downloadAttachment = async (attachment: any, msg: any) => {
       if (!attachment || !attachment.id) {
@@ -743,7 +775,7 @@ const Sales: React.FC = () => {
           });
 
           const result = await safeJsonResponse(response);
-          if (result.ok && result.conversation) {
+          if (response.ok && result.ok && result.conversation) {
               setSelectedConversationId(result.conversation.id);
               setSelectedConversation(result.conversation);
               setChatMessages([]);
@@ -758,11 +790,11 @@ const Sales: React.FC = () => {
               // Refresh lead on screen (with conv ID)
               setActiveLead(result.lead);
           } else {
-              setChatError(result.error || 'Não consegui iniciar a conversa. A rota CRM retornou resposta inválida. Verifique VITE_BACKEND_URL ou deploy do backend.');
+              setChatError(result.error || 'Não consegui iniciar a conversa. Verifique as conexões do CRM.');
           }
-      } catch (err) {
+      } catch (err: any) {
           console.error("Erro ao iniciar conversa:", err);
-          setChatError('Não consegui iniciar a conversa. A rota CRM retornou resposta inválida. Verifique VITE_BACKEND_URL ou deploy do backend.');
+          setChatError(err?.message || 'Falha ao conectar com o servidor e iniciar a conversa.');
       } finally {
           setIsStartingConversation(false);
       }
@@ -949,7 +981,12 @@ const Sales: React.FC = () => {
                           
                           <div className="flex justify-between items-start mb-2 pl-2">
                              <h5 className="font-bold text-slate-800 text-sm truncate">{lead.name}</h5>
-                             {lead.potentialValue ? <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">R${lead.potentialValue}</span> : null}
+                             <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={(e) => { e.stopPropagation(); handleOpenEditModal(lead); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-100 text-slate-400 hover:text-blue-500 rounded transition-all cursor-pointer" title="Editar Lead">
+                                    <Edit2 size={12} />
+                                </button>
+                                {lead.potentialValue ? <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">R${lead.potentialValue}</span> : null}
+                             </div>
                           </div>
                           
                           <div className="pl-2 space-y-2">
@@ -1184,9 +1221,14 @@ const Sales: React.FC = () => {
                                     <p className="text-xs text-slate-500">{activeLead.phone} {activeLead.email ? `• ${activeLead.email}` : ''}</p>
                                 </div>
                             </div>
-                            <button onClick={handleAnalyzeLead} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-blue-600 hover:border-blue-200 flex items-center gap-2 transition-all">
-                                {isAnalyzing ? <span className="animate-spin">⌛</span> : <span className="text-lg">✨</span>} AI Insight
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => handleOpenEditModal(activeLead)} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all flex items-center justify-center" title="Editar Dados do Lead">
+                                    <Edit2 size={14} />
+                                </button>
+                                <button onClick={handleAnalyzeLead} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-blue-600 hover:border-blue-200 flex items-center gap-2 transition-all">
+                                    {isAnalyzing ? <span className="animate-spin">⌛</span> : <span className="text-lg">✨</span>} AI Insight
+                                </button>
+                            </div>
                         </div>
 
                         <div className="flex-1 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative bg-opacity-50">
@@ -1536,7 +1578,7 @@ const Sales: React.FC = () => {
                                     onChange={e => setMessageText(e.target.value)} 
                                     onFocus={() => setShowAttachmentMenu(false)}
                                     className="flex-1 mx-2 px-5 py-3 rounded-full bg-white focus:outline-none text-slate-700 placeholder-slate-500 text-[15px] border border-transparent shadow-sm disabled:opacity-50" 
-                                    placeholder={selectedConversationId ? "Mensagem" : "Selecione uma conversa"} 
+                                    placeholder={selectedConversationId ? "Digite uma mensagem..." : "Selecione uma conversa"} 
                                     disabled={!selectedConversationId || sendingMsg} 
                                 />
                             )}
@@ -1609,7 +1651,16 @@ const Sales: React.FC = () => {
                                   </td>
                                   <td className="px-6 py-4"><span className="text-xs text-slate-500">{lead.objective || '-'}</span></td>
                                   <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-600">R$ {lead.potentialValue}</td>
-                                  <td className="px-6 py-4 text-right"><button onClick={() => { setActiveLead(lead); setViewMode('chat'); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><MessageCircle size={16}/></button></td>
+                                  <td className="px-6 py-4 text-right">
+                                      <div className="flex items-center justify-end gap-1">
+                                          <button onClick={() => handleOpenEditModal(lead)} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-blue-500 rounded-lg transition-colors" title="Editar Lead">
+                                              <Edit2 size={16}/>
+                                          </button>
+                                          <button onClick={() => { setActiveLead(lead); setViewMode('chat'); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Enviar Mensagem">
+                                              <MessageCircle size={16}/>
+                                          </button>
+                                      </div>
+                                  </td>
                               </tr>
                           ))}
                       </tbody>
@@ -1717,9 +1768,120 @@ const Sales: React.FC = () => {
                   </div>
 
                   <div className="p-6 border-t border-slate-100 bg-white rounded-b-3xl flex justify-end gap-3">
-                     <button type="button" onClick={() => setShowAddModal(false)} className="px-6 py-3 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancelar</button>
-                     <button type="submit" form="newLeadForm" className="bg-navy text-white px-8 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-navy/30 hover:bg-slate-800 transition-all flex items-center gap-2">
-                        <Plus size={16} /> Salvar Lead
+                      <button type="button" onClick={() => setShowAddModal(false)} className="px-6 py-3 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancelar</button>
+                      <button type="submit" form="newLeadForm" className="bg-navy text-white px-8 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-navy/30 hover:bg-slate-800 transition-all flex items-center gap-2">
+                         <Plus size={16} /> Salvar Lead
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* MODAL EDITAR LEAD EXPANDIDO */}
+      {showEditModal && editingLeadData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/80 backdrop-blur-sm animate-in fade-in p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
+                      <div>
+                        <h3 className="text-xl font-bold text-navy">Editar Lead</h3>
+                        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Atualizar Pipeline</p>
+                      </div>
+                      <button onClick={() => { setShowEditModal(false); setEditingLeadData(null); }} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} className="text-slate-400"/></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                      <form id="editLeadForm" onSubmit={handleEditLeadSubmit} className="space-y-8">
+                          
+                          {/* SEÇÃO: DADOS PESSOAIS */}
+                          <div>
+                              <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14}/> Dados Pessoais</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome Completo *</label>
+                                     <input required value={editingLeadData.name} onChange={e => setEditingLeadData({...editingLeadData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Telefone (WhatsApp) *</label>
+                                     <input required value={editingLeadData.phone} onChange={e => setEditingLeadData({...editingLeadData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail</label>
+                                     <div className="relative">
+                                        <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                                        <input type="email" value={editingLeadData.email || ''} onChange={e => setEditingLeadData({...editingLeadData, email: e.target.value})} className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                     </div>
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* SEÇÃO: RASTREAMENTO & MARKETING */}
+                          <div>
+                              <h4 className="text-xs font-black text-indigo-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Link2 size={14}/> Rastreamento & Marketing</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem do Lead</label>
+                                      <select value={editingLeadData.source || 'Manual'} onChange={e => setEditingLeadData({...editingLeadData, source: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none">
+                                          <option value="Manual">Manual</option>
+                                          <option value="Google Ads">Google Ads</option>
+                                          <option value="Meta Ads (Insta/Face)">Meta Ads (Insta/Face)</option>
+                                          <option value="Indicação">Indicação</option>
+                                          <option value="Orgânico">Orgânico</option>
+                                      </select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Temperatura</label>
+                                      <select value={editingLeadData.temperature || 'Cold'} onChange={e => setEditingLeadData({...editingLeadData, temperature: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none">
+                                          <option value="Cold">Cold (Frio)</option>
+                                          <option value="Warm">Warm (Morno)</option>
+                                          <option value="Hot">Hot (Quente)</option>
+                                      </select>
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Anúncio / Campanha</label>
+                                     <input value={editingLeadData.adName || ''} onChange={e => setEditingLeadData({...editingLeadData, adName: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* SEÇÃO: DETALHES CLÍNICOS */}
+                          <div>
+                              <h4 className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Activity size={14}/> Detalhes Clínicos</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">Objetivo</label>
+                                      <select value={editingLeadData.objective || 'Consulta'} onChange={e => setEditingLeadData({...editingLeadData, objective: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none">
+                                          <option value="Consulta">Consulta</option>
+                                          <option value="Retorno">Retorno</option>
+                                          <option value="Procedimento">Procedimento</option>
+                                          <option value="Exame">Exame</option>
+                                          <option value="Cirurgia">Cirurgia</option>
+                                      </select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">Procedimento Específico</label>
+                                     <input value={editingLeadData.procedure || ''} onChange={e => setEditingLeadData({...editingLeadData, procedure: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">Valor Estimado (R$)</label>
+                                     <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">R$</span>
+                                        <input type="number" value={editingLeadData.potentialValue || ''} onChange={e => setEditingLeadData({...editingLeadData, potentialValue: Number(e.target.value) || 0})} className="w-full pl-8 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all" />
+                                     </div>
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2">
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">Descrição / Observações</label>
+                                     <textarea value={editingLeadData.notes || ''} onChange={e => setEditingLeadData({...editingLeadData, notes: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all min-h-[100px]" />
+                                  </div>
+                              </div>
+                          </div>
+
+                      </form>
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 bg-white rounded-b-3xl flex justify-end gap-3">
+                     <button type="button" onClick={() => { setShowEditModal(false); setEditingLeadData(null); }} className="px-6 py-3 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancelar</button>
+                     <button type="submit" form="editLeadForm" className="bg-navy text-white px-8 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-navy/30 hover:bg-slate-800 transition-all flex items-center gap-2">
+                        <Check size={16} /> Salvar Alterações
                      </button>
                   </div>
               </div>

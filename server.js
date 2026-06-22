@@ -2335,19 +2335,41 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
             
             // Garantir que a conversa ligue o lead, caso não esteja ligado ainda
             if (conversation.lead_id !== lead.id) {
-                await client.from('crm_conversations').update({ lead_id: lead.id, status: 'open' }).eq('id', conversation.id);
+                await client
+                    .from('crm_conversations')
+                    .update({
+                        lead_id: lead.id,
+                        conversation_status: 'open',
+                        updated_at: new Date()
+                    })
+                    .eq('id', conversation.id);
+
+                const { data: refreshedConversation } = await client
+                    .from('crm_conversations')
+                    .select('*')
+                    .eq('id', conversation.id)
+                    .maybeSingle();
+
+                conversation = refreshedConversation || conversation;
             }
         } else {
+            const insertConversationData = {
+                user_id: user.id,
+                connection_id: activeConnection.id,
+                contact_id: contact.id,
+                lead_id: lead.id,
+                conversation_status: 'open',
+                unread_count: 0,
+                last_message_text: null,
+                last_message_type: null,
+                last_message_at: null,
+                last_sender: null,
+                created_at: new Date(),
+                updated_at: new Date()
+            };
             const { data: newConv, error: insertConvErr } = await client
                 .from('crm_conversations')
-                .insert({
-                    user_id: user.id,
-                    connection_id: activeConnection.id,
-                    contact_id: contact.id,
-                    lead_id: lead.id,
-                    status: 'open',
-                    unread_count: 0
-                })
+                .insert(insertConversationData)
                 .select()
                 .single();
 

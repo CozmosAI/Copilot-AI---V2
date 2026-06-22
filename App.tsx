@@ -445,7 +445,18 @@ const App: React.FC = () => {
 
   const updateLead = async (lead: Lead) => {
     setLeads(prev => prev.map(l => l.id === lead.id ? lead : l));
-    const { error } = await supabase!.from('leads').update({ name: lead.name, phone: lead.phone, status: lead.status, temperature: lead.temperature, last_message: lead.lastMessage, potential_value: lead.potentialValue }).eq('id', lead.id);
+    const { error } = await supabase!.from('leads').update({ 
+        name: lead.name, 
+        phone: lead.phone, 
+        status: lead.status, 
+        temperature: lead.temperature, 
+        last_message: lead.lastMessage, 
+        potential_value: lead.potentialValue,
+        email: lead.email || null,
+        notes: lead.notes || null,
+        source: lead.source || 'Manual',
+        procedure: lead.procedure || null
+    }).eq('id', lead.id);
     if (error) fetchLeads();
   };
   const addAppointment = async (apt: Appointment) => {
