@@ -2266,13 +2266,13 @@ app.post('/api/crm/leads/:leadId/start-whatsapp-conversation', async (req, res) 
             .select('*')
             .eq('user_id', user.id)
             .eq('provider', 'uazapi')
-            .eq('status', 'connected')
+            .eq('connection_status', 'connected')
             .order('created_at', { ascending: false });
 
         if (connErr) throw connErr;
         
         if (!connections || connections.length === 0) {
-            return res.status(400).json({ ok: false, error: "Nenhuma conexão WhatsApp (Uazapi) ativa encontrada." });
+            return res.status(400).json({ ok: false, error: "Nenhuma conexão WhatsApp/Uazapi conectada foi encontrada. Conecte um WhatsApp em Conexões antes de iniciar conversa manual." });
         }
 
         const activeConnection = connections[0]; // TODO: Seletor de conexão no futuro

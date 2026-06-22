@@ -640,6 +640,77 @@ const Sales: React.FC = () => {
       }
   };
 
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<number | null>(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const file = new File([audioBlob], `Audio_${new Date().getTime()}.webm`, { type: 'audio/webm' });
+        await handleSendAttachment(file, '');
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+
+    } catch (err) {
+      console.error("Erro ao acessar o microfone", err);
+      alert("Não foi possível acessar o microfone. Verifique as permissões de áudio do seu navegador.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+    }
+  };
+
+  const cancelRecording = () => {
+     if (mediaRecorderRef.current && isRecording) {
+       mediaRecorderRef.current.onstop = null; // Disable sending
+       mediaRecorderRef.current.stop();
+       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+       setIsRecording(false);
+       if (recordingTimerRef.current) {
+         clearInterval(recordingTimerRef.current);
+         recordingTimerRef.current = null;
+       }
+     }
+  };
+
+  const formatRecordingTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const handleAttachmentSelect = (type: 'document' | 'image' | 'audio') => {
       switch (type) {
           case 'document':
@@ -1122,26 +1193,27 @@ const Sales: React.FC = () => {
                              <div className="absolute inset-0 opacity-[0.05] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] pointer-events-none"></div>
                             {aiAnalysis && <div className="z-10 bg-white/95 backdrop-blur border border-blue-100 p-4 rounded-xl text-xs text-blue-900 shadow-md mx-auto max-w-lg mb-4 text-center leading-relaxed"><strong>🤖 Copilot Insight:</strong> {aiAnalysis}</div>}
                             
-                            {chatError ? (
-                              <div className="flex-1 flex flex-col items-center justify-center text-rose-500 z-10 gap-2">
-                                <span className="text-sm font-semibold">Erro ao carregar mensagens do CRM.</span>
-                              </div>
-                            ) : isChatLoading ? (
+                            {isChatLoading ? (
                               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
                                 <span className="animate-spin text-xl animate-bounce">⌛</span>
                                 <span className="text-sm">Carregando mensagens do CRM...</span>
                               </div>
                             ) : !selectedConversationId ? (
                               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-3">
+                                {chatError && (
+                                  <div className="text-rose-500 text-sm font-semibold max-w-sm text-center mb-2 px-4 py-2 bg-rose-50 border border-rose-200 rounded-xl shadow-sm">
+                                    {chatError}
+                                  </div>
+                                )}
                                 {!activeLead.phone ? (
                                     <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm text-center">Este lead não possui telefone para iniciar WhatsApp.</p>
                                 ) : (
                                     <>
-                                        <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm mb-2">Este lead ainda não tem uma conversa.</p>
+                                        <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm mb-2">Este lead ainda não possui conversa no WhatsApp.</p>
                                         <button 
                                             onClick={handleStartWhatsAppConversation} 
                                             disabled={isStartingConversation}
-                                            className="px-6 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                            className="px-6 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                                         >
                                             {isStartingConversation ? (
                                                 <><span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span> Iniciando...</>
@@ -1151,6 +1223,11 @@ const Sales: React.FC = () => {
                                         </button>
                                     </>
                                 )}
+                              </div>
+                            ) : chatError ? (
+                              <div className="flex-1 flex flex-col items-center justify-center text-rose-500 z-10 gap-2">
+                                <span className="text-sm font-semibold">Erro ao carregar mensagens do CRM.</span>
+                                <p className="text-xs text-rose-400">{chatError}</p>
                               </div>
                             ) : chatMessages.length === 0 ? (
                               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
@@ -1414,47 +1491,83 @@ const Sales: React.FC = () => {
                                 accept={attachmentAccept}
                                 className="hidden"
                             />
-                            <button
-                                type="button"
-                                onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
-                                disabled={!selectedConversationId || sendingMsg}
-                                className={`p-2 transition-all flex items-center justify-center text-slate-500 rounded-full cursor-pointer ${
-                                    (!selectedConversationId || sendingMsg) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'
-                                }`}
-                                title="Anexar arquivo"
-                            >
-                                <Plus size={26} strokeWidth={2.5} className={(showAttachmentMenu) ? "rotate-45 transition-transform" : "transition-transform"} />
-                            </button>
-                            <button
-                                type="button"
-                                className="p-2 transition-all flex items-center justify-center text-slate-500 hover:bg-slate-200 rounded-full cursor-not-allowed opacity-80"
-                                disabled
-                            >
-                                <Smile size={26} strokeWidth={2.2} />
-                            </button>
-                            <input 
-                                value={messageText} 
-                                onChange={e => setMessageText(e.target.value)} 
-                                onFocus={() => setShowAttachmentMenu(false)}
-                                className="flex-1 mx-2 px-5 py-3 rounded-full bg-white focus:outline-none text-slate-700 placeholder-slate-500 text-[15px] border border-transparent shadow-sm disabled:opacity-50" 
-                                placeholder={selectedConversationId ? "Mensagem" : "Selecione uma conversa"} 
-                                disabled={!selectedConversationId || sendingMsg} 
-                            />
-                            <button 
-                                type="submit"
-                                disabled={!selectedConversationId || (!messageText.trim() && !selectedFileForUpload && !sendingMsg)} 
-                                className={`p-2.5 transition-all flex items-center justify-center text-slate-500 rounded-full ${
-                                    (!selectedConversationId || sendingMsg) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200 cursor-pointer'
-                                }`}
-                            >
-                                {sendingMsg ? (
-                                    <span className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
-                                ) : messageText.trim() ? (
-                                    <Send size={24} className="ml-1 text-slate-600" />
-                                ) : (
-                                    <Mic size={24} className="text-slate-600" />
-                                )}
-                            </button>
+                            {!isRecording && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
+                                        disabled={!selectedConversationId || sendingMsg}
+                                        className={`p-2 transition-all flex items-center justify-center text-slate-500 rounded-full cursor-pointer ${
+                                            (!selectedConversationId || sendingMsg) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'
+                                        }`}
+                                        title="Anexar arquivo"
+                                    >
+                                        <Plus size={26} strokeWidth={2.5} className={(showAttachmentMenu) ? "rotate-45 transition-transform" : "transition-transform"} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="p-2 transition-all flex items-center justify-center text-slate-500 hover:bg-slate-200 rounded-full cursor-not-allowed opacity-80"
+                                        disabled
+                                    >
+                                        <Smile size={26} strokeWidth={2.2} />
+                                    </button>
+                                </>
+                            )}
+                            
+                            {isRecording ? (
+                                <div className="flex-1 flex items-center justify-between mx-2 px-5 py-3 rounded-full bg-white text-slate-700 shadow-sm border border-rose-200 h-[46px]">
+                                    <div className="flex flex-1 items-center gap-3">
+                                        <div className="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></div>
+                                        <span className="font-mono text-sm font-medium text-slate-600">{formatRecordingTime(recordingTime)}</span>
+                                        <span className="text-sm text-slate-400 font-medium">Gravando...</span>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={cancelRecording}
+                                        className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                                        title="Cancelar gravação"
+                                    >
+                                        <Trash2 size={20} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <input 
+                                    value={messageText} 
+                                    onChange={e => setMessageText(e.target.value)} 
+                                    onFocus={() => setShowAttachmentMenu(false)}
+                                    className="flex-1 mx-2 px-5 py-3 rounded-full bg-white focus:outline-none text-slate-700 placeholder-slate-500 text-[15px] border border-transparent shadow-sm disabled:opacity-50" 
+                                    placeholder={selectedConversationId ? "Mensagem" : "Selecione uma conversa"} 
+                                    disabled={!selectedConversationId || sendingMsg} 
+                                />
+                            )}
+
+                            {isRecording ? (
+                                <button
+                                    type="button"
+                                    onClick={stopRecording}
+                                    className="p-2.5 transition-all flex items-center justify-center text-white bg-emerald-500 hover:bg-emerald-600 rounded-full cursor-pointer shadow-md"
+                                    title="Enviar áudio"
+                                >
+                                    <Send size={24} className="ml-0.5" />
+                                </button>
+                            ) : (
+                                <button 
+                                    type={messageText.trim() ? "submit" : "button"}
+                                    onClick={messageText.trim() ? undefined : startRecording}
+                                    disabled={!selectedConversationId || sendingMsg} 
+                                    className={`p-2.5 transition-all flex items-center justify-center text-slate-500 rounded-full ${
+                                        (!selectedConversationId || sendingMsg) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200 cursor-pointer'
+                                    }`}
+                                >
+                                    {sendingMsg ? (
+                                        <span className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+                                    ) : messageText.trim() ? (
+                                        <Send size={24} className="ml-1 text-slate-600" />
+                                    ) : (
+                                        <Mic size={24} className="text-slate-600" />
+                                    )}
+                                </button>
+                            )}
                         </form>
                     </>
                 ) : (
