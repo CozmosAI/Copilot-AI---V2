@@ -4,7 +4,7 @@ import {
   BarChart3, LayoutGrid, List as ListIcon, 
   Filter, MoreHorizontal, Calendar, DollarSign,
   TrendingUp, Users, PieChart as PieChartIcon, ArrowRight,
-  Mail, Link2, Tag, FileText, Activity, GripHorizontal, Edit2, Check, Trash2
+  Mail, Link2, Tag, FileText, Activity, GripHorizontal, Edit2, Check, Trash2, Smile, Mic, Image as ImageIcon, Headphones
 } from 'lucide-react';
 import { analyzeLeadConversation } from '../services/geminiService';
 // import { sendMessage } from '../services/whatsappService'; // REMOVIDO
@@ -68,6 +68,8 @@ const Sales: React.FC = () => {
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [attachmentAccept, setAttachmentAccept] = useState('image/*,video/*,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain');
 
   // CRM Integration States
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -578,6 +580,24 @@ const Sales: React.FC = () => {
       } finally {
           setSendingMsg(false);
       }
+  };
+
+  const handleAttachmentSelect = (type: 'document' | 'image' | 'audio') => {
+      switch (type) {
+          case 'document':
+              setAttachmentAccept("application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain");
+              break;
+          case 'image':
+              setAttachmentAccept("image/*,video/*");
+              break;
+          case 'audio':
+              setAttachmentAccept("audio/*");
+              break;
+      }
+      setShowAttachmentMenu(false);
+      setTimeout(() => {
+          fileInputRef.current?.click();
+      }, 0);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -1208,7 +1228,37 @@ const Sales: React.FC = () => {
                             <div ref={messagesEndRef} />
                         </div>
 
-                        <form onSubmit={handleSendMessage} className="p-4 bg-slate-100 border-t border-slate-200 flex gap-3">
+                        <form onSubmit={handleSendMessage} className="px-4 py-3 bg-[#f0f2f5] border-t border-slate-200 flex items-center gap-2 relative">
+                            {/* Attachment Menu Popover */}
+                            {showAttachmentMenu && (
+                                <div className="absolute bottom-16 left-4 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 w-56 animate-fade-in z-50 overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAttachmentSelect('document')}
+                                        className="w-full px-5 py-3 hover:bg-slate-50 flex items-center gap-4 transition-colors text-slate-700 text-[15px] font-medium"
+                                    >
+                                        <div className="bg-[#7F66FF] text-white p-2.5 rounded-full shadow-sm"><FileText size={20} strokeWidth={2.5} /></div>
+                                        Documento
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAttachmentSelect('image')}
+                                        className="w-full px-5 py-3 hover:bg-slate-50 flex items-center gap-4 transition-colors text-slate-700 text-[15px] font-medium"
+                                    >
+                                        <div className="bg-[#007AFC] text-white p-2.5 rounded-full shadow-sm"><ImageIcon size={20} strokeWidth={2.5} /></div>
+                                        Fotos e vídeos
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAttachmentSelect('audio')}
+                                        className="w-full px-5 py-3 hover:bg-slate-50 flex items-center gap-4 transition-colors text-slate-700 text-[15px] font-medium"
+                                    >
+                                        <div className="bg-[#FF7A00] text-white p-2.5 rounded-full shadow-sm"><Headphones size={20} strokeWidth={2.5} /></div>
+                                        Áudio
+                                    </button>
+                                </div>
+                            )}
+
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -1218,42 +1268,48 @@ const Sales: React.FC = () => {
                                         setFileCaption('');
                                     }
                                 }}
-                                accept="image/*,video/*,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain"
+                                accept={attachmentAccept}
                                 className="hidden"
                             />
                             <button
                                 type="button"
-                                onClick={() => fileInputRef.current?.click()}
+                                onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
                                 disabled={!selectedConversationId || sendingMsg}
-                                className={`p-3 rounded-xl transition-all shadow-md flex items-center justify-center ${
-                                    (!selectedConversationId || sendingMsg)
-                                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                        : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                                className={`p-2 transition-all flex items-center justify-center text-slate-500 rounded-full cursor-pointer ${
+                                    (!selectedConversationId || sendingMsg) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'
                                 }`}
                                 title="Anexar arquivo"
                             >
-                                <Paperclip size={20} />
+                                <Plus size={26} strokeWidth={2.5} className={(showAttachmentMenu) ? "rotate-45 transition-transform" : "transition-transform"} />
+                            </button>
+                            <button
+                                type="button"
+                                className="p-2 transition-all flex items-center justify-center text-slate-500 hover:bg-slate-200 rounded-full cursor-not-allowed opacity-80"
+                                disabled
+                            >
+                                <Smile size={26} strokeWidth={2.2} />
                             </button>
                             <input 
                                 value={messageText} 
                                 onChange={e => setMessageText(e.target.value)} 
-                                className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-blue-500 text-sm shadow-sm bg-white disabled:bg-slate-50 disabled:text-slate-400" 
-                                placeholder={selectedConversationId ? "Digite uma mensagem..." : "Selecione uma conversa para responder."} 
+                                onFocus={() => setShowAttachmentMenu(false)}
+                                className="flex-1 mx-2 px-5 py-3 rounded-full bg-white focus:outline-none text-slate-700 placeholder-slate-500 text-[15px] border border-transparent shadow-sm disabled:opacity-50" 
+                                placeholder={selectedConversationId ? "Mensagem" : "Selecione uma conversa"} 
                                 disabled={!selectedConversationId || sendingMsg} 
                             />
                             <button 
                                 type="submit"
-                                disabled={!selectedConversationId || !messageText.trim() || sendingMsg} 
-                                className={`p-3 rounded-xl transition-all shadow-md flex items-center justify-center ${
-                                    (!selectedConversationId || !messageText.trim() || sendingMsg) 
-                                        ? 'bg-blue-600/50 text-white cursor-not-allowed' 
-                                        : 'bg-blue-600 text-white hover:bg-blue-700'
-                                    }`}
+                                disabled={!selectedConversationId || (!messageText.trim() && !selectedFileForUpload && !sendingMsg)} 
+                                className={`p-2.5 transition-all flex items-center justify-center text-slate-500 rounded-full ${
+                                    (!selectedConversationId || sendingMsg) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200 cursor-pointer'
+                                }`}
                             >
                                 {sendingMsg ? (
-                                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    <span className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+                                ) : messageText.trim() ? (
+                                    <Send size={24} className="ml-1 text-slate-600" />
                                 ) : (
-                                    <Send size={20}/>
+                                    <Mic size={24} className="text-slate-600" />
                                 )}
                             </button>
                         </form>
