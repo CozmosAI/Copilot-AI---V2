@@ -1339,26 +1339,42 @@ const Integration: React.FC = () => {
                                   const isProcessed = evt.processing_status === 'processed';
                                   const isIgnored = evt.processing_status === 'ignored';
                                   
+                                  let eventTypeLabel = evt.event_type;
+                                  let bgClass = 'bg-white';
+                                  
+                                  if (evt.event_type === 'status_update') {
+                                      eventTypeLabel = 'STATUS/ACK';
+                                      bgClass = 'bg-slate-50/50';
+                                  } else if (evt.event_type === 'messages') {
+                                      eventTypeLabel = 'MENSAGEM REAL';
+                                      bgClass = 'bg-emerald-50/20';
+                                  } else if (evt.event_type === 'messages_update') {
+                                      eventTypeLabel = 'MENSAGEM/MÍDIA';
+                                      bgClass = 'bg-blue-50/20';
+                                  }
+                                  
                                   return (
-                                    <div key={evt.id} className="p-2 space-y-1 text-[9px] hover:bg-slate-50/40 transition-all">
+                                    <div key={evt.id} className={`p-2 space-y-1 text-[9px] hover:bg-slate-100/50 transition-all ${bgClass}`}>
                                       <div className="flex items-center justify-between gap-1 flex-wrap">
                                         <div className="flex items-center gap-1.5">
                                           <span className="font-mono text-slate-500 font-semibold">
                                             {new Date(evt.created_at).toLocaleString('pt-BR')}
                                           </span>
                                           <span className="px-1.5 py-0.5 font-bold uppercase tracking-wider rounded text-[7px] bg-slate-100 text-slate-600 border border-slate-200">
-                                            {evt.event_type}
+                                            {eventTypeLabel}
                                           </span>
                                         </div>
                                         <div className="flex items-center gap-1">
                                           <span className={`px-1.5 py-0.5 font-black uppercase text-[7px] rounded border ${
                                             isProcessed ? 'bg-emerald-50 text-emerald-600 border-emerald-250' :
+                                            (isIgnored && evt.event_type === 'status_update') ? 'bg-slate-100 text-slate-500 border-slate-200' :
                                             isIgnored ? 'bg-amber-50 text-amber-600 border-amber-200' :
                                             isProcessingError ? 'bg-rose-50 text-rose-600 border-rose-250' :
                                             'bg-blue-50 text-blue-600 border-blue-200'
                                           }`}>
                                             {evt.processing_status === 'processed' ? 'PROCESSADO' :
-                                             evt.processing_status === 'ignored' ? 'IGNORADO TÉCNICO' :
+                                             (evt.processing_status === 'ignored' && evt.event_type === 'status_update') ? 'STATUS TÉCNICO' :
+                                             evt.processing_status === 'ignored' ? 'IGNORADO' :
                                              evt.processing_status === 'error' ? 'ERRO' : 'RECEBIDO'}
                                           </span>
                                           <span className="font-semibold text-slate-500 bg-slate-100 px-1 py-0.5 rounded text-[7px]">
@@ -1370,11 +1386,13 @@ const Integration: React.FC = () => {
                                         <div className={`p-1.5 rounded text-[7px] font-mono break-all whitespace-pre-wrap border ${
                                           isProcessed
                                             ? 'bg-emerald-50/50 border-emerald-100 text-emerald-700'
-                                            : isIgnored 
-                                              ? 'bg-slate-50 border-slate-200 text-slate-500' 
-                                              : 'bg-rose-50/50 border-rose-100 text-rose-700'
+                                            : (isIgnored && evt.event_type === 'status_update')
+                                              ? 'bg-slate-50 border-slate-100 text-slate-400' 
+                                              : isIgnored  
+                                                ? 'bg-amber-50 border-amber-100 text-amber-600'
+                                                : 'bg-rose-50/50 border-rose-100 text-rose-700'
                                         }`}>
-                                          <strong>{isProcessed ? 'Info:' : isIgnored ? 'Mensagem:' : 'Erro:'}</strong> {evt.error_message}
+                                          <strong>{isProcessed ? 'Info:' : isIgnored ? 'Detalhe:' : 'Erro:'}</strong> {evt.error_message}
                                         </div>
                                       )}
                                     </div>

@@ -11,6 +11,7 @@ import Integration from './components/Integration';
 import Profile from './components/Profile';
 import Recorder from './components/Recorder';
 import AxisModule from './components/AxisModule'; // Importado
+import { ErrorBoundary } from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
 import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
 import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
@@ -396,7 +397,18 @@ const App: React.FC = () => {
 
   const logout = async () => { 
     try { await supabase!.auth.signOut(); } catch (e) { } 
-    finally { localStorage.clear(); setGoogleAdsToken(null); setGoogleCalendarToken(null); setGoogleSheetsToken(null); /* setWhatsappConfig(null); */ setUser(null); setIsAuthenticated(false); }
+    finally { 
+      localStorage.removeItem('google_ads_token');
+      localStorage.removeItem('google_sheets_token');
+      localStorage.removeItem('auth_intent');
+      localStorage.removeItem('whatsapp_config');
+      setGoogleAdsToken(null); 
+      setGoogleCalendarToken(null); 
+      setGoogleSheetsToken(null); 
+      /* setWhatsappConfig(null); */ 
+      setUser(null); 
+      setIsAuthenticated(false); 
+    }
   };
 
   // CRUD Implementations
@@ -405,12 +417,12 @@ const App: React.FC = () => {
     const tempId = crypto.randomUUID();
     const newEntry = { ...entry, id: tempId };
     setFinancialEntries(prev => [newEntry, ...prev]);
-    const { error } = await supabase!.from('transactions').insert([{ user_id: user.id, type: entry.type, category: entry.category, name: entry.name, unit_value: entry.unitValue, total: entry.total, status: entry.status, date: entry.date }]);
+    const { error } = await supabase!.from('transactions').insert([{ user_id: user.id, type: entry.type, category: entry.category, name: entry.name, unit_value: entry.unitValue, discount: entry.discount, addition: entry.addition, total: entry.total, status: entry.status, date: entry.date, payment_method: entry.paymentMethod || null, installments: entry.installments || null }]);
     if (error) { setFinancialEntries(prev => prev.filter(e => e.id !== tempId)); alert("Erro ao salvar."); }
   };
   const updateFinancialEntry = async (entry: FinancialEntry) => {
     setFinancialEntries(prev => prev.map(e => e.id === entry.id ? entry : e));
-    const { error } = await supabase!.from('transactions').update({ type: entry.type, category: entry.category, name: entry.name, unit_value: entry.unitValue, total: entry.total, status: entry.status, date: entry.date }).eq('id', entry.id);
+    const { error } = await supabase!.from('transactions').update({ type: entry.type, category: entry.category, name: entry.name, unit_value: entry.unitValue, discount: entry.discount, addition: entry.addition, total: entry.total, status: entry.status, date: entry.date, payment_method: entry.paymentMethod || null, installments: entry.installments || null }).eq('id', entry.id);
     if (error) fetchFinancials();
   };
   const deleteFinancialEntry = async (id: string) => {
@@ -435,6 +447,8 @@ const App: React.FC = () => {
         potential_value: lead.potentialValue,
         source: lead.source,
         procedure: lead.procedure || null,
+        objective: lead.objective || null,
+        ad_name: lead.adName || null,
         notes: lead.notes || null,
         created_at: lead.created_at || new Date().toISOString(),
         last_sender: 'me'
@@ -455,7 +469,9 @@ const App: React.FC = () => {
         email: lead.email || null,
         notes: lead.notes || null,
         source: lead.source || 'Manual',
-        procedure: lead.procedure || null
+        procedure: lead.procedure || null,
+        objective: lead.objective || null,
+        ad_name: lead.adName || null
     }).eq('id', lead.id);
     if (error) fetchLeads();
   };
@@ -531,19 +547,25 @@ const App: React.FC = () => {
 
   // Render Optimized
   const renderContent = () => {
-    switch(activeSection) {
-      case AppSection.DASHBOARD: return <Dashboard />;
-      case AppSection.AXIS: return <AxisModule />; // Renderização Adicionada
-      case AppSection.MARKETING: return <Marketing />;
-      case AppSection.VENDAS: return <Sales />;
-      case AppSection.AGENDA: return <Agenda />;
-      case AppSection.AUTOMACAO: return <Automation />;
-      case AppSection.FINANCEIRO: return <Financial />;
-      case AppSection.INTEGRACAO: return <Integration />;
-      case AppSection.GRAVADOR: return <Recorder />;
-      case AppSection.PERFIL: return <Profile />;
-      default: return <Dashboard />;
-    }
+    return (
+      <ErrorBoundary>
+        {(() => {
+          switch(activeSection) {
+            case AppSection.DASHBOARD: return <Dashboard />;
+            case AppSection.AXIS: return <AxisModule />;
+            case AppSection.MARKETING: return <Marketing />;
+            case AppSection.VENDAS: return <Sales />;
+            case AppSection.AGENDA: return <Agenda />;
+            case AppSection.AUTOMACAO: return <Automation />;
+            case AppSection.FINANCEIRO: return <Financial />;
+            case AppSection.INTEGRACAO: return <Integration />;
+            case AppSection.GRAVADOR: return <Recorder />;
+            case AppSection.PERFIL: return <Profile />;
+            default: return <Dashboard />;
+          }
+        })()}
+      </ErrorBoundary>
+    );
   };
 
   if (authLoading) return <LoadingScreen />;

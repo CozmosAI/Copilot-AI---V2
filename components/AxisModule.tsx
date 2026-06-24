@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Pause, Play, X, Sparkles, Loader2, Lock } from 'lucide-react';
 import { ParticleEngine, AxisSpeechRecognizer, AxisMode } from '../services/axisLayer';
 import { useApp } from '../App';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { apiFetch, safeJsonResponse } from '../services/apiClient';
 
 // --- SUBCOMPONENTS ---
 
@@ -136,42 +136,34 @@ const AxisModule: React.FC = () => {
 
   const speak = async (text: string) => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Kore' }, 
-                    },
-                },
-            },
-        });
-
-        const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-
-        if (audioData) {
-            recognizerRef.current?.stop();
-            playGeminiAudio(
-                audioData,
-                () => setMode('speaking'),
-                () => {
-                    setMode('listening');
-                    if (!isMuted && !isPaused) recognizerRef.current?.start();
-                }
-            );
-        } else {
-            console.warn("Sem áudio gerado.");
+      const response = await apiFetch('/api/gemini/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await safeJsonResponse(response);
+      if (data.audio) {
+        recognizerRef.current?.stop();
+        playGeminiAudio(
+          data.audio,
+          () => setMode('speaking'),
+          () => {
             setMode('listening');
-        }
-
-    } catch (e) {
-        console.error("Erro TTS:", e);
+            setTimeout(() => {
+              if (recognizerRef.current && !isMuted && !isPaused) {
+                try { recognizerRef.current.start(); } catch {}
+              }
+            }, 100);
+          }
+        );
+      } else {
+        console.warn("Sem áudio gerado.");
         setMode('listening');
-        if (!isMuted && !isPaused) recognizerRef.current?.start();
+      }
+    } catch (e) {
+      console.error("Erro TTS:", e);
+      setMode('listening');
+      if (!isMuted && !isPaused) recognizerRef.current?.start();
     }
   };
 
@@ -250,42 +242,62 @@ const AxisModule: React.FC = () => {
       }
   }, [isMuted, isPaused, isActive, mode]);
 
-  if (!isActive) {
-      return (
-        <div className="fixed inset-0 z-50 bg-[#080c14] flex flex-col items-center justify-center animate-in fade-in duration-500">
-            <div className="relative group cursor-pointer" onClick={handleActivate}>
-                <div className="absolute inset-0 bg-[#247AAE] rounded-full blur-xl opacity-40 group-hover:opacity-60 transition-opacity animate-pulse"></div>
-                <button className="relative w-40 h-40 rounded-full border-2 border-[#247AAE]/50 flex items-center justify-center bg-[#0f172a] group-hover:scale-105 transition-transform duration-300">
-                    <div className="absolute inset-0 rounded-full border border-[#247AAE]/30 animate-ping"></div>
-                    <span className="text-[#247AAE] font-bold text-lg tracking-[0.2em] group-hover:text-white transition-colors">ATIVAR</span>
-                </button>
-            </div>
-            <h1 className="text-slate-500 text-sm font-medium tracking-widest uppercase mt-8 flex items-center gap-2"><Sparkles size={14}/> Axis AI • Gestão Inteligente</h1>
-            
-            {errorMsg && (
-                <div className="mt-6 p-4 bg-red-900/40 border border-red-800/50 rounded-xl text-red-200 text-xs flex flex-col items-center gap-2 max-w-md text-center animate-in slide-in-from-bottom-2">
-                    <div className="flex items-center gap-2 font-bold text-red-100 uppercase tracking-wider mb-1">
-                        <Lock size={14} /> Permissão Necessária
-                    </div>
-                    <p>{errorMsg}</p>
-                </div>
-            )}
-        </div>
-      );
-  }
+    const { navigateToSection } = useApp();
 
-  return (
-    <div className="fixed inset-0 z-50 bg-[#080c14] overflow-hidden flex flex-col items-center justify-center">
-       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-       <SphereCore mode={mode} />
-       <div className="absolute top-1/4 w-full max-w-2xl px-6 text-center z-20">
-          <p className={`text-lg md:text-2xl font-light leading-relaxed transition-colors duration-500 ${mode === 'speaking' ? 'text-amber-100/80' : 'text-blue-100/80'}`}>
-             "{transcript || '...'}"
-          </p>
-       </div>
-       <Controls isMuted={isMuted} isPaused={isPaused} onToggleMute={() => setIsMuted(!isMuted)} onTogglePause={() => setIsPaused(!isPaused)} onStop={handleStop} />
-    </div>
-  );
+    if (!isActive) {
+        return (
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 flex flex-col items-center justify-center animate-in fade-in duration-500" style={{ zIndex: 10 }}>
+              <button
+                onClick={() => navigateToSection('dashboard' as any)}
+                className="absolute top-4 left-4 z-20 p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+                </svg>
+                Voltar
+              </button>
+              <div className="relative group cursor-pointer" onClick={handleActivate}>
+                  <div className="absolute inset-0 bg-[#247AAE] rounded-full blur-xl opacity-40 group-hover:opacity-60 transition-opacity animate-pulse"></div>
+                  <button className="relative w-40 h-40 rounded-full border-2 border-[#247AAE]/50 flex items-center justify-center bg-[#0f172a] group-hover:scale-105 transition-transform duration-300">
+                      <div className="absolute inset-0 rounded-full border border-[#247AAE]/30 animate-ping"></div>
+                      <span className="text-[#247AAE] font-bold text-lg tracking-[0.2em] group-hover:text-white transition-colors">ATIVAR</span>
+                  </button>
+              </div>
+              <h1 className="text-slate-500 text-sm font-medium tracking-widest uppercase mt-8 flex items-center gap-2"><Sparkles size={14}/> Axis AI • Gestão Inteligente</h1>
+              
+              {errorMsg && (
+                  <div className="mt-6 p-4 bg-red-900/40 border border-red-800/50 rounded-xl text-red-200 text-xs flex flex-col items-center gap-2 max-w-md text-center animate-in slide-in-from-bottom-2">
+                      <div className="flex items-center gap-2 font-bold text-red-100 uppercase tracking-wider mb-1">
+                          <Lock size={14} /> Permissão Necessária
+                      </div>
+                      <p>{errorMsg}</p>
+                  </div>
+              )}
+          </div>
+        );
+    }
+  
+    return (
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 overflow-hidden flex flex-col items-center justify-center" style={{ zIndex: 10 }}>
+         <button
+            onClick={() => navigateToSection('dashboard' as any)}
+            className="absolute top-4 left-4 z-20 p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+            </svg>
+            Voltar
+          </button>
+         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+         <SphereCore mode={mode} />
+         <div className="absolute top-1/4 w-full max-w-2xl px-6 text-center z-20">
+            <p className={`text-lg md:text-2xl font-light leading-relaxed transition-colors duration-500 ${mode === 'speaking' ? 'text-amber-100/80' : 'text-blue-100/80'}`}>
+               "{transcript || '...'}"
+            </p>
+         </div>
+         <Controls isMuted={isMuted} isPaused={isPaused} onToggleMute={() => setIsMuted(!isMuted)} onTogglePause={() => setIsPaused(!isPaused)} onStop={handleStop} />
+      </div>
+    );
 };
 
 export default AxisModule;

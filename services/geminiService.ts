@@ -1,129 +1,63 @@
 
-import { GoogleGenAI, Modality } from "@google/genai";
+import { apiFetch, safeJsonResponse } from './apiClient';
 
 export const getAIInsights = async (data: any): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Analise os seguintes dados de uma clínica médica e forneça um diagnóstico estratégico curto (3-4 frases).
-    O médico não quer dados, ele quer saber onde está perdendo dinheiro e o que fazer.
-    Seja direto, autoritário mas parceiro. Use português do Brasil.
-    
-    DADOS:
-    ${JSON.stringify(data)}
-  `;
-
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        systemInstruction: "Você é um consultor sênior de gestão para médicos. Seu foco é lucro real e eficiência operacional."
-      }
+    const response = await apiFetch('/api/gemini/insights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data })
     });
-    return response.text || "Não foi possível gerar análise no momento.";
+    const result = await safeJsonResponse(response);
+    return result.text || "Não foi possível gerar análise no momento.";
   } catch (error) {
-    console.error("Gemini Error:", error);
     return "Erro ao conectar com o Copiloto de IA.";
   }
 };
 
 export const analyzeLeadConversation = async (name: string, history: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Analise a conversa de WhatsApp com o lead "${name}".
-    Histórico: "${history}"
-    
-    Responda em 3 tópicos curtos:
-    1. Humor/Temperatura (Frio, Morno, Quente).
-    2. Principal Objeção (se houver).
-    3. Próximo Passo sugerido para fechar a venda.
-    Seja extremamente conciso.
-  `;
-
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        systemInstruction: "Você é um especialista em vendas médicas e análise de CRM. Sua função é ajudar a secretária a converter o lead em agendamento."
-      }
+    const response = await apiFetch('/api/gemini/analyze-lead', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, history })
     });
-    return response.text || "Análise indisponível.";
+    const result = await safeJsonResponse(response);
+    return result.text || "Análise indisponível.";
   } catch (error) {
     return "Erro ao analisar conversa.";
   }
 };
 
 export const generateSOAPFromTranscript = async (transcript: string): Promise<{s: string, o: string, a: string, p: string}> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Aja como um médico especialista experiente.
-    Analise a transcrição abaixo de uma consulta médica (ou simulação) e gere um registro médico no formato SOAP (Subjetivo, Objetivo, Avaliação, Plano).
-    
-    TRANSCRIÇÃO:
-    "${transcript}"
-    
-    Retorne APENAS um JSON válido no seguinte formato, sem formatação markdown:
-    {
-      "s": "Texto do Subjetivo...",
-      "o": "Texto do Objetivo...",
-      "a": "Texto da Avaliação...",
-      "p": "Texto do Plano..."
-    }
-  `;
-
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json"
-      }
+    const response = await apiFetch('/api/gemini/soap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript })
     });
-    
-    const text = response.text || "{}";
-    return JSON.parse(text);
+    return await safeJsonResponse(response);
   } catch (error) {
-    console.error("SOAP Gen Error:", error);
-    return {
-      s: "Erro ao gerar.",
-      o: "Erro ao gerar.",
-      a: "Erro ao gerar.",
-      p: "Erro ao gerar."
-    };
+    return { s: "Erro ao gerar.", o: "Erro ao gerar.", a: "Erro ao gerar.", p: "Erro ao gerar." };
   }
 };
 
 export const generateAudioReport = async (text: string): Promise<string | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Diga de forma profissional e encorajadora: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
-          },
-        },
-      },
+    const response = await apiFetch('/api/gemini/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
     });
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    return base64Audio ? `data:audio/pcm;base64,${base64Audio}` : null;
+    const data = await safeJsonResponse(response);
+    return data.audio ? `data:audio/pcm;base64,${data.audio}` : null;
   } catch (error) {
-    console.error("Audio Gen Error:", error);
     return null;
   }
 };
 
 export const playPCM = async (base64Data: string) => {
-  const binaryString = atob(base64Data.split(',')[1]);
+  const binaryString = atob(base64Data.split(',')[1] || base64Data);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {

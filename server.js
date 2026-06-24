@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import PDFDocument from 'pdfkit';
 import crypto from 'crypto';
 import multer from 'multer';
@@ -33,10 +33,36 @@ const supabaseAdmin = createClient(
 );
 
 // --- GEMINI SETUP ---
-const API_KEY = process.env.API_KEY;
+const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY;
 let aiClient = null;
 if (API_KEY) {
     aiClient = new GoogleGenAI({ apiKey: API_KEY });
+}
+
+// Helper utilitário para updates tolerantes a colunas faltantes (especialmente updated_at)
+async function safeUpdate(client, tableName, data, eqColumn, eqValue) {
+    const { data: resData, error } = await client
+        .from(tableName)
+        .update(data)
+        .eq(eqColumn, eqValue);
+        
+    if (error) {
+        const errMsg = error.message || String(error);
+        const isColumnError = error.code === 'PGRST204' || 
+                              errMsg.includes('updated_at') || 
+                              (errMsg.includes('column') && (errMsg.includes('not found') || errMsg.includes('cache')));
+                              
+        if (isColumnError && 'updated_at' in data) {
+            console.log(`[SafeUpdate] Coluna 'updated_at' ausente em ${tableName}. Retrying update sem ela...`);
+            const cleanData = { ...data };
+            delete cleanData.updated_at;
+            return await client
+                .from(tableName)
+                .update(cleanData)
+                .eq(eqColumn, eqValue);
+        }
+    }
+    return { data: resData, error };
 }
 
 // --- CONFIGURAÇÕES GOOGLE ---
@@ -910,13 +936,15 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
         // 3. Campanhas Pausadas nas últimas 24h
         const pausedQuery = `
             SELECT 
-                change_event.change_time, 
+                change_event.change_date_time, 
+                change_event.changed_fields,
+                change_event.resource_change_operation,
                 change_event.new_resource,
                 change_event.campaign
             FROM change_event 
             WHERE change_event.change_resource_type = 'CAMPAIGN' 
             AND change_event.resource_change_operation = 'UPDATE' 
-            AND change_event.change_time DURING TODAY
+            AND change_event.change_date_time DURING TODAY
             LIMIT 50
         `;
 
@@ -929,7 +957,7 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
                 if (changedFields.includes('status') && row.changeEvent?.newResource?.campaign?.status === 'PAUSED') {
                     const name = row.changeEvent.newResource.campaign.name || 'Campanha';
                     alerts.push({
-                        id: `paused-${row.changeEvent.changeTime}`,
+                        id: `paused-${row.changeEvent.changeDateTime}`,
                         type: 'status_change',
                         severity: 'high',
                         message: `A campanha "${name}" foi pausada hoje.`
@@ -4565,17 +4593,14 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             }
 
             if (webhookEventId) {
-                await client
-                    .from('crm_webhook_events')
-                    .update({
-                        event_type: 'status_update',
-                        normalized_payload: sanitizeWebhookPayloadForStorage(body),
-                        processing_status: 'ignored',
-                        processed_messages: 0,
-                        error_message: "Evento de status/ack sem bolha de chat.",
-                        updated_at: new Date()
-                    })
-                    .eq('id', webhookEventId);
+                await safeUpdate(client, 'crm_webhook_events', {
+                    event_type: 'status_update',
+                    normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                    processing_status: 'ignored',
+                    processed_messages: 0,
+                    error_message: "Evento de status/ack sem bolha de chat.",
+                    updated_at: new Date()
+                }, 'id', webhookEventId);
             }
 
             return res.json({
@@ -4592,17 +4617,14 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
             if (!messageId) {
                 if (webhookEventId) {
-                    await client
-                        .from('crm_webhook_events')
-                        .update({
-                            event_type: 'messages_update',
-                            normalized_payload: sanitizeWebhookPayloadForStorage(body),
-                            processing_status: 'ignored',
-                            processed_messages: 0,
-                            error_message: "Mídia baixada, mas MessageIDs inválido.",
-                            updated_at: new Date()
-                        })
-                        .eq('id', webhookEventId);
+                    await safeUpdate(client, 'crm_webhook_events', {
+                        event_type: 'messages_update',
+                        normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                        processing_status: 'ignored',
+                        processed_messages: 0,
+                        error_message: "Mídia baixada, mas MessageIDs inválido.",
+                        updated_at: new Date()
+                    }, 'id', webhookEventId);
                 }
                 return res.json({ ok: true, message: "MessageIDs inválido no evento de mídia." });
             }
@@ -4640,17 +4662,14 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             if (!targetMsg) {
                 console.log(`[Webhook Uazapi] Mídia recebida, mas mensagem original ${messageId} não encontrada.`);
                 if (webhookEventId) {
-                    await client
-                        .from('crm_webhook_events')
-                        .update({
-                            event_type: 'messages_update',
-                            normalized_payload: sanitizeWebhookPayloadForStorage(body),
-                            processing_status: 'ignored',
-                            processed_messages: 0,
-                            error_message: "Mídia baixada, mas mensagem original não encontrada.",
-                            updated_at: new Date()
-                        })
-                        .eq('id', webhookEventId);
+                    await safeUpdate(client, 'crm_webhook_events', {
+                        event_type: 'messages_update',
+                        normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                        processing_status: 'pending_media_match',
+                        processed_messages: 0,
+                        error_message: "Mídia baixada, mas mensagem original não encontrada.",
+                        updated_at: new Date()
+                    }, 'id', webhookEventId);
                 }
                 return res.json({ ok: true, message: "Mensagem original não encontrada para vincular mídia." });
             }
@@ -4796,10 +4815,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 updated_at: new Date()
             };
 
-            const { error: updateMsgErr } = await client
-                .from('crm_messages')
-                .update(updateMsgFields)
-                .eq('id', targetMsg.id);
+            const { error: updateMsgErr } = await safeUpdate(client, 'crm_messages', updateMsgFields, 'id', targetMsg.id);
 
             if (updateMsgErr) {
                 console.error(`[Webhook Uazapi] Erro ao atualizar mídias na mensagem ${targetMsg.id}:`, updateMsgErr);
@@ -4811,14 +4827,11 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
             // Atualizar a conversa correspondente se aplicável
             if (targetMsg.conversation_id) {
-                await client
-                    .from('crm_conversations')
-                    .update({
-                        last_message_text: updatedText,
-                        last_message_at: new Date(),
-                        updated_at: new Date()
-                    })
-                    .eq('id', targetMsg.conversation_id);
+                await safeUpdate(client, 'crm_conversations', {
+                    last_message_text: updatedText,
+                    last_message_at: new Date(),
+                    updated_at: new Date()
+                }, 'id', targetMsg.conversation_id);
             }
 
             // Criar ou atualizar crm_message_attachments
@@ -4879,10 +4892,13 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             };
 
             if (existingAttachment) {
-                const { error: updateAttachErr } = await client
-                    .from('crm_message_attachments')
-                    .update(attachmentData)
-                    .eq('id', existingAttachment.id);
+                const { error: updateAttachErr } = await safeUpdate(
+                    client,
+                    'crm_message_attachments',
+                    attachmentData,
+                    'id',
+                    existingAttachment.id
+                );
 
                 if (updateAttachErr) {
                     console.error(`[Webhook Uazapi] Erro ao atualizar crm_message_attachments:`, updateAttachErr);
@@ -4903,26 +4919,29 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 }
             }
 
-            // Atualizar status do webhook_event (Tarefa 10)
+            // Atualizar status do webhook_event (Tarefa 3)
             if (webhookEventId) {
-                let statusMsg = "Mídia vinculada à mensagem existente.";
+                let statusMsg = null;
                 let pStatus = "processed";
-                if (!fileUrl) {
+                let pCount = 1;
+                
+                if (updateMsgErr) {
+                    pStatus = "error";
+                    pCount = 0;
+                    statusMsg = updateMsgErr.message || String(updateMsgErr);
+                } else if (!fileUrl) {
                     statusMsg = "Mídia identificada, mas URL ainda indisponível.";
                     pStatus = "processed";
                 }
                 
-                await client
-                    .from('crm_webhook_events')
-                    .update({
-                        event_type: 'messages_update',
-                        normalized_payload: sanitizeWebhookPayloadForStorage(body),
-                        processing_status: pStatus,
-                        processed_messages: 0,
-                        error_message: statusMsg,
-                        updated_at: new Date()
-                    })
-                    .eq('id', webhookEventId);
+                await safeUpdate(client, 'crm_webhook_events', {
+                    event_type: 'messages_update',
+                    normalized_payload: sanitizeWebhookPayloadForStorage(body),
+                    processing_status: pStatus,
+                    processed_messages: pCount,
+                    error_message: statusMsg,
+                    updated_at: new Date()
+                }, 'id', webhookEventId);
             }
 
             return res.json({
@@ -4950,27 +4969,21 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
             console.log(`[Webhook Uazapi] Atualizando status da conexão para: ${updateData.connection_status}`);
             
-            const { error: updateError } = await client
-                .from('crm_connections')
-                .update(updateData)
-                .eq('id', connectionId);
+            const { error: updateError } = await safeUpdate(client, 'crm_connections', updateData, 'id', connectionId);
                 
             if (updateError) {
                 console.error(`[Webhook Uazapi] Erro ao atualizar status na conexão:`, updateError);
             }
             
             if (webhookEventId) {
-                await client
-                    .from('crm_webhook_events')
-                    .update({
-                        event_type: normalized.eventType,
-                        normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
-                        processing_status: 'ignored',
-                        processed_messages: 0,
-                        error_message: "Evento de conexão/status.",
-                        updated_at: new Date()
-                    })
-                    .eq('id', webhookEventId);
+                await safeUpdate(client, 'crm_webhook_events', {
+                    event_type: normalized.eventType,
+                    normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
+                    processing_status: 'ignored',
+                    processed_messages: 0,
+                    error_message: "Evento de conexão/status.",
+                    updated_at: new Date()
+                }, 'id', webhookEventId);
             }
             
             console.log(`[Webhook Uazapi] Ignorado: Evento de conexão tratado, sem mensagens de CRM.`);
@@ -4985,17 +4998,14 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
         // Se não for nem de mensagem e nem de conexão, devolve warning saudável
         if (normalized.eventType !== 'messages' || normalized.messages.length === 0) {
             if (webhookEventId) {
-                await client
-                    .from('crm_webhook_events')
-                    .update({
-                        event_type: normalized.eventType,
-                        normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
-                        processing_status: 'ignored',
-                        processed_messages: 0,
-                        error_message: "Atualização de mensagem sem conteúdo exibível.",
-                        updated_at: new Date()
-                    })
-                    .eq('id', webhookEventId);
+                await safeUpdate(client, 'crm_webhook_events', {
+                    event_type: normalized.eventType,
+                    normalized_payload: sanitizeWebhookPayloadForStorage(normalized),
+                    processing_status: 'ignored',
+                    processed_messages: 0,
+                    error_message: "Atualização de mensagem sem conteúdo exibível.",
+                    updated_at: new Date()
+                }, 'id', webhookEventId);
             }
             
             console.log(`[Webhook Uazapi] Ignorado: Tipo de evento diferente de mensagens ou lista de mensagens vazia.`);
@@ -5096,10 +5106,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         raw_profile: sanitizeWebhookPayloadForStorage(rawMessage) || existingContact.raw_profile,
                         updated_at: new Date()
                     };
-                    const { error: updateContactErr } = await client
-                        .from('crm_contacts')
-                        .update(updateContactData)
-                        .eq('id', contactId);
+                    const { error: updateContactErr } = await safeUpdate(client, 'crm_contacts', updateContactData, 'id', contactId);
                         
                     if (updateContactErr) {
                         console.error(`[Webhook Uazapi] Erro ao atualizar crm_contacts:`, updateContactErr);
@@ -5287,10 +5294,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             updateConvData.lead_id = leadId;
                         }
                         
-                        const { error: updateConvErr } = await client
-                            .from('crm_conversations')
-                            .update(updateConvData)
-                            .eq('id', conversationId);
+                        const { error: updateConvErr } = await safeUpdate(client, 'crm_conversations', updateConvData, 'id', conversationId);
                             
                         if (updateConvErr) {
                             console.error(`[Webhook Uazapi] Erro ao atualizar conversa:`, updateConvErr);
@@ -5370,10 +5374,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                         updated_at: new Date()
                     };
                     
-                    const { error: updateMsgErr } = await client
-                        .from('crm_messages')
-                        .update(updateMsgData)
-                        .eq('id', existingMsg.id);
+                    const { error: updateMsgErr } = await safeUpdate(client, 'crm_messages', updateMsgData, 'id', existingMsg.id);
                         
                     if (updateMsgErr) {
                         console.error(`[Webhook Uazapi] Erro ao atualizar crm_messages:`, updateMsgErr);
@@ -5557,14 +5558,11 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
 
                                     if (finalUrl && !isEncryptedUrl(finalUrl)) {
                                         // 1. Atualizar crm_messages
-                                        await client
-                                            .from('crm_messages')
-                                            .update({
-                                                media_url: finalUrl,
-                                                media_mime_type: downloadResult.mimeType || mediaMimeType,
-                                                updated_at: new Date()
-                                            })
-                                            .eq('id', actualSavedMsgId);
+                                        await safeUpdate(client, 'crm_messages', {
+                                            media_url: finalUrl,
+                                            media_mime_type: downloadResult.mimeType || mediaMimeType,
+                                            updated_at: new Date()
+                                        }, 'id', actualSavedMsgId);
 
                                         // 2. Atualizar crm_message_attachments
                                         const extraMeta = {
@@ -5574,16 +5572,13 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                                             encrypted_url: encryptedUrlFound
                                         };
 
-                                        await client
-                                            .from('crm_message_attachments')
-                                            .update({
-                                                source_url: finalUrl,
-                                                storage_bucket: storageBucket,
-                                                storage_path: storagePath,
-                                                mime_type: downloadResult.mimeType || mediaMimeType,
-                                                raw_metadata: extraMeta
-                                            })
-                                            .eq('message_id', actualSavedMsgId);
+                                        await safeUpdate(client, 'crm_message_attachments', {
+                                            source_url: finalUrl,
+                                            storage_bucket: storageBucket,
+                                            storage_path: storagePath,
+                                            mime_type: downloadResult.mimeType || mediaMimeType,
+                                            raw_metadata: extraMeta
+                                        }, 'message_id', actualSavedMsgId);
 
                                         console.log(`[CRM Media] [Background] Mídia de mensagem ID ${actualSavedMsgId} resolvida com sucesso! URL: ${finalUrl}`);
                                     } else {
@@ -5651,10 +5646,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 }
             }
             
-            await client
-                .from('crm_webhook_events')
-                .update(updatePayload)
-                .eq('id', webhookEventId);
+            await safeUpdate(client, 'crm_webhook_events', updatePayload, 'id', webhookEventId);
         }
         
         res.json({
@@ -5669,14 +5661,11 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
         if (webhookEventId) {
             try {
                 const client = supabaseAdmin || supabase;
-                await client
-                    .from('crm_webhook_events')
-                    .update({
-                        processing_status: 'error',
-                        error_message: err.message || String(err),
-                        updated_at: new Date()
-                    })
-                    .eq('id', webhookEventId);
+                await safeUpdate(client, 'crm_webhook_events', {
+                    processing_status: 'error',
+                    error_message: err.message || String(err),
+                    updated_at: new Date()
+                }, 'id', webhookEventId);
             } catch (updateErr) {
                 console.error('[Webhook Uazapi] Erro ao atualizar status de erro no evento de webhook:', updateErr);
             }
@@ -5686,6 +5675,94 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
             ok: true,
             error: "Erro processando webhook, porém payload foi registrado."
         });
+    }
+});
+
+// Rotas Proxy do Gemini (Migradas do Frontend)
+
+app.post('/api/gemini/insights', async (req, res) => {
+    try {
+        if (!aiClient) return res.status(500).json({ error: "Gemini não configurado." });
+        const { data } = req.body;
+        const prompt = `Analise os seguintes dados de uma clínica médica e forneça um diagnóstico estratégico curto (3-4 frases). O médico não quer dados, ele quer saber onde está perdendo dinheiro e o que fazer. Seja direto, autoritário mas parceiro. Use português do Brasil.\n\nDADOS:\n${JSON.stringify(data)}`;
+        
+        const response = await aiClient.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                systemInstruction: "Você é um consultor sênior de gestão para médicos. Seu foco é lucro real e eficiência operacional."
+            }
+        });
+        res.json({ text: response.text });
+    } catch (error) {
+        console.error("Erro /api/gemini/insights:", error);
+        res.status(500).json({ error: "Erro ao gerar insights." });
+    }
+});
+
+app.post('/api/gemini/analyze-lead', async (req, res) => {
+    try {
+        if (!aiClient) return res.status(500).json({ error: "Gemini não configurado." });
+        const { name, history } = req.body;
+        const prompt = `Analise a conversa de WhatsApp com o lead "${name}".\nHistórico: "${history}"\n\nResponda em 3 tópicos curtos:\n1. Humor/Temperatura (Frio, Morno, Quente).\n2. Principal Objeção (se houver).\n3. Próximo Passo sugerido para fechar a venda.\nSeja extremamente conciso.`;
+        
+        const response = await aiClient.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                systemInstruction: "Você é um especialista em vendas médicas e análise de CRM. Sua função é ajudar a secretária a converter o lead em agendamento."
+            }
+        });
+        res.json({ text: response.text });
+    } catch (error) {
+        console.error("Erro /api/gemini/analyze-lead:", error);
+        res.status(500).json({ error: "Erro ao analisar lead." });
+    }
+});
+
+app.post('/api/gemini/soap', async (req, res) => {
+    try {
+        if (!aiClient) return res.status(500).json({ error: "Gemini não configurado." });
+        const { transcript } = req.body;
+        const prompt = `Aja como um médico especialista experiente.\nAnalise a transcrição abaixo de uma consulta médica (ou simulação) e gere um registro médico no formato SOAP (Subjetivo, Objetivo, Avaliação, Plano).\n\nTRANSCRIÇÃO:\n"${transcript}"\n\nRetorne APENAS um JSON válido no seguinte formato, sem formatação markdown:\n{\n  "s": "Texto do Subjetivo...",\n  "o": "Texto do Objetivo...",\n  "a": "Texto da Avaliação...",\n  "p": "Texto do Plano..."\n}`;
+        
+        const response = await aiClient.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json"
+            }
+        });
+        const text = response.text || "{}";
+        res.json(JSON.parse(text));
+    } catch (error) {
+        console.error("Erro /api/gemini/soap:", error);
+        res.status(500).json({ error: "Erro ao gerar SOAP." });
+    }
+});
+
+app.post('/api/gemini/tts', async (req, res) => {
+    try {
+        if (!aiClient) return res.status(500).json({ error: "Gemini não configurado." });
+        const { text } = req.body;
+        
+        const response = await aiClient.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: `Diga de forma profissional e encorajadora: ${text}` }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: 'Kore' },
+                    },
+                },
+            },
+        });
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        res.json({ audio: base64Audio || null });
+    } catch (error) {
+        console.error("Erro /api/gemini/tts:", error);
+        res.status(500).json({ error: "Erro ao gerar TTS." });
     }
 });
 

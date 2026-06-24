@@ -81,6 +81,14 @@ const Recorder: React.FC = () => {
   };
 
   // --- RECORDING HANDLERS ---
+  // Refs to avoid stale closures in recognition callbacks
+  const isRecordingRef = useRef(false);
+  const permissionErrorRef = useRef(false);
+
+  // Keep refs in sync with state
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+  useEffect(() => { permissionErrorRef.current = permissionError; }, [permissionError]);
+
   const startRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -117,13 +125,10 @@ const Recorder: React.FC = () => {
 
       recognition.onend = () => {
           console.log("Gravador: Parou");
-          // Se o usuário ainda quer gravar (isRecording == true), tenta reiniciar
-          // Mas cuidado com o loop de erro.
-          if (isRecording && !permissionError) {
+          if (isRecordingRef.current && !permissionErrorRef.current) {
              try { 
                  recognition.start(); 
              } catch {
-                 // Se falhar o restart, encerra
                  setIsRecording(false);
              }
           } else {

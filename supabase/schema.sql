@@ -64,9 +64,18 @@ begin
   if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='last_interaction') then
     alter table leads add column last_interaction timestamp with time zone default now();
   end if;
-  -- Garante last_sender
+-- Garante last_sender
   if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='last_sender') then
     alter table leads add column last_sender text default 'me';
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='procedure') then
+    alter table leads add column procedure text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='objective') then
+    alter table leads add column objective text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='leads' and column_name='ad_name') then
+    alter table leads add column ad_name text;
   end if;
 end $$;
 
@@ -106,6 +115,22 @@ create table if not exists transactions (
   date date,
   created_at timestamp with time zone default now()
 );
+
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name='transactions' and column_name='discount') then
+    alter table transactions add column discount numeric default 0;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='transactions' and column_name='addition') then
+    alter table transactions add column addition numeric default 0;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='transactions' and column_name='payment_method') then
+    alter table transactions add column payment_method text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='transactions' and column_name='installments') then
+    alter table transactions add column installments integer;
+  end if;
+end $$;
 
 create table if not exists appointments (
   id uuid primary key default uuid_generate_v4(),
