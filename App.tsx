@@ -53,12 +53,13 @@ interface AppContextType {
   googleCalendarToken: string | null;
   googleAdsToken: string | null;
   googleSheetsToken: string | null;
-  // whatsappConfig: WhatsappConfig | null; // REMOVIDO
+  metaAdsStatus: string | null;
   
   setGoogleCalendarToken: (token: string | null) => void;
   setGoogleAdsToken: (token: string | null) => void;
   setGoogleSheetsToken: (token: string | null) => void;
-  // setWhatsappConfig: (config: WhatsappConfig | null) => void; // REMOVIDO
+  setMetaAdsStatus: (status: string | null) => void;
+  // whatsappConfig: WhatsappConfig | null; // REMOVIDO
   toggleIntegration: (id: string) => void;
   
   refreshGoogleCredentials: () => Promise<void>;
@@ -184,25 +185,24 @@ const App: React.FC = () => {
   const [googleCalendarToken, setGoogleCalendarToken] = useState<string | null>(null);
   const [googleAdsToken, setGoogleAdsToken] = useState<string | null>(localStorage.getItem('google_ads_token'));
   const [googleSheetsToken, setGoogleSheetsToken] = useState<string | null>(localStorage.getItem('google_sheets_token'));
-  // const [whatsappConfig, setWhatsappConfigState] = useState<WhatsappConfig | null>(null); // REMOVIDO
+  const [metaAdsStatus, setMetaAdsStatusState] = useState<string | null>(localStorage.getItem('meta_ads_connected'));
 
-  /* REMOVIDO
-  const setWhatsappConfig = (config: WhatsappConfig | null) => {
-    setWhatsappConfigState(config);
-    if (config) {
-      localStorage.setItem('whatsapp_config', JSON.stringify(config));
+  const setMetaAdsStatus = (status: string | null) => {
+    setMetaAdsStatusState(status);
+    if (status) {
+      localStorage.setItem('meta_ads_connected', 'backend-connected');
     } else {
-      localStorage.removeItem('whatsapp_config');
+      localStorage.removeItem('meta_ads_connected');
     }
   };
-  */
 
   const [integrations, setIntegrations] = useState<Record<string, boolean>>({
     'google-ads': !!googleAdsToken, 
-    'wpp': false, // !!whatsappConfig?.isConnected, // REMOVIDO
+    'wpp': false, 
     'sheets': !!googleSheetsToken, 
     'calendar': !!googleCalendarToken, 
-    'crm': false
+    'crm': false,
+    'meta-ads': !!metaAdsStatus
   });
 
   useEffect(() => {
@@ -211,9 +211,10 @@ const App: React.FC = () => {
       'google-ads': !!googleAdsToken,
       'calendar': !!googleCalendarToken,
       'sheets': !!googleSheetsToken,
-      'wpp': false // !!whatsappConfig?.isConnected // REMOVIDO
+      'wpp': false,
+      'meta-ads': !!metaAdsStatus
     }));
-  }, [googleAdsToken, googleCalendarToken, googleSheetsToken]); // whatsappConfig removido
+  }, [googleAdsToken, googleCalendarToken, googleSheetsToken, metaAdsStatus]);
 
   // Data Fetching
   const fetchFinancials = useCallback(async () => {
@@ -575,6 +576,7 @@ const App: React.FC = () => {
     <AppContext.Provider value={{ 
         user, updateUser, isAuthenticated, login, signUp, logout, integrations, 
         googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
+        metaAdsStatus, setMetaAdsStatus,
         /* whatsappConfig, setWhatsappConfig, */ toggleIntegration, refreshGoogleCredentials, 
         dateFilter, setDateFilter, setCustomDateRange, metrics: consolidatedMetrics, 
         financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, 

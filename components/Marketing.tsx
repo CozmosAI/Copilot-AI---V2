@@ -13,7 +13,7 @@ import html2canvas from 'html2canvas';
 import { useApp } from '../App';
 import { 
   getGoogleCampaigns, getGoogleOverview, getGoogleAdGroups, getGoogleKeywords, getGoogleAds, getGoogleAssetGroups,
-  getGoogleMccOverview, getGoogleSearchTerms, getGooglePmaxAssets
+  getGoogleMccOverview, getGoogleSearchTerms, getGooglePmaxAssets, checkGoogleAdsAlerts
 } from '../services/googleAdsService';
 
 // --- TYPES ---
@@ -147,12 +147,7 @@ const Marketing: React.FC = () => {
       const fetchAlerts = async () => {
           if (!user) return;
           try {
-              const res = await fetch('/api/google-ads/check-alerts', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ user_id: user.id })
-              });
-              const data = await res.json();
+              const data = await checkGoogleAdsAlerts(user.id);
               if (data.alerts) {
                   const dismissed = JSON.parse(localStorage.getItem('dismissedAlerts') || '[]');
                   const newAlerts = data.alerts.filter((a: any) => !dismissed.includes(a.id));

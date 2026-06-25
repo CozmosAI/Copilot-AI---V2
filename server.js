@@ -343,6 +343,324 @@ app.get('/api/google-ads/status/:userId', async (req, res) => {
 });
 
 // ==============================================================================
+// 2.3 META ADS INTEGRATION ROUTES (Fase 1)
+// ==============================================================================
+
+const META_APP_ID = process.env.META_APP_ID;
+const META_APP_SECRET = process.env.META_APP_SECRET;
+const META_API_VERSION = process.env.META_API_VERSION || 'v25.0';
+const META_REDIRECT_URI = process.env.META_REDIRECT_URI;
+
+// Helper backend para obter token válido
+async function getValidMetaToken(userId) {
+    const { data, error } = await supabase
+        .from('meta_ads_integrations')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+    if (error || !data) {
+        throw new Error('Integração com Meta Ads não encontrada.');
+    }
+
+    if (!data.access_token) {
+        throw new Error('Token de acesso do Meta Ads não configurado.');
+    }
+
+    if (data.token_expires_at) {
+        const expiresAt = new Date(data.token_expires_at).getTime();
+        if (Date.now() >= expiresAt) {
+            await safeUpdate(supabase, 'meta_ads_integrations', { status: 'expired', updated_at: new Date() }, 'user_id', userId);
+            throw new Error('Token de acesso do Meta Ads expirou. Por favor, conecte novamente.');
+        }
+    }
+
+    return data.access_token;
+}
+
+// 1. Gerar URL de Auth Meta Ads
+app.get('/api/auth/meta-ads/url', (req, res) => {
+    const { user_id, redirect_uri } = req.query;
+    
+    if (!user_id) {
+        return res.status(400).json({ error: 'Missing user_id' });
+    }
+
+    if (!META_APP_ID) {
+        return res.status(500).json({ error: 'META_APP_ID não configurado no backend.' });
+    }
+
+    const finalRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+    const state = `meta-ads-oauth-${user_id}`;
+    
+    const params = new URLSearchParams({
+        client_id: META_APP_ID,
+        redirect_uri: finalRedirectUri,
+        scope: 'ads_read',
+        state: state,
+        response_type: 'code'
+    });
+
+    const url = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`;
+    
+    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}`);
+    res.json({ ok: true, url });
+});
+
+// 2. Trocar Code por Token (Exchange)
+app.post('/api/auth/meta-ads/exchange', async (req, res) => {
+    const { code, redirect_uri, user_id } = req.body;
+
+    if (!code || !user_id) {
+        return res.status(400).json({ error: 'Missing code or user_id' });
+    }
+
+    if (!META_APP_ID || !META_APP_SECRET) {
+        return res.status(500).json({ error: 'Meta App credentials are not configured on the server.' });
+    }
+
+    try {
+        const finalRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+
+        // 2.1 Trocar code por short-lived token
+        const shortLivedUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?` + new URLSearchParams({
+            client_id: META_APP_ID,
+            redirect_uri: finalRedirectUri,
+            client_secret: META_APP_SECRET,
+            code: code
+        }).toString();
+
+        const shortResp = await fetch(shortLivedUrl);
+        const shortData = await shortResp.json();
+        
+        if (shortData.error) {
+            console.error('[Meta Ads] Short Token Error:', shortData.error);
+            return res.status(400).json({ error: shortData.error.message || 'Erro ao obter short-lived token' });
+        }
+
+        const shortToken = shortData.access_token;
+
+        // 2.2 Trocar por long-lived token
+        const longLivedUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?` + new URLSearchParams({
+            grant_type: 'fb_exchange_token',
+            client_id: META_APP_ID,
+            client_secret: META_APP_SECRET,
+            fb_exchange_token: shortToken
+        }).toString();
+
+        const longResp = await fetch(longLivedUrl);
+        const longData = await longResp.json();
+
+        if (longData.error) {
+            console.error('[Meta Ads] Long Token Error:', longData.error);
+            return res.status(400).json({ error: longData.error.message || 'Erro ao obter long-lived token' });
+        }
+
+        const longToken = longData.access_token;
+        const expires_in = longData.expires_in;
+        const tokenExpiresAt = expires_in ? new Date(Date.now() + expires_in * 1000) : null;
+
+        console.log(`[Meta Ads] Token trocado com sucesso para user ${user_id}`);
+
+        // 2.3 Buscar contas de anúncio
+        const accountsUrl = `https://graph.facebook.com/${META_API_VERSION}/me/adaccounts?` + new URLSearchParams({
+            fields: 'id,name,account_status,currency,timezone_name,business',
+            access_token: longToken
+        }).toString();
+
+        const accountsResp = await fetch(accountsUrl);
+        const accountsData = await accountsResp.json();
+
+        if (accountsData.error) {
+            console.error('[Meta Ads] Fetch Accounts Error:', accountsData.error);
+            return res.status(400).json({ error: accountsData.error.message || 'Erro ao buscar contas de anúncio' });
+        }
+
+        const accounts = accountsData.data || [];
+        console.log(`[Meta Ads] ${accounts.length} contas encontradas`);
+
+        if (accounts.length === 0) {
+            const insertData = {
+                user_id,
+                access_token: longToken,
+                token_expires_at: tokenExpiresAt,
+                status: 'no_accounts',
+                updated_at: new Date()
+            };
+            
+            await supabase.from('meta_ads_integrations').upsert(insertData, { onConflict: 'user_id' });
+            return res.json({ ok: false, error: 'Nenhuma conta de anúncio encontrada neste perfil do Facebook.' });
+        } else if (accounts.length === 1) {
+            const account = accounts[0];
+            const insertData = {
+                user_id,
+                access_token: longToken,
+                token_expires_at: tokenExpiresAt,
+                ad_account_id: account.id,
+                ad_account_name: account.name || `Conta ${account.id}`,
+                currency: account.currency || null,
+                timezone_name: account.timezone_name || null,
+                business_id: account.business?.id || null,
+                business_name: account.business?.name || null,
+                status: 'active',
+                last_sync_at: new Date(),
+                updated_at: new Date()
+            };
+            
+            await supabase.from('meta_ads_integrations').upsert(insertData, { onConflict: 'user_id' });
+            console.log(`[Meta Ads] Conta selecionada: ${account.id}`);
+            return res.json({ ok: true, mode: 'active', account: { id: account.id, name: account.name } });
+        } else {
+            const insertData = {
+                user_id,
+                access_token: longToken,
+                token_expires_at: tokenExpiresAt,
+                status: 'pending_selection',
+                ad_account_id: null,
+                ad_account_name: null,
+                currency: null,
+                timezone_name: null,
+                business_id: null,
+                business_name: null,
+                updated_at: new Date()
+            };
+            
+            await supabase.from('meta_ads_integrations').upsert(insertData, { onConflict: 'user_id' });
+            return res.json({
+                ok: true,
+                mode: 'selection_required',
+                accounts: accounts.map(acc => ({
+                    id: acc.id,
+                    name: acc.name || `Conta ${acc.id}`,
+                    currency: acc.currency,
+                    timezone_name: acc.timezone_name,
+                    business_name: acc.business?.name || null
+                }))
+            });
+        }
+    } catch (err) {
+        console.error('[Meta Ads] Erro no fluxo OAuth Exchange:', err);
+        res.status(500).json({ error: err.message || 'Erro interno no processamento de token.' });
+    }
+});
+
+// 3. Selecionar Conta Manualmente (múltiplas contas)
+app.post('/api/auth/meta-ads/select-account', async (req, res) => {
+    const { user_id, ad_account_id } = req.body;
+    if (!user_id || !ad_account_id) {
+        return res.status(400).json({ error: 'Missing user_id or ad_account_id' });
+    }
+
+    try {
+        const { data: integration, error } = await supabase
+            .from('meta_ads_integrations')
+            .select('*')
+            .eq('user_id', user_id)
+            .single();
+
+        if (error || !integration) {
+            return res.status(404).json({ error: 'Integração Meta Ads não encontrada.' });
+        }
+
+        const token = integration.access_token;
+        if (!token) {
+            return res.status(400).json({ error: 'Token de acesso não encontrado. Refaça o login.' });
+        }
+
+        const adAccountUrl = `https://graph.facebook.com/${META_API_VERSION}/${ad_account_id}?` + new URLSearchParams({
+            fields: 'id,name,currency,timezone_name,business',
+            access_token: token
+        }).toString();
+
+        const accountResp = await fetch(adAccountUrl);
+        const accountData = await accountResp.json();
+
+        if (accountData.error) {
+            console.error('[Meta Ads] Erro ao validar conta:', accountData.error);
+            return res.status(400).json({ error: accountData.error.message || 'Erro ao validar conta de anúncio no Meta Ads.' });
+        }
+
+        const updateData = {
+            ad_account_id: accountData.id,
+            ad_account_name: accountData.name || `Conta ${accountData.id}`,
+            currency: accountData.currency || null,
+            timezone_name: accountData.timezone_name || null,
+            business_id: accountData.business?.id || null,
+            business_name: accountData.business?.name || null,
+            status: 'active',
+            last_sync_at: new Date(),
+            updated_at: new Date()
+        };
+
+        const { error: updateError } = await safeUpdate(supabase, 'meta_ads_integrations', updateData, 'user_id', user_id);
+        if (updateError) {
+            throw updateError;
+        }
+
+        const safeIntegration = { ...integration, ...updateData };
+        delete safeIntegration.access_token;
+
+        console.log(`[Meta Ads] Conta selecionada: ${ad_account_id} para user ${user_id}`);
+
+        res.json({ ok: true, integration: safeIntegration });
+    } catch (err) {
+        console.error('[Meta Ads] Erro ao selecionar conta:', err);
+        res.status(500).json({ error: err.message || 'Erro interno ao selecionar conta.' });
+    }
+});
+
+// 4. Obter status da integração Meta Ads
+app.get('/api/meta-ads/status/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('meta_ads_integrations')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+
+        if (error || !data) {
+            return res.json({ ok: true, connected: false });
+        }
+
+        res.json({
+            ok: true,
+            connected: data.status === 'active' || data.status === 'pending_selection',
+            status: data.status,
+            ad_account_id: data.ad_account_id,
+            ad_account_name: data.ad_account_name,
+            business_name: data.business_name,
+            currency: data.currency,
+            timezone_name: data.timezone_name,
+            token_expires_at: data.token_expires_at
+        });
+    } catch (err) {
+        console.error('[Meta Ads] Erro ao obter status:', err);
+        res.status(500).json({ error: err.message || 'Erro interno ao obter status.' });
+    }
+});
+
+// 5. Desconectar Meta Ads (Deleta a linha)
+app.post('/api/meta-ads/disconnect', async (req, res) => {
+    const { user_id } = req.body;
+    if (!user_id) {
+        return res.status(400).json({ error: 'Missing user_id' });
+    }
+
+    try {
+        await supabase
+            .from('meta_ads_integrations')
+            .delete()
+            .eq('user_id', user_id);
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[Meta Ads] Erro ao desconectar:', err);
+        res.status(500).json({ error: err.message || 'Erro ao desconectar.' });
+    }
+});
+
+// ==============================================================================
 // 3. BUSCAR DADOS (Usando Token do Banco)
 // ==============================================================================
 

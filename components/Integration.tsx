@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../App';
 import { initiateGoogleAdsAuth, exchangeCodeForToken, selectGoogleAdsAccount, checkGoogleAdsStatus, listMccChildren } from '../services/googleAdsService';
+import { initiateMetaAdsAuth, exchangeMetaCode, selectMetaAccount, getMetaAdsStatus, disconnectMetaAds } from '../services/metaAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
 // import { initInstance, logoutInstance, checkStatus, configureInstance } from '../services/whatsappService'; // REMOVIDO
@@ -22,10 +23,17 @@ const GoogleIcon = ({ size = 20 }: { size?: number }) => (
   </svg>
 );
 
+const MetaIcon = ({ size = 24 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="text-blue-500">
+    <path d="M16.5 6C14.58 6 12.92 7.07 12 8.66 11.08 7.07 9.42 6 7.5 6 4.46 6 2 8.46 2 11.5S4.46 17 7.5 17c1.92 0 3.58-1.07 4.5-2.66.92 1.59 2.58 2.66 4.5 2.66 3.04 0 5.5-2.46 5.5-5.5S19.54 6 16.5 6zm-9 9C5.57 15 4 13.43 4 11.5S5.57 8 7.5 8c1.33 0 2.47.74 3.07 1.84A4.954 4.954 0 0 0 10 11.5c0 .64.12 1.25.33 1.81C9.72 14.36 8.65 15 7.5 15zm9 0c-1.15 0-2.22-.64-2.83-1.69.21-.56.33-1.17.33-1.81 0-.64-.12-1.25-.33-1.81C14.28 8.74 15.42 8 16.5 8c1.93 0 3.5 1.57 3.5 3.5S18.43 15 16.5 15z"/>
+  </svg>
+);
+
 const Integration: React.FC = () => {
   const { 
     googleCalendarToken, googleAdsToken, setGoogleAdsToken, setGoogleCalendarToken, 
     googleSheetsToken, setGoogleSheetsToken, 
+    metaAdsStatus, setMetaAdsStatus,
     // whatsappConfig, setWhatsappConfig, // REMOVIDO
     user 
   } = useApp();
@@ -37,6 +45,11 @@ const Integration: React.FC = () => {
   const [availableAccounts, setAvailableAccounts] = useState<any[]>([]);
   const [accountName, setAccountName] = useState<string>('');
   const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null);
+
+  // Meta Ads states
+  const [showMetaAccountSelector, setShowMetaAccountSelector] = useState(false);
+  const [availableMetaAccounts, setAvailableMetaAccounts] = useState<any[]>([]);
+  const [metaAccountName, setMetaAccountName] = useState<string>('');
 
   // States WhatsApp (REMOVIDO)
   /*
@@ -571,6 +584,18 @@ const Integration: React.FC = () => {
                   localStorage.removeItem('google_ads_token');
               }
           });
+
+          getMetaAdsStatus(user.id).then(status => {
+              if (status.connected && status.status === 'active') {
+                  setMetaAdsStatus('backend-connected');
+                  setMetaAccountName(status.ad_account_name || '');
+              } else {
+                  setMetaAdsStatus(null);
+                  localStorage.removeItem('meta_ads_connected');
+              }
+          }).catch(err => {
+              console.error("Erro ao verificar status do Meta Ads:", err);
+          });
       }
   }, [user]);
 
@@ -579,8 +604,9 @@ const Integration: React.FC = () => {
       const checkForCode = async () => {
           const params = new URLSearchParams(window.location.search);
           const code = params.get('code');
+          const state = params.get('state') || '';
           
-          if (code && user) {
+          if (code && !state.startsWith('meta-ads-oauth') && user) {
               // Limpa a URL para evitar reprocessamento
               window.history.replaceState({}, document.title, window.location.pathname);
               
@@ -605,6 +631,42 @@ const Integration: React.FC = () => {
           }
       };
       checkForCode();
+  }, [user]);
+
+  // Check for Meta OAuth Code on Mount
+  useEffect(() => {
+      const checkForMetaCode = async () => {
+          const params = new URLSearchParams(window.location.search);
+          const code = params.get('code');
+          const state = params.get('state') || '';
+          
+          if (code && state.startsWith('meta-ads-oauth') && user) {
+              // Limpa a URL para evitar reprocessamento
+              window.history.replaceState({}, document.title, window.location.pathname);
+              
+              setLoading('meta-ads');
+              try {
+                  const result = await exchangeMetaCode(code, user.id);
+                  
+                  if (result.mode === 'selection_required') {
+                      setAvailableMetaAccounts(result.accounts || []);
+                      setShowMetaAccountSelector(true);
+                  } else if (result.ok) {
+                      setMetaAdsStatus('backend-connected'); 
+                      localStorage.setItem('meta_ads_connected', 'backend-connected');
+                      setMetaAccountName(result.account?.name || '');
+                      alert("Meta Ads conectado com sucesso!");
+                  } else {
+                      alert("Erro na conexão: " + (result.error || "Erro desconhecido"));
+                  }
+              } catch (error: any) {
+                  alert("Erro na conexão Meta Ads: " + error.message);
+              } finally {
+                  setLoading(null);
+              }
+          }
+      };
+      checkForMetaCode();
   }, [user]);
 
   // Handle Account Selection
@@ -735,6 +797,53 @@ const Integration: React.FC = () => {
       setAccountName('');
   };
 
+  const handleMetaLogin = async () => { 
+      setLoading('meta-ads'); 
+      try { 
+          if (user) {
+              await initiateMetaAdsAuth(user.id); 
+          }
+      } catch (error: any) { 
+          alert("Erro Meta Ads Auth: " + error.message); 
+          setLoading(null); 
+      } 
+  };
+
+  const handleMetaLogout = async () => { 
+      if (user) {
+          setLoading('meta-ads-disconnect');
+          try {
+              await disconnectMetaAds(user.id);
+              setMetaAdsStatus(null); 
+              localStorage.removeItem('meta_ads_connected');
+              setMetaAccountName('');
+              alert("Meta Ads desconectado com sucesso!");
+          } catch (error: any) {
+              alert("Erro ao desconectar: " + error.message);
+          } finally {
+              setLoading(null);
+          }
+      }
+  };
+
+  const handleMetaAccountSelect = async (adAccountId: string, accName: string) => {
+      if (!user) return;
+      setLoading('meta-ads-select');
+
+      try {
+          await selectMetaAccount(user.id, adAccountId);
+          setMetaAdsStatus('backend-connected');
+          localStorage.setItem('meta_ads_connected', 'backend-connected');
+          setMetaAccountName(accName);
+          setShowMetaAccountSelector(false);
+          alert(`Conta "${accName}" vinculada com sucesso ao Meta Ads!`);
+      } catch (error: any) {
+          alert("Erro ao selecionar conta Meta Ads: " + error.message);
+      } finally {
+          setLoading(null);
+      }
+  };
+
   // Handlers legados
   const handleCalendarLogin = async () => { setLoading('calendar'); try { await signInWithGoogleCalendar(); } catch (e: any) { alert(e.message); setLoading(null); } };
   const handleCalendarLogout = () => { localStorage.removeItem('google_calendar_token'); setGoogleCalendarToken(null); window.location.reload(); };
@@ -787,13 +896,52 @@ const Integration: React.FC = () => {
           </div>
       )}
 
+      {/* MODAL DE SELEÇÃO DE CONTA META ADS */}
+      {showMetaAccountSelector && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/80 backdrop-blur-md animate-in fade-in">
+              <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95">
+                  <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                      <h3 className="text-lg font-bold text-navy">Selecione a Conta de Anúncios Meta Ads</h3>
+                      <p className="text-xs text-slate-500 mt-1">Encontramos múltiplas contas vinculadas ao seu perfil do Facebook.</p>
+                  </div>
+                  <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-2">
+                      {availableMetaAccounts.map((acc) => (
+                          <button 
+                            key={acc.id} 
+                            onClick={() => handleMetaAccountSelect(acc.id, acc.name)}
+                            disabled={loading === 'meta-ads-select'}
+                            className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-all group flex items-center justify-between"
+                          >
+                              <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-white border border-slate-100 rounded-lg text-slate-400 group-hover:text-blue-500"><Building2 size={20}/></div>
+                                  <div>
+                                      <p className="text-sm font-bold text-navy flex items-center gap-2">
+                                          {acc.name}
+                                      </p>
+                                      {acc.business_name && (
+                                          <p className="text-[10px] text-slate-500">Empresa: {acc.business_name}</p>
+                                      )}
+                                      <p className="text-[10px] text-slate-400 font-mono">ID: {acc.id} • Moeda: {acc.currency || 'BRL'}</p>
+                                  </div>
+                              </div>
+                              <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500"/>
+                          </button>
+                      ))}
+                  </div>
+                  <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
+                      <button onClick={() => setShowMetaAccountSelector(false)} className="text-xs font-bold text-slate-400 hover:text-rose-500">Cancelar Conexão</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* DASHBOARD STATUS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-in fade-in duration-500">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-500">
         {[
             { id: 'google-ads', label: 'Google Ads', active: !!googleAdsToken, icon: <GoogleIcon size={18} /> },
+            { id: 'meta-ads', label: 'Meta Ads', active: !!metaAdsStatus, icon: <MetaIcon size={18} /> },
             { id: 'calendar', label: 'G. Calendar', active: !!googleCalendarToken, icon: <Calendar size={18} className={!!googleCalendarToken ? 'text-amber-500' : ''} /> },
             { id: 'sheets', label: 'G. Sheets', active: !!googleSheetsToken, icon: <FileSpreadsheet size={18} className={!!googleSheetsToken ? 'text-emerald-500' : ''} /> },
-            // { id: 'wpp', label: 'WhatsApp', active: !!whatsappConfig?.isConnected, icon: <MessageCircle size={18} className={!!whatsappConfig?.isConnected ? 'text-emerald-500' : ''} /> }, // REMOVIDO
         ].map((item) => (
             <div key={item.id} className={`p-4 rounded-2xl border flex items-center justify-between transition-all ${item.active ? 'bg-emerald-50/50 border-emerald-100 shadow-sm' : 'bg-white border-slate-100 opacity-60 grayscale-[0.5]'}`}>
                 <div className="flex items-center gap-3"><div className={`p-2 rounded-xl ${item.active ? 'bg-white shadow-sm' : 'bg-slate-50 text-slate-400'}`}>{item.icon}</div><div><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{item.label}</p><p className={`text-xs font-black ${item.active ? 'text-emerald-600' : 'text-slate-400'}`}>{item.active ? 'Conectado' : 'Pendente'}</p></div></div>
@@ -859,6 +1007,32 @@ const Integration: React.FC = () => {
             ) : (
               <button onClick={handleGoogleLogin} disabled={!!loading} className={`mt-auto w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${loading === 'google-ads' ? 'bg-slate-100 text-slate-400' : 'bg-navy text-white hover:bg-slate-800 shadow-lg shadow-navy/20'}`}>
                 {loading === 'google-ads' ? <Loader2 size={14} className="animate-spin" /> : 'Conectar Google Ads'}
+              </button>
+            )}
+        </div>
+
+        {/* META ADS CARD */}
+        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${metaAdsStatus ? 'border-emerald-100 ring-1 ring-emerald-50 col-span-1 md:col-span-2' : 'border-slate-200 hover:border-navy'}`}>
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MetaIcon size={24} /></div>
+              {metaAdsStatus ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
+            </div>
+            <h3 className="font-black text-navy text-sm uppercase tracking-widest">Meta Ads</h3>
+            <p className="text-[10px] text-slate-400 mt-1 mb-4">Conexão segura (OAuth 2.0) com salvamento de tokens e listagem de contas.</p>
+            {metaAdsStatus ? (
+               <div className="mt-auto space-y-3">
+                   <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
+                        <div>
+                            <p className="text-[10px] font-bold text-emerald-800">Sincronização Ativa</p>
+                            {metaAccountName && <p className="text-[9px] text-emerald-600 truncate max-w-[150px]">{metaAccountName}</p>}
+                        </div>
+                   </div>
+                   <button onClick={handleMetaLogin} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-all"><RefreshCw size={12} /> Trocar Conta</button>
+                   <button onClick={handleMetaLogout} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><LogOut size={12} /> Desconectar</button>
+               </div>
+            ) : (
+              <button onClick={handleMetaLogin} disabled={!!loading} className={`mt-auto w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${loading === 'meta-ads' ? 'bg-slate-100 text-slate-400' : 'bg-navy text-white hover:bg-slate-800 shadow-lg shadow-navy/20'}`}>
+                {loading === 'meta-ads' ? <Loader2 size={14} className="animate-spin" /> : 'Conectar Meta Ads'}
               </button>
             )}
         </div>

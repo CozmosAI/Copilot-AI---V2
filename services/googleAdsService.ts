@@ -305,6 +305,15 @@ export const checkGoogleAdsStatus = async (userId: string) => {
     }
 };
 
+export const checkGoogleAdsAlerts = async (userId: string) => {
+    try {
+        return await apiCall('/api/google-ads/check-alerts', { user_id: userId });
+    } catch (error) {
+        console.error("Erro ao verificar alertas do Google Ads:", error);
+        return { ok: false, alerts: [] };
+    }
+};
+
 // Deprecated
 export const signInWithGoogleAds = async () => {
     console.warn("Use initiateGoogleAdsAuth() agora.");

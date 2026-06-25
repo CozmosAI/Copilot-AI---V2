@@ -218,3 +218,40 @@ begin
   begin alter publication supabase_realtime add table appointments; exception when duplicate_object then null; end;
 end;
 $$;
+
+-- ==============================================================================
+-- 7. TABELA META_ADS_INTEGRATIONS (Fase 1)
+-- ==============================================================================
+create table if not exists meta_ads_integrations (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references auth.users(id) on delete cascade not null unique,
+  access_token text not null,
+  refresh_token text,
+  ad_account_id text,
+  ad_account_name text,
+  status text default 'pending_selection', -- active, pending_selection, expired
+  token_expires_at timestamp with time zone,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
+);
+
+-- Habilita RLS em meta_ads_integrations
+alter table meta_ads_integrations enable row level security;
+
+-- Policies para meta_ads_integrations
+drop policy if exists "Users can view own meta_ads" on meta_ads_integrations;
+drop policy if exists "Users can insert own meta_ads" on meta_ads_integrations;
+drop policy if exists "Users can update own meta_ads" on meta_ads_integrations;
+drop policy if exists "Users can delete own meta_ads" on meta_ads_integrations;
+
+create policy "Users can view own meta_ads" on meta_ads_integrations for select using (auth.uid() = user_id);
+create policy "Users can insert own meta_ads" on meta_ads_integrations for insert with check (auth.uid() = user_id);
+create policy "Users can update own meta_ads" on meta_ads_integrations for update using (auth.uid() = user_id);
+create policy "Users can delete own meta_ads" on meta_ads_integrations for delete using (auth.uid() = user_id);
+
+-- Adiciona meta_ads_integrations ao publication realtime
+do $$
+begin
+  begin alter publication supabase_realtime add table meta_ads_integrations; exception when duplicate_object then null; end;
+end;
+$$;
