@@ -346,6 +346,7 @@ app.get('/api/google-ads/status/:userId', async (req, res) => {
 // 2.3 META ADS INTEGRATION ROUTES (Fase 1)
 // ==============================================================================
 
+const META_CONFIG_ID = process.env.META_CONFIG_ID;
 const META_APP_ID = process.env.META_APP_ID;
 const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_API_VERSION = process.env.META_API_VERSION || 'v25.0';
@@ -396,14 +397,14 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
     const params = new URLSearchParams({
         client_id: META_APP_ID,
         redirect_uri: finalRedirectUri,
-        scope: 'ads_read',
+        config_id: META_CONFIG_ID,
         state: state,
         response_type: 'code'
     });
 
     const url = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`;
     
-    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}`);
+    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, config_id: ${META_CONFIG_ID ? 'presente' : 'AUSENTE'}`);
     res.json({ ok: true, url });
 });
 
@@ -425,7 +426,6 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
         // 2.1 Trocar code por short-lived token
         const shortLivedUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?` + new URLSearchParams({
             client_id: META_APP_ID,
-            redirect_uri: finalRedirectUri,
             client_secret: META_APP_SECRET,
             code: code
         }).toString();
