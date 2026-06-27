@@ -391,7 +391,8 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
         return res.status(500).json({ error: 'META_APP_ID não configurado no backend.' });
     }
 
-    const finalRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+    const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+    const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
     const state = `meta-ads-oauth-${user_id}`;
     
     const params = new URLSearchParams({
@@ -404,7 +405,7 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
 
     const url = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`;
     
-    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, config_id: ${META_CONFIG_ID ? 'presente' : 'AUSENTE'}`);
+    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, config_id: ${META_CONFIG_ID ? 'presente' : 'AUSENTE'}, redirect_uri: ${finalRedirectUri}`);
     res.json({ ok: true, url });
 });
 
@@ -421,7 +422,8 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
     }
 
     try {
-        const finalRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+        const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+        const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
 
         // 2.1 Trocar code por short-lived token
         const shortLivedUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?` + new URLSearchParams({
