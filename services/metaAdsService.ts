@@ -103,12 +103,13 @@ export const getMetaAdsStatus = async (userId: string): Promise<MetaAdsSafeStatu
     const data = await safeJsonResponse(response);
 
     if (!response.ok) {
-      console.error('[Meta Ads] Status retornou erro:', getErrorMessage(data, 'Erro ao verificar status.'));
+      const errorMsg = getErrorMessage(data, 'Erro HTTP ao verificar status do Meta Ads.');
+      console.error('[Meta Ads] Status retornou erro HTTP:', errorMsg, 'Detalhes:', data);
       return {
         ok: false,
         connected: false,
         status: 'error',
-        error: 'Não foi possível verificar status do Meta Ads.',
+        error: errorMsg,
       };
     }
 
@@ -121,9 +122,18 @@ export const getMetaAdsStatus = async (userId: string): Promise<MetaAdsSafeStatu
           ok: false,
           connected: false,
           status: 'error',
-          error: 'Não foi possível verificar status do Meta Ads.',
+          error: 'O servidor retornou uma resposta inválida (HTML). Verifique as configurações de ambiente do servidor.',
         };
       }
+
+      console.warn('[Meta Ads] Resposta de status contém um erro:', data.error);
+      return {
+        ok: false,
+        connected: false,
+        status: 'error',
+        error: data.error,
+        ...data,
+      };
     }
 
     return {
@@ -132,13 +142,13 @@ export const getMetaAdsStatus = async (userId: string): Promise<MetaAdsSafeStatu
       status: data?.status || (data?.connected ? 'active' : 'disconnected'),
       ...data,
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Meta Ads] Erro ao verificar status:', err);
     return {
       ok: false,
       connected: false,
       status: 'error',
-      error: 'Não foi possível verificar status do Meta Ads.',
+      error: err?.message || 'Não foi possível verificar o status do Meta Ads devido a um erro de conexão.',
     };
   }
 };

@@ -50,6 +50,24 @@ const Integration: React.FC = () => {
   const [showMetaAccountSelector, setShowMetaAccountSelector] = useState(false);
   const [availableMetaAccounts, setAvailableMetaAccounts] = useState<any[]>([]);
   const [metaAccountName, setMetaAccountName] = useState<string>('');
+  const [metaConnectionError, setMetaConnectionError] = useState<{ type: string; title: string; desc: string } | null>(null);
+
+  // Toast notifications state
+  interface Toast {
+    id: string;
+    message: string;
+    description?: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+  }
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info', description?: string) => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, message, type, description }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 7000); // 7 seconds duration for detailed explanations
+  };
 
   // States WhatsApp (REMOVIDO)
   /*
@@ -640,6 +658,33 @@ const Integration: React.FC = () => {
           const code = params.get('code');
           const state = params.get('state') || '';
           
+          // Captura erros retornados na URL pelo Facebook OAuth
+          const errorParam = params.get('error');
+          const errorDesc = params.get('error_description') || params.get('error_message') || '';
+          
+          if (errorParam && state.startsWith('meta-ads-oauth')) {
+              // Limpa a URL para evitar reprocessamento
+              window.history.replaceState({}, document.title, window.location.pathname);
+              
+              let friendlyTitle = "Falha na Conexão do Meta Ads";
+              let friendlyDesc = errorDesc || "Ocorreu um erro desconhecido durante o login com o Facebook.";
+              let errType = 'other';
+              
+              if (errorParam === 'access_denied') {
+                  friendlyTitle = "Conexão Cancelada";
+                  friendlyDesc = "Você cancelou a autorização ou recusou conceder as permissões necessárias para o Meta Ads.";
+                  errType = 'cancel';
+              } else if (errorParam.includes('redirect_uri_mismatch') || errorDesc.toLowerCase().includes('redirect_uri') || errorDesc.toLowerCase().includes('redirect uri')) {
+                  friendlyTitle = "Erro de URI de Redirecionamento (Redirect URI)";
+                  friendlyDesc = "A URL de redirecionamento enviada pelo aplicativo Meta Ads não coincide com a cadastrada na plataforma de desenvolvedores do Facebook. Verifique as configurações de URI no painel do Facebook Business.";
+                  errType = 'redirect_uri_mismatch';
+              }
+              
+              setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
+              showToast(friendlyTitle, 'error', friendlyDesc);
+              return;
+          }
+          
           if (code && state.startsWith('meta-ads-oauth') && user) {
               // Limpa a URL para evitar reprocessamento
               window.history.replaceState({}, document.title, window.location.pathname);
@@ -649,18 +694,48 @@ const Integration: React.FC = () => {
                   const result = await exchangeMetaCode(code, user.id);
                   
                   if (result.mode === 'selection_required') {
+                      setMetaConnectionError(null);
                       setAvailableMetaAccounts(result.accounts || []);
                       setShowMetaAccountSelector(true);
+                      showToast("Contas Carregadas", "info", "Múltiplas contas encontradas. Selecione qual conta de anúncios deseja vincular.");
                   } else if (result.ok) {
+                      setMetaConnectionError(null);
                       setMetaAdsStatus('backend-connected'); 
                       localStorage.setItem('meta_ads_connected', 'backend-connected');
                       setMetaAccountName(result.account?.name || '');
-                      alert("Meta Ads conectado com sucesso!");
+                      showToast("Meta Ads Conectado", "success", `Sua conta "${result.account?.name || 'Meta Ads'}" foi integrada com sucesso.`);
                   } else {
-                      alert("Erro na conexão: " + (result.error || "Erro desconhecido"));
+                      const errMsg = result.error || "Erro desconhecido";
+                      let friendlyTitle = "Erro de Sincronização";
+                      let friendlyDesc = errMsg;
+                      let errType = 'other';
+                      
+                      if (errMsg.includes('redirect_uri_mismatch') || errMsg.toLowerCase().includes('redirect_uri') || errMsg.toLowerCase().includes('redirect uri')) {
+                          friendlyTitle = "Divergência de URI de Redirecionamento";
+                          friendlyDesc = "O Facebook recusou a troca de token por uma divergência na URI de redirecionamento cadastrada. Certifique-se de que a URL " + window.location.origin + " está adicionada como URI válida de redirecionamento OAuth nas configurações do Facebook Login do seu aplicativo Meta Ads.";
+                          errType = 'redirect_uri_mismatch';
+                      }
+                      setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
+                      showToast(friendlyTitle, 'error', friendlyDesc);
                   }
               } catch (error: any) {
-                  alert("Erro na conexão Meta Ads: " + error.message);
+                  const errorMsg = error.message || '';
+                  let friendlyTitle = "Falha no Exchange Meta Ads";
+                  let friendlyDesc = errorMsg;
+                  let errType = 'other';
+                  
+                  if (errorMsg.includes('redirect_uri_mismatch') || errorMsg.includes('redirect_uri') || errorMsg.toLowerCase().includes('redirect uri')) {
+                      friendlyTitle = "Redirect URI Mismatch";
+                      friendlyDesc = "O Facebook recusou a autenticação devido a um erro de redirect_uri_mismatch. A URL " + window.location.origin + " precisa ser adicionada exatamente igual no campo 'URIs de redirecionamento do OAuth válidas' do Facebook Login do seu aplicativo no Meta for Developers.";
+                      errType = 'redirect_uri_mismatch';
+                  } else if (errorMsg.includes('client_id') || errorMsg.includes('app_id') || errorMsg.toLowerCase().includes('configura') || errorMsg.includes('META_CONFIG_ID')) {
+                      friendlyTitle = "Erro de Configuração do App";
+                      friendlyDesc = "Verifique se o META_APP_ID, META_APP_SECRET e META_CONFIG_ID estão corretamente preenchidos no arquivo de variáveis de ambiente (.env).";
+                      errType = 'configuration';
+                  }
+                  
+                  setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
+                  showToast(friendlyTitle, 'error', friendlyDesc);
               } finally {
                   setLoading(null);
               }
@@ -799,12 +874,25 @@ const Integration: React.FC = () => {
 
   const handleMetaLogin = async () => { 
       setLoading('meta-ads'); 
+      setMetaConnectionError(null);
       try { 
           if (user) {
               await initiateMetaAdsAuth(user.id); 
           }
       } catch (error: any) { 
-          alert("Erro Meta Ads Auth: " + error.message); 
+          const errorMsg = error.message || '';
+          let friendlyTitle = "Falha ao Iniciar Autenticação";
+          let friendlyDesc = errorMsg;
+          let errType = 'other';
+          
+          if (errorMsg.includes('redirect_uri_mismatch') || errorMsg.includes('redirect_uri') || errorMsg.toLowerCase().includes('redirect uri')) {
+              friendlyTitle = "URI de Redirecionamento Rejeitada";
+              friendlyDesc = "O Facebook rejeitou o redirecionamento. O link " + window.location.origin + " precisa estar cadastrado exatamente no painel de desenvolvedores do Facebook.";
+              errType = 'redirect_uri_mismatch';
+          }
+          
+          setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
+          showToast(friendlyTitle, 'error', friendlyDesc); 
           setLoading(null); 
       } 
   };
@@ -817,9 +905,10 @@ const Integration: React.FC = () => {
               setMetaAdsStatus(null); 
               localStorage.removeItem('meta_ads_connected');
               setMetaAccountName('');
-              alert("Meta Ads desconectado com sucesso!");
+              setMetaConnectionError(null);
+              showToast("Meta Ads Desconectado", "success", "Sua integração com o Meta Ads foi removida com sucesso.");
           } catch (error: any) {
-              alert("Erro ao desconectar: " + error.message);
+              showToast("Erro ao Desconectar", "error", error.message || "Não foi possível remover a conexão do Meta Ads.");
           } finally {
               setLoading(null);
           }
@@ -836,9 +925,9 @@ const Integration: React.FC = () => {
           localStorage.setItem('meta_ads_connected', 'backend-connected');
           setMetaAccountName(accName);
           setShowMetaAccountSelector(false);
-          alert(`Conta "${accName}" vinculada com sucesso ao Meta Ads!`);
+          showToast("Conta Vinculada", "success", `A conta de anúncios "${accName}" foi configurada com êxito para sincronização de dados.`);
       } catch (error: any) {
-          alert("Erro ao selecionar conta Meta Ads: " + error.message);
+          showToast("Erro ao Selecionar Conta", "error", error.message || "Não foi possível vincular esta conta de anúncios.");
       } finally {
           setLoading(null);
       }
@@ -854,6 +943,45 @@ const Integration: React.FC = () => {
 
   return (
     <div className="space-y-8 pb-20 relative">
+      {/* FLOATING TOAST NOTIFICATIONS */}
+      <div className="fixed top-4 right-4 z-50 pointer-events-none space-y-3 max-w-sm w-full">
+        {toasts.map(toast => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto p-4 rounded-2xl border shadow-2xl flex gap-3 items-start transition-all duration-300 animate-in slide-in-from-right-5 ${
+              toast.type === 'error'
+                ? 'bg-rose-50 border-rose-100 text-rose-800 shadow-rose-100/40'
+                : toast.type === 'success'
+                ? 'bg-emerald-50 border-emerald-100 text-emerald-800 shadow-emerald-100/40'
+                : toast.type === 'warning'
+                ? 'bg-amber-50 border-amber-100 text-amber-800 shadow-amber-100/40'
+                : 'bg-white border-slate-100 text-slate-800 shadow-slate-100/40'
+            }`}
+          >
+            <div className="mt-0.5 shrink-0">
+              {toast.type === 'error' && <AlertCircle className="text-rose-500" size={18} />}
+              {toast.type === 'success' && <CheckCircle2 className="text-emerald-500" size={18} />}
+              {toast.type === 'warning' && <AlertCircle className="text-amber-500" size={18} />}
+              {toast.type === 'info' && <Activity className="text-blue-500" size={18} />}
+            </div>
+            <div className="flex-1">
+              <h4 className="text-xs font-bold font-sans tracking-wide uppercase leading-tight">{toast.message}</h4>
+              {toast.description && (
+                <p className="text-[11px] opacity-90 mt-1 leading-relaxed font-sans">
+                  {toast.description}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              className="text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
       <header className="flex justify-between items-end">
         <div><h2 className="text-2xl font-bold text-navy">Central de Conexões</h2><p className="text-slate-500 text-sm">Gerencie o acesso às suas fontes de dados.</p></div>
         <div className="hidden md:flex items-center gap-2 text-xs font-bold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-200"><Activity size={14} className="text-emerald-500" /> Status do Sistema: Online</div>
@@ -1019,6 +1147,31 @@ const Integration: React.FC = () => {
             </div>
             <h3 className="font-black text-navy text-sm uppercase tracking-widest">Meta Ads</h3>
             <p className="text-[10px] text-slate-400 mt-1 mb-4">Conexão segura (OAuth 2.0) com salvamento de tokens e listagem de contas.</p>
+            
+            {metaConnectionError && !metaAdsStatus && (
+              <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-2xl mb-4 text-rose-800 text-[11px] leading-relaxed space-y-1 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-1.5 font-bold text-rose-900">
+                  <AlertCircle size={14} className="shrink-0 text-rose-600" />
+                  <span>{metaConnectionError.title}</span>
+                </div>
+                <p className="opacity-90 text-[10px]">{metaConnectionError.desc}</p>
+                <div className="pt-1.5 border-t border-rose-100 mt-1.5 flex items-center justify-between">
+                  <span className="text-[9px] font-bold uppercase text-rose-900">Configuração Sugerida:</span>
+                  <button 
+                    onClick={() => setMetaConnectionError(null)} 
+                    className="text-[9px] font-black underline uppercase text-rose-600 hover:text-rose-800"
+                  >
+                    Ocultar Erro
+                  </button>
+                </div>
+                <p className="text-[10px] bg-white/70 p-2 rounded-lg border border-rose-100/50 text-slate-600 mt-1">
+                  💡 {metaConnectionError.type === 'redirect_uri_mismatch' 
+                    ? `Certifique-se de que a URL "${window.location.origin}" foi adicionada como URI de redirecionamento do OAuth válida no painel Meta for Developers do seu aplicativo.`
+                    : "Verifique se META_APP_ID, META_APP_SECRET e META_CONFIG_ID estão corretamente configurados nas chaves de ambiente (.env)."}
+                </p>
+              </div>
+            )}
+
             {metaAdsStatus ? (
                <div className="mt-auto space-y-3">
                    <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
