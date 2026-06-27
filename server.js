@@ -426,10 +426,12 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
         // 2.1 Trocar code por short-lived token
         const shortLivedUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?` + new URLSearchParams({
             client_id: META_APP_ID,
+            redirect_uri: finalRedirectUri,
             client_secret: META_APP_SECRET,
             code: code
         }).toString();
 
+        console.log(`[Meta Ads] Exchange - redirect_uri: ${finalRedirectUri}`);
         const shortResp = await fetch(shortLivedUrl);
         const shortData = await shortResp.json();
         
