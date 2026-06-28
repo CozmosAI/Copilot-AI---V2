@@ -623,7 +623,7 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
 
         const longToken = longData.access_token;
         const expires_in = longData.expires_in;
-        const tokenExpiresAt = expires_in ? new Date(Date.now() + expires_in * 1000) : null;
+        const tokenExpiresAt = expires_in ? Date.now() + expires_in * 1000 : null;
 
         console.log(`[Meta Ads] Token trocado com sucesso para user ${user_id}`);
 
