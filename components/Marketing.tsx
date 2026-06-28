@@ -4,7 +4,7 @@ import {
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
   ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save, Bell,
-  FileUp, Download
+  FileUp, Download, Image as ImageIcon
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, Brush, ComposedChart, Bar
@@ -156,7 +156,7 @@ const Marketing: React.FC = () => {
   // --- ALERTS SYSTEM ---
   useEffect(() => {
       const fetchAlerts = async () => {
-          if (!user) return;
+          if (!user || !googleAdsToken) return;
           try {
               const data = await checkGoogleAdsAlerts(user.id);
               if (data.alerts) {
@@ -400,6 +400,7 @@ const Marketing: React.FC = () => {
 
   // MCC Check
   useEffect(() => {
+      if (!googleAdsToken) return;
       if (user && dateFilter.start && dateFilter.end) {
           getGoogleMccOverview(user.id, dateFilter).then(accounts => {
               if (accounts && accounts.length > 0) {
@@ -1550,11 +1551,12 @@ const Marketing: React.FC = () => {
                                     <thead className="bg-slate-50 border-b border-slate-200">
                                         <tr>
                                             {[
+                                                ...(activePlatform === 'meta' ? [{ k: 'preview', l: 'Preview' }] : []),
                                                 { k: 'headlines', l: 'Anúncio (Títulos)' }, { k: 'campaignName', l: 'Campanha' }, { k: 'adGroupName', l: 'Grupo' },
                                                 { k: 'status', l: 'Status' }, { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
-                                                    <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
+                                                <th key={h.k} onClick={() => h.k !== 'preview' ? handleSort(h.k) : undefined} className={`px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap ${h.k !== 'preview' ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}>
+                                                    <div className="flex items-center gap-1">{h.l} {h.k !== 'preview' && renderSortIcon(h.k)}</div>
                                                 </th>
                                             ))}
                                         </tr>
@@ -1562,6 +1564,17 @@ const Marketing: React.FC = () => {
                                     <tbody className="divide-y divide-slate-100">
                                         {sortData(filteredAds).map((ad, i) => (
                                             <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                {activePlatform === 'meta' && (
+                                                    <td className="px-6 py-4">
+                                                        {ad.imageUrl ? (
+                                                            <img src={ad.imageUrl} alt={ad.headlines || 'Ad Preview'} className="w-12 h-12 rounded object-cover border border-slate-200" />
+                                                        ) : (
+                                                            <div className="w-12 h-12 rounded bg-slate-100 flex items-center justify-center border border-slate-200 text-slate-400">
+                                                                <ImageIcon size={20} />
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                )}
                                                 <td className="px-6 py-4 text-sm font-medium text-slate-900 max-w-xs truncate" title={ad.headlines}>{ad.headlines}</td>
                                                 <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ad.campaignName}</td>
                                                 <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ad.adGroupName}</td>

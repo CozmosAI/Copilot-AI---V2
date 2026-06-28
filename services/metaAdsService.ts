@@ -269,7 +269,11 @@ export const getMetaAds = async (userId: string, dateRange?: { start: string, en
       clicks: parseInt(row.clicks) || 0,
       impressions: parseInt(row.impressions) || 0,
       spend: parseFloat(row.spend) || 0,
-      conversions: parseInt(row.conversions) || 0
+      conversions: parseInt(row.conversions) || 0,
+      imageUrl: row.imageUrl,
+      videoId: row.videoId,
+      body: row.body,
+      title: row.title
     }));
   } catch (error) {
     console.error("Erro ao buscar anúncios Meta:", error);

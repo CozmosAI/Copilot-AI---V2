@@ -1085,7 +1085,7 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const adsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/ads?` + new URLSearchParams({
-            fields: `id,name,status,adset{id,name},campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            fields: `id,name,status,adset{id,name},campaign{id,name},adcreatives{image_url,thumbnail_url,video_id,body,title},insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -1118,6 +1118,8 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 
             console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
 
+            const adCreative = ad.adcreatives?.data?.[0] || {};
+
             return {
                 id: ad.id,
                 name: ad.name,
@@ -1127,7 +1129,11 @@ app.post('/api/meta-ads/ads', async (req, res) => {
                 spend: parsedSpend,
                 impressions: parsedImpressions,
                 clicks: parsedClicks,
-                conversions: parsedConversions
+                conversions: parsedConversions,
+                imageUrl: adCreative.image_url || adCreative.thumbnail_url || null,
+                videoId: adCreative.video_id || null,
+                body: adCreative.body || null,
+                title: adCreative.title || null
             };
         });
 
@@ -1633,6 +1639,9 @@ app.post('/api/google-ads/mcc-overview', async (req, res) => {
         res.json({ results: formattedResults });
 
     } catch (error) {
+        if (error.message?.includes('Integração não encontrada') || error.message?.includes('Seleção de conta pendente')) {
+            return res.status(200).json({ results: [] });
+        }
         console.error("MCC Overview Error:", error);
         res.status(500).json({ error: error.message });
     }
@@ -1773,6 +1782,9 @@ app.post('/api/google-ads/check-alerts', async (req, res) => {
         res.json({ ok: true, alerts });
 
     } catch (error) {
+        if (error.message?.includes('Integração não encontrada') || error.message?.includes('Seleção de conta pendente')) {
+            return res.status(200).json({ ok: true, alerts: [] });
+        }
         console.error("Alert Check Error:", error);
         res.json({ ok: false, alerts: [], error: "Não foi possível verificar alertas do Google Ads no momento." });
     }
