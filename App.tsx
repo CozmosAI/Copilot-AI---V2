@@ -133,6 +133,48 @@ const App: React.FC = () => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [dateFilter, setInternalDateFilter] = useState<DateRange>(calculateRange('7 dias'));
   
+  // Pending Accounts state
+  const [pendingMetaAccounts, setPendingMetaAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_meta_accounts') || '[]'));
+  const [pendingGoogleAccounts, setPendingGoogleAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_google_accounts') || '[]'));
+  const [showPendingMetaModal, setShowPendingMetaModal] = useState<boolean>(() => localStorage.getItem('show_meta_modal') === 'true');
+  const [showPendingGoogleModal, setShowPendingGoogleModal] = useState<boolean>(() => localStorage.getItem('show_google_modal') === 'true');
+
+  // Listen for updates from Integration.tsx
+  useEffect(() => {
+      const handleStorageChange = () => {
+          setPendingMetaAccounts(JSON.parse(localStorage.getItem('pending_meta_accounts') || '[]'));
+          setPendingGoogleAccounts(JSON.parse(localStorage.getItem('pending_google_accounts') || '[]'));
+          setShowPendingMetaModal(localStorage.getItem('show_meta_modal') === 'true');
+          setShowPendingGoogleModal(localStorage.getItem('show_google_modal') === 'true');
+      };
+      window.addEventListener('pending-accounts-updated', handleStorageChange);
+      return () => window.removeEventListener('pending-accounts-updated', handleStorageChange);
+  }, []);
+
+  // OAuth Callback Detection
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const state = params.get('state') || '';
+      const errorParam = params.get('error');
+
+      if ((code || errorParam) && (state.startsWith('meta-ads-oauth') || state.startsWith('google-ads'))) {
+          const provider = state.startsWith('meta-ads-oauth') ? 'meta' : 'google';
+          
+          // Navegar para Conexões e processar
+          setActiveSection(AppSection.INTEGRACAO);
+          
+          setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
+                  detail: { provider, code, errorParam, state } 
+              }));
+          }, 300);
+          
+          // Limpar URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+      }
+  }, []);
+
   // Data State
   const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -598,6 +640,27 @@ const App: React.FC = () => {
           <div className="max-w-[1600px] mx-auto pb-20">{renderContent()}</div>
         </main>
       </div>
+
+      {pendingMetaAccounts.length > 0 && !showPendingMetaModal && (
+        <div className="fixed bottom-4 right-4 z-50 bg-amber-500 text-white p-4 rounded-xl shadow-lg animate-pulse cursor-pointer" onClick={() => { setActiveSection(AppSection.INTEGRACAO); setTimeout(() => window.dispatchEvent(new CustomEvent('open-meta-selector')), 300); }}>
+            <p className="font-bold">Seleção pendente!</p>
+            <p className="text-sm">Meta Ads: escolha uma conta</p>
+            <button className="mt-2 bg-white text-amber-700 px-3 py-1 rounded font-bold text-xs">
+                Selecionar agora
+            </button>
+        </div>
+      )}
+
+      {pendingGoogleAccounts.length > 0 && !showPendingGoogleModal && (
+        <div className="fixed bottom-24 right-4 z-50 bg-amber-500 text-white p-4 rounded-xl shadow-lg animate-pulse cursor-pointer" onClick={() => { setActiveSection(AppSection.INTEGRACAO); setTimeout(() => window.dispatchEvent(new CustomEvent('open-google-selector')), 300); }}>
+            <p className="font-bold">Seleção pendente!</p>
+            <p className="text-sm">Google Ads: escolha uma conta</p>
+            <button className="mt-2 bg-white text-amber-700 px-3 py-1 rounded font-bold text-xs">
+                Selecionar agora
+            </button>
+        </div>
+      )}
+
     </AppContext.Provider>
   );
 };

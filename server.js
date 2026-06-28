@@ -883,6 +883,41 @@ async function getMetaCredentials(user_id) {
     };
 }
 
+const CONVERSION_TYPES = [
+    'offsite_conversion',
+    'offsite_conversion.fb_pixel_purchase',
+    'offsite_conversion.fb_pixel_lead',
+    'offsite_conversion.fb_pixel_add_to_cart',
+    'offsite_conversion.fb_pixel_complete_registration',
+    'offsite_conversion.fb_pixel_contact',
+    'purchase',
+    'lead',
+    'add_to_cart',
+    'complete_registration',
+    'contact',
+    'messenger_dialog_app_dialog_message_send',
+    'onsite_conversion.messaging_conversation_started_7d'
+];
+
+function extractConversions(insights) {
+    if (!insights?.actions) return 0;
+    
+    let total = 0;
+    for (const action of insights.actions) {
+        // Verifica se o action_type é um tipo de conversão relevante
+        // (começa com offsite_conversion, ou é um dos tipos específicos)
+        const isConversion = CONVERSION_TYPES.some(type => 
+            action.action_type === type || 
+            action.action_type.startsWith('offsite_conversion.')
+        );
+        
+        if (isConversion) {
+            total += parseInt(action.value || '0');
+        }
+    }
+    return total;
+}
+
 // 6. Rota POST /api/meta-ads/overview
 app.post('/api/meta-ads/overview', async (req, res) => {
     const { user_id, date_range } = req.body;
@@ -916,16 +951,13 @@ app.post('/api/meta-ads/overview', async (req, res) => {
 
         const rawResults = overviewData.data || [];
         const results = rawResults.map(item => {
-            const conversions = item.actions?.find(a => 
-                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
-            )?.value || '0';
+            const parsedConversions = extractConversions(item);
 
             const parsedSpend = parseFloat(item.spend || '0');
             const parsedImpressions = parseInt(item.impressions || '0');
             const parsedClicks = parseInt(item.clicks || '0');
-            const parsedConversions = parseInt(conversions);
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Overview Mapping] item spend: ${item.spend} -> parsed: ${parsedSpend}, impressions: ${item.impressions} -> parsed: ${parsedImpressions}, clicks: ${item.clicks} -> parsed: ${parsedClicks}, conversions: ${conversions} -> parsed: ${parsedConversions}`);
+            console.log(`[Meta Ads Dashboard] [DEBUG Overview Mapping] item spend: ${item.spend} -> parsed: ${parsedSpend}, impressions: ${item.impressions} -> parsed: ${parsedImpressions}, clicks: ${item.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             return {
                 date: item.date_start,
@@ -975,17 +1007,19 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
         const campaigns = campaignsData.data || [];
         const results = campaigns.map(c => {
             const insights = c.insights?.data?.[0] || {};
-            const conversions = insights.actions?.find(a => 
-                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
-            )?.value || '0';
+            
+            if (insights?.actions && insights.actions.length > 0) {
+                console.log(`[Meta Ads Debug] Actions encontradas:`, insights.actions.map(a => `${a.action_type}=${a.value}`).join(', '));
+            }
+            
+            const parsedConversions = extractConversions(insights);
 
             const parsedBudget = parseFloat(c.daily_budget || c.lifetime_budget || '0') / 100;
             const parsedSpend = parseFloat(insights.spend || '0');
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
-            const parsedConversions = parseInt(conversions);
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Campaigns Mapping] Campaign: ${c.name} (${c.id}), budget raw: ${c.daily_budget || c.lifetime_budget} -> parsed: ${parsedBudget}, spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
+            console.log(`[Meta Ads Dashboard] [DEBUG Campaigns Mapping] Campaign: ${c.name} (${c.id}), budget raw: ${c.daily_budget || c.lifetime_budget} -> parsed: ${parsedBudget}, spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             return {
                 id: c.id,
@@ -1044,16 +1078,13 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
 
         const results = adsetsList.map(adset => {
             const insights = adset.insights?.data?.[0] || {};
-            const conversions = insights.actions?.find(a => 
-                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
-            )?.value || '0';
+            const parsedConversions = extractConversions(insights);
 
             const parsedSpend = parseFloat(insights.spend || '0');
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
-            const parsedConversions = parseInt(conversions);
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Ad-Groups Mapping] AdSet: ${adset.name} (${adset.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
+            console.log(`[Meta Ads Dashboard] [DEBUG Ad-Groups Mapping] AdSet: ${adset.name} (${adset.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             return {
                 id: adset.id,
@@ -1107,16 +1138,13 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 
         const results = adsList.map(ad => {
             const insights = ad.insights?.data?.[0] || {};
-            const conversions = insights.actions?.find(a => 
-                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
-            )?.value || '0';
+            const parsedConversions = extractConversions(insights);
 
             const parsedSpend = parseFloat(insights.spend || '0');
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
-            const parsedConversions = parseInt(conversions);
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
+            console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             const adCreative = ad.adcreatives?.data?.[0] || {};
 

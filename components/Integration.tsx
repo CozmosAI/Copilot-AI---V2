@@ -41,16 +41,47 @@ const Integration: React.FC = () => {
   const [loading, setLoading] = useState<string | null>(null);
   
   // Google Ads Selection State
-  const [showAccountSelector, setShowAccountSelector] = useState(false);
-  const [availableAccounts, setAvailableAccounts] = useState<any[]>([]);
+  const [showAccountSelector, setShowAccountSelector] = useState(() => localStorage.getItem('show_google_modal') === 'true');
+  const [availableAccounts, setAvailableAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_google_accounts') || '[]'));
   const [accountName, setAccountName] = useState<string>('');
   const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null);
 
   // Meta Ads states
-  const [showMetaAccountSelector, setShowMetaAccountSelector] = useState(false);
-  const [availableMetaAccounts, setAvailableMetaAccounts] = useState<any[]>([]);
+  const [showMetaAccountSelector, setShowMetaAccountSelector] = useState(() => localStorage.getItem('show_meta_modal') === 'true');
+  const [availableMetaAccounts, setAvailableMetaAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_meta_accounts') || '[]'));
   const [metaAccountName, setMetaAccountName] = useState<string>('');
   const [metaConnectionError, setMetaConnectionError] = useState<{ type: string; title: string; desc: string } | null>(null);
+
+  useEffect(() => {
+      localStorage.setItem('show_google_modal', String(showAccountSelector));
+      localStorage.setItem('pending_google_accounts', JSON.stringify(availableAccounts));
+      localStorage.setItem('show_meta_modal', String(showMetaAccountSelector));
+      localStorage.setItem('pending_meta_accounts', JSON.stringify(availableMetaAccounts));
+      window.dispatchEvent(new Event('pending-accounts-updated'));
+  }, [showAccountSelector, availableAccounts, showMetaAccountSelector, availableMetaAccounts]);
+
+  // Open modal listeners
+  useEffect(() => {
+      const openMeta = () => setShowMetaAccountSelector(true);
+      const openGoogle = () => setShowAccountSelector(true);
+      
+      window.addEventListener('open-meta-selector', openMeta);
+      window.addEventListener('open-google-selector', openGoogle);
+      
+      return () => {
+          window.removeEventListener('open-meta-selector', openMeta);
+          window.removeEventListener('open-google-selector', openGoogle);
+      };
+  }, []);
+
+  // Warn on unmount if pending selection
+  useEffect(() => {
+      return () => {
+          if (showMetaAccountSelector || showAccountSelector) {
+              alert("Você tem uma seleção de conta pendente. Selecione uma conta ou cancele a conexão.");
+          }
+      };
+  }, [showMetaAccountSelector, showAccountSelector]);
 
   // Toast notifications state
   interface Toast {
@@ -617,131 +648,114 @@ const Integration: React.FC = () => {
       }
   }, [user]);
 
-  // Check for Google OAuth Code on Mount
+  // Handle OAuth Callback from Global Event
   useEffect(() => {
-      const checkForCode = async () => {
-          const params = new URLSearchParams(window.location.search);
-          const code = params.get('code');
-          const state = params.get('state') || '';
-          
-          if (code && !state.startsWith('meta-ads-oauth') && user) {
-              // Limpa a URL para evitar reprocessamento
-              window.history.replaceState({}, document.title, window.location.pathname);
-              
-              setLoading('google-ads');
-              try {
-                  const result = await exchangeCodeForToken(code, user.id);
-                  
-                  if (result.mode === 'selection_required') {
-                      setAvailableAccounts(result.accounts);
-                      setShowAccountSelector(true);
-                  } else {
-                      setGoogleAdsToken('backend-connected'); 
-                      localStorage.setItem('google_ads_token', 'backend-connected');
-                      setAccountName(result.account?.name || '');
-                      alert("Google Ads conectado com sucesso!");
-                  }
-              } catch (error: any) {
-                  alert("Erro na conexão: " + error.message);
-              } finally {
-                  setLoading(null);
-              }
-          }
-      };
-      checkForCode();
-  }, [user]);
+      const handleOAuthCallback = async (e: any) => {
+          if (!user) return;
+          const { provider, code, errorParam, errorDesc, state } = e.detail;
 
-  // Check for Meta OAuth Code on Mount
-  useEffect(() => {
-      const checkForMetaCode = async () => {
-          const params = new URLSearchParams(window.location.search);
-          const code = params.get('code');
-          const state = params.get('state') || '';
-          
-          // Captura erros retornados na URL pelo Facebook OAuth
-          const errorParam = params.get('error');
-          const errorDesc = params.get('error_description') || params.get('error_message') || '';
-          
-          if (errorParam && state.startsWith('meta-ads-oauth')) {
-              // Limpa a URL para evitar reprocessamento
-              window.history.replaceState({}, document.title, window.location.pathname);
-              
-              let friendlyTitle = "Falha na Conexão do Meta Ads";
-              let friendlyDesc = errorDesc || "Ocorreu um erro desconhecido durante o login com o Facebook.";
-              let errType = 'other';
-              
-              if (errorParam === 'access_denied') {
-                  friendlyTitle = "Conexão Cancelada";
-                  friendlyDesc = "Você cancelou a autorização ou recusou conceder as permissões necessárias para o Meta Ads.";
-                  errType = 'cancel';
-              } else if (errorParam.includes('redirect_uri_mismatch') || errorDesc.toLowerCase().includes('redirect_uri') || errorDesc.toLowerCase().includes('redirect uri')) {
-                  friendlyTitle = "Erro de URI de Redirecionamento (Redirect URI)";
-                  friendlyDesc = "A URL de redirecionamento enviada pelo aplicativo Meta Ads não coincide com a cadastrada na plataforma de desenvolvedores do Facebook. Verifique as configurações de URI no painel do Facebook Business.";
-                  errType = 'redirect_uri_mismatch';
-              }
-              
-              setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
-              showToast(friendlyTitle, 'error', friendlyDesc);
-              return;
-          }
-          
-          if (code && state.startsWith('meta-ads-oauth') && user) {
-              // Limpa a URL para evitar reprocessamento
-              window.history.replaceState({}, document.title, window.location.pathname);
-              
-              setLoading('meta-ads');
-              try {
-                  const result = await exchangeMetaCode(code, user.id);
-                  
-                  if (result.mode === 'selection_required') {
-                      setMetaConnectionError(null);
-                      setAvailableMetaAccounts(result.accounts || []);
-                      setShowMetaAccountSelector(true);
-                      showToast("Contas Carregadas", "info", "Múltiplas contas encontradas. Selecione qual conta de anúncios deseja vincular.");
-                  } else if (result.ok) {
-                      setMetaConnectionError(null);
-                      setMetaAdsStatus('backend-connected'); 
-                      localStorage.setItem('meta_ads_connected', 'backend-connected');
-                      setMetaAccountName(result.account?.name || '');
-                      showToast("Meta Ads Conectado", "success", `Sua conta "${result.account?.name || 'Meta Ads'}" foi integrada com sucesso.`);
-                  } else {
-                      const errMsg = result.error || "Erro desconhecido";
-                      let friendlyTitle = "Erro de Sincronização";
-                      let friendlyDesc = errMsg;
-                      let errType = 'other';
-                      
-                      if (errMsg.includes('redirect_uri_mismatch') || errMsg.toLowerCase().includes('redirect_uri') || errMsg.toLowerCase().includes('redirect uri')) {
-                          friendlyTitle = "Divergência de URI de Redirecionamento";
-                          friendlyDesc = "O Facebook recusou a troca de token por uma divergência na URI de redirecionamento cadastrada. Certifique-se de que a URL " + window.location.origin + " está adicionada como URI válida de redirecionamento OAuth nas configurações do Facebook Login do seu aplicativo Meta Ads.";
-                          errType = 'redirect_uri_mismatch';
-                      }
-                      setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
-                      showToast(friendlyTitle, 'error', friendlyDesc);
-                  }
-              } catch (error: any) {
-                  const errorMsg = error.message || '';
-                  let friendlyTitle = "Falha no Exchange Meta Ads";
-                  let friendlyDesc = errorMsg;
+          if (provider === 'meta') {
+              if (errorParam) {
+                  let friendlyTitle = "Falha na Conexão do Meta Ads";
+                  let friendlyDesc = errorDesc || "Ocorreu um erro desconhecido durante o login com o Facebook.";
                   let errType = 'other';
                   
-                  if (errorMsg.includes('redirect_uri_mismatch') || errorMsg.includes('redirect_uri') || errorMsg.toLowerCase().includes('redirect uri')) {
-                      friendlyTitle = "Redirect URI Mismatch";
-                      friendlyDesc = "O Facebook recusou a autenticação devido a um erro de redirect_uri_mismatch. A URL " + window.location.origin + " precisa ser adicionada exatamente igual no campo 'URIs de redirecionamento do OAuth válidas' do Facebook Login do seu aplicativo no Meta for Developers.";
+                  if (errorParam === 'access_denied') {
+                      friendlyTitle = "Conexão Cancelada";
+                      friendlyDesc = "Você cancelou a autorização ou recusou conceder as permissões necessárias para o Meta Ads.";
+                      errType = 'cancel';
+                  } else if (errorParam.includes('redirect_uri_mismatch') || errorDesc.toLowerCase().includes('redirect_uri') || errorDesc.toLowerCase().includes('redirect uri')) {
+                      friendlyTitle = "Erro de URI de Redirecionamento (Redirect URI)";
+                      friendlyDesc = "A URL de redirecionamento enviada pelo aplicativo Meta Ads não coincide com a cadastrada na plataforma de desenvolvedores do Facebook. Verifique as configurações de URI no painel do Facebook Business.";
                       errType = 'redirect_uri_mismatch';
-                  } else if (errorMsg.includes('client_id') || errorMsg.includes('app_id') || errorMsg.toLowerCase().includes('configura') || errorMsg.includes('META_CONFIG_ID')) {
-                      friendlyTitle = "Erro de Configuração do App";
-                      friendlyDesc = "Verifique se o META_APP_ID, META_APP_SECRET e META_CONFIG_ID estão corretamente preenchidos no arquivo de variáveis de ambiente (.env).";
-                      errType = 'configuration';
                   }
                   
                   setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
                   showToast(friendlyTitle, 'error', friendlyDesc);
-              } finally {
-                  setLoading(null);
+                  return;
+              }
+              
+              if (code) {
+                  setLoading('meta-ads');
+                  showToast("Conectando Meta Ads...", "info", "Aguarde enquanto autenticamos sua conta.");
+                  try {
+                      const result = await exchangeMetaCode(code, user.id);
+                      
+                      if (result.mode === 'selection_required') {
+                          setMetaConnectionError(null);
+                          setAvailableMetaAccounts(result.accounts || []);
+                          setShowMetaAccountSelector(true);
+                          showToast("Contas Carregadas", "info", "Selecione a conta de anúncios para finalizar a conexão.");
+                      } else if (result.ok) {
+                          setMetaConnectionError(null);
+                          setMetaAdsStatus('backend-connected'); 
+                          localStorage.setItem('meta_ads_connected', 'backend-connected');
+                          setMetaAccountName(result.account?.name || '');
+                          showToast("Meta Ads conectado com sucesso!", "success", `Sua conta "${result.account?.name || 'Meta Ads'}" foi integrada com sucesso.`);
+                      } else {
+                          const errMsg = result.error || "Erro desconhecido";
+                          let friendlyTitle = "Erro de Sincronização";
+                          let friendlyDesc = errMsg;
+                          let errType = 'other';
+                          
+                          if (errMsg.includes('redirect_uri_mismatch') || errMsg.toLowerCase().includes('redirect_uri') || errMsg.toLowerCase().includes('redirect uri')) {
+                              friendlyTitle = "Divergência de URI de Redirecionamento";
+                              friendlyDesc = "O Facebook recusou a troca de token por uma divergência na URI de redirecionamento cadastrada. Certifique-se de que a URL " + window.location.origin + " está adicionada como URI válida de redirecionamento OAuth nas configurações do Facebook Login do seu aplicativo Meta Ads.";
+                              errType = 'redirect_uri_mismatch';
+                          }
+                          setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
+                          showToast(friendlyTitle, 'error', friendlyDesc);
+                      }
+                  } catch (error: any) {
+                      const errorMsg = error.message || '';
+                      let friendlyTitle = "Falha no Exchange Meta Ads";
+                      let friendlyDesc = errorMsg;
+                      let errType = 'other';
+                      
+                      if (errorMsg.includes('redirect_uri_mismatch') || errorMsg.includes('redirect_uri') || errorMsg.toLowerCase().includes('redirect uri')) {
+                          friendlyTitle = "Redirect URI Mismatch";
+                          friendlyDesc = "O Facebook recusou a autenticação devido a um erro de redirect_uri_mismatch. A URL " + window.location.origin + " precisa ser adicionada exatamente igual no campo 'URIs de redirecionamento do OAuth válidas' do Facebook Login do seu aplicativo no Meta for Developers.";
+                          errType = 'redirect_uri_mismatch';
+                      } else if (errorMsg.includes('client_id') || errorMsg.includes('app_id') || errorMsg.toLowerCase().includes('configura') || errorMsg.includes('META_CONFIG_ID')) {
+                          friendlyTitle = "Erro de Configuração do App";
+                          friendlyDesc = "Verifique se o META_APP_ID, META_APP_SECRET e META_CONFIG_ID estão corretamente preenchidos no arquivo de variáveis de ambiente (.env).";
+                          errType = 'configuration';
+                      }
+                      
+                      setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
+                      showToast(friendlyTitle, 'error', friendlyDesc);
+                  } finally {
+                      setLoading(null);
+                  }
+              }
+          } else if (provider === 'google') {
+              if (code) {
+                  setLoading('google-ads');
+                  showToast("Conectando Google Ads...", "info", "Aguarde enquanto autenticamos sua conta.");
+                  try {
+                      const result = await exchangeCodeForToken(code, user.id);
+                      
+                      if (result.mode === 'selection_required') {
+                          setAvailableAccounts(result.accounts);
+                          setShowAccountSelector(true);
+                          showToast("Contas Carregadas", "info", "Selecione a conta de anúncios para finalizar a conexão.");
+                      } else {
+                          setGoogleAdsToken('backend-connected'); 
+                          localStorage.setItem('google_ads_token', 'backend-connected');
+                          setAccountName(result.account?.name || '');
+                          showToast("Google Ads conectado com sucesso!", "success");
+                      }
+                  } catch (error: any) {
+                      showToast("Erro na conexão", "error", error.message);
+                  } finally {
+                      setLoading(null);
+                  }
               }
           }
       };
-      checkForMetaCode();
+
+      window.addEventListener('oauth-callback-received', handleOAuthCallback as any);
+      return () => window.removeEventListener('oauth-callback-received', handleOAuthCallback as any);
   }, [user]);
 
   // Handle Account Selection
