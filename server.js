@@ -629,7 +629,7 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
 
         // 2.3 Buscar contas de anúncio
         const accountsUrl = `https://graph.facebook.com/${META_API_VERSION}/me/adaccounts?` + new URLSearchParams({
-            fields: 'id,name,account_status,currency,timezone_name,business',
+            fields: 'id,name,account_status,currency,timezone_name',
             access_token: longToken
         }).toString();
 
@@ -733,7 +733,7 @@ app.post('/api/auth/meta-ads/select-account', async (req, res) => {
         }
 
         const adAccountUrl = `https://graph.facebook.com/${META_API_VERSION}/${ad_account_id}?` + new URLSearchParams({
-            fields: 'id,name,currency,timezone_name,business',
+            fields: 'id,name,currency,timezone_name',
             access_token: token
         }).toString();
 
