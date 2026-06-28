@@ -381,8 +381,8 @@ async function getValidMetaToken(userId) {
 
 // Rota de diagnóstico para debugar o fluxo OAuth do Meta Ads
 app.get('/api/debug/oauth', (req, res) => {
-    const rawRedirectUri = req.query.redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
-    const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
+    const rawRedirectUri = req.query.redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/';
+    const finalRedirectUri = rawRedirectUri.trim();
     
     const hostHeader = req.headers.host || '';
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -534,8 +534,8 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
         return res.status(500).json({ error: 'META_APP_ID não configurado no backend.' });
     }
 
-    const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
-    const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
+    const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/';
+    const finalRedirectUri = rawRedirectUri.trim();
     const state = `meta-ads-oauth-${user_id}`;
     
     const params = new URLSearchParams({
@@ -565,10 +565,11 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
     }
 
     try {
-        const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
-        const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
+        const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/';
+        const finalRedirectUri = rawRedirectUri.trim();
 
         // Logs de depuração profunda para redirect_uri
+        console.log(`[Meta Ads] Exchange - redirect_uri sendo enviado: "${finalRedirectUri}" (com barra: ${finalRedirectUri.endsWith('/')})`);
         console.log('[Meta Ads Debug] Detalhes da Redirect URI para o Handshake:');
         console.log(`- Recebido do Request Body (redirect_uri): "${redirect_uri || ''}"`);
         console.log(`- META_REDIRECT_URI do .env: "${META_REDIRECT_URI || ''}"`);
