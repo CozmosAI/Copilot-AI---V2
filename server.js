@@ -653,7 +653,18 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
                 updated_at: new Date()
             };
             
-            await supabase.from('meta_ads_integrations').upsert(insertData, { onConflict: 'user_id' });
+            const { data: upsertData, error: upsertErr } = await supabase
+                .from('meta_ads_integrations')
+                .upsert(insertData, { onConflict: 'user_id' })
+                .select();
+
+            if (upsertErr) {
+                console.error('[Meta Ads] ERRO ao salvar integração no Supabase:', JSON.stringify(upsertErr, null, 2));
+                console.error('[Meta Ads] Dados que tentou salvar:', JSON.stringify({ ...insertData, access_token: '[OMITIDO]' }, null, 2));
+                return res.status(500).json({ error: 'Falha ao salvar integração: ' + (upsertErr.message || 'erro desconhecido') });
+            }
+
+            console.log(`[Meta Ads] Integração salva com sucesso. ID: ${upsertData?.[0]?.id || 'N/A'}, Status: ${insertData.status}`);
             return res.json({ ok: false, error: 'Nenhuma conta de anúncio encontrada neste perfil do Facebook.' });
         } else if (accounts.length === 1) {
             const account = accounts[0];
@@ -672,7 +683,18 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
                 updated_at: new Date()
             };
             
-            await supabase.from('meta_ads_integrations').upsert(insertData, { onConflict: 'user_id' });
+            const { data: upsertData, error: upsertErr } = await supabase
+                .from('meta_ads_integrations')
+                .upsert(insertData, { onConflict: 'user_id' })
+                .select();
+
+            if (upsertErr) {
+                console.error('[Meta Ads] ERRO ao salvar integração no Supabase:', JSON.stringify(upsertErr, null, 2));
+                console.error('[Meta Ads] Dados que tentou salvar:', JSON.stringify({ ...insertData, access_token: '[OMITIDO]' }, null, 2));
+                return res.status(500).json({ error: 'Falha ao salvar integração: ' + (upsertErr.message || 'erro desconhecido') });
+            }
+
+            console.log(`[Meta Ads] Integração salva com sucesso. ID: ${upsertData?.[0]?.id || 'N/A'}, Status: ${insertData.status}`);
             console.log(`[Meta Ads] Conta selecionada: ${account.id}`);
             return res.json({ ok: true, mode: 'active', account: { id: account.id, name: account.name } });
         } else {
@@ -690,7 +712,18 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
                 updated_at: new Date()
             };
             
-            await supabase.from('meta_ads_integrations').upsert(insertData, { onConflict: 'user_id' });
+            const { data: upsertData, error: upsertErr } = await supabase
+                .from('meta_ads_integrations')
+                .upsert(insertData, { onConflict: 'user_id' })
+                .select();
+
+            if (upsertErr) {
+                console.error('[Meta Ads] ERRO ao salvar integração no Supabase:', JSON.stringify(upsertErr, null, 2));
+                console.error('[Meta Ads] Dados que tentou salvar:', JSON.stringify({ ...insertData, access_token: '[OMITIDO]' }, null, 2));
+                return res.status(500).json({ error: 'Falha ao salvar integração: ' + (upsertErr.message || 'erro desconhecido') });
+            }
+
+            console.log(`[Meta Ads] Integração salva com sucesso. ID: ${upsertData?.[0]?.id || 'N/A'}, Status: ${insertData.status}`);
             return res.json({
                 ok: true,
                 mode: 'selection_required',
