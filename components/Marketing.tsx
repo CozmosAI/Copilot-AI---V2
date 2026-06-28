@@ -15,6 +15,9 @@ import {
   getGoogleCampaigns, getGoogleOverview, getGoogleAdGroups, getGoogleKeywords, getGoogleAds, getGoogleAssetGroups,
   getGoogleMccOverview, getGoogleSearchTerms, getGooglePmaxAssets, checkGoogleAdsAlerts
 } from '../services/googleAdsService';
+import {
+  getMetaOverview, getMetaCampaigns, getMetaAdGroups, getMetaAds, getMetaSearchTerms
+} from '../services/metaAdsService';
 
 // --- TYPES ---
 type BaseMetricType = 'clicks' | 'impressions' | 'spend' | 'conversions' | 'conversionsValue';
@@ -58,8 +61,9 @@ const DEFAULT_METRIC_STYLES: Record<string, { label: string, color: string, axis
 };
 
 const Marketing: React.FC = () => {
-  const { dateFilter, setCustomDateRange, googleAdsToken, metrics, user } = useApp();
+  const { dateFilter, setCustomDateRange, googleAdsToken, metrics, user, metaAdsStatus } = useApp();
   const [loading, setLoading] = useState(false);
+  const [activePlatform, setActivePlatform] = useState<'google' | 'meta'>('google');
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adgroups' | 'keywords' | 'ads' | 'assetgroups' | 'searchterms' | 'accounts'>('overview');
   
   // Data States
@@ -70,6 +74,13 @@ const Marketing: React.FC = () => {
   const [ads, setAds] = useState<any[]>([]);
   const [assetGroups, setAssetGroups] = useState<any[]>([]);
   const [searchTerms, setSearchTerms] = useState<any[]>([]);
+  
+  // Meta Data States
+  const [metaOverviewData, setMetaOverviewData] = useState<any[]>([]);
+  const [metaCampaigns, setMetaCampaigns] = useState<any[]>([]);
+  const [metaAdGroups, setMetaAdGroups] = useState<any[]>([]);
+  const [metaAds, setMetaAds] = useState<any[]>([]);
+  const [metaSearchTerms, setMetaSearchTerms] = useState<any[]>([]);
   const [pmaxAssets, setPmaxAssets] = useState<any[]>([]);
   const [mccAccounts, setMccAccounts] = useState<any[]>([]);
   const [isMccUser, setIsMccUser] = useState(false);
@@ -229,9 +240,10 @@ const Marketing: React.FC = () => {
   
   const budgetMetrics = useMemo(() => {
       // Filter campaigns if global filter is active
+      const campaignsToUse = activePlatform === 'meta' ? metaCampaigns : campaigns;
       const activeCampaigns = globalCampaignFilter 
-          ? campaigns.filter(c => c.id.toString() === globalCampaignFilter)
-          : campaigns;
+          ? campaignsToUse.filter(c => c.id.toString() === globalCampaignFilter)
+          : campaignsToUse;
 
       const totalDailyBudget = activeCampaigns.reduce((acc, c) => acc + (c.budget || 0), 0);
       const totalPeriodBudget = totalDailyBudget * daysInPeriod;
@@ -242,7 +254,7 @@ const Marketing: React.FC = () => {
       const progress = totalPeriodBudget > 0 ? (totalSpend / totalPeriodBudget) * 100 : 0;
       
       return { totalPeriodBudget, totalSpend, progress };
-  }, [campaigns, globalCampaignFilter, daysInPeriod]);
+  }, [campaigns, metaCampaigns, activePlatform, globalCampaignFilter, daysInPeriod]);
 
   // --- FETCH DATA ---
   const cacheRef = useRef<Record<string, any>>({});
@@ -250,90 +262,141 @@ const Marketing: React.FC = () => {
   // Clear cache when filters that affect all data change
   useEffect(() => {
       cacheRef.current = {};
-  }, [dateFilter.start, dateFilter.end, isCompareEnabled, compareDateFilter.start, compareDateFilter.end, selectedAccountId]);
+  }, [dateFilter.start, dateFilter.end, isCompareEnabled, compareDateFilter.start, compareDateFilter.end, selectedAccountId, activePlatform]);
 
   useEffect(() => {
     const fetchData = async () => {
         if (!user || !dateFilter.start || !dateFilter.end) return;
         
-        const customerId = selectedAccountId || 'default';
-        const compareKey = isCompareEnabled ? `${compareDateFilter.start}_${compareDateFilter.end}` : 'none';
-        const baseCacheKey = `${dateFilter.start}_${dateFilter.end}_${customerId}_${compareKey}`;
-        
-        try {
-            const promises = [];
-            let overviewRes = cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`];
-            let campaignsRes = cacheRef.current[`${baseCacheKey}_campaigns`];
-            let adGroupsRes = cacheRef.current[`${baseCacheKey}_adgroups`];
-            let keywordsRes = cacheRef.current[`${baseCacheKey}_keywords`];
-            let adsRes = cacheRef.current[`${baseCacheKey}_ads`];
-            let searchTermsRes = cacheRef.current[`${baseCacheKey}_searchterms`];
-            let assetGroupsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] : [];
-            let pmaxAssetsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] : [];
-
-            if (!overviewRes) {
-                promises.push(getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { overviewRes = res; cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`] = res; }));
-            }
-            if (!campaignsRes) {
-                promises.push(getGoogleCampaigns(user.id, dateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { campaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; }));
-            }
-            if (!adGroupsRes) {
-                promises.push(getGoogleAdGroups(user.id, dateFilter, selectedAccountId || undefined).then(res => { adGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; }));
-            }
-            if (!keywordsRes) {
-                promises.push(getGoogleKeywords(user.id, dateFilter, selectedAccountId || undefined).then(res => { keywordsRes = res; cacheRef.current[`${baseCacheKey}_keywords`] = res; }));
-            }
-            if (!adsRes) {
-                promises.push(getGoogleAds(user.id, dateFilter, selectedAccountId || undefined).then(res => { adsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; }));
-            }
-            if (!searchTermsRes) {
-                promises.push(getGoogleSearchTerms(user.id, dateFilter, selectedAccountId || undefined).then(res => { searchTermsRes = res; cacheRef.current[`${baseCacheKey}_searchterms`] = res; }));
-            }
-            if (globalCampaignFilter && !assetGroupsRes) {
-                promises.push(getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; }));
-            }
-            if (globalCampaignFilter && !pmaxAssetsRes) {
-                promises.push(getGooglePmaxAssets(user.id, globalCampaignFilter, selectedAccountId || undefined).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; }));
-            }
-
-            if (promises.length > 0) {
-                setLoading(true);
-                await Promise.all(promises);
-            }
-
-            // Set states
-            if ('current' in overviewRes) {
-                setOverviewData([...overviewRes.current].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-                setOverviewComparison([...(overviewRes.previous || [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-            } else {
-                setOverviewData([...(Array.isArray(overviewRes) ? overviewRes : [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-                setOverviewComparison([]);
-            }
-
-            if ('current' in campaignsRes) {
-                setCampaigns(campaignsRes.current);
-                setCampaignsComparison(campaignsRes.previous || []);
-            } else {
-                setCampaigns(Array.isArray(campaignsRes) ? campaignsRes : []);
-                setCampaignsComparison([]);
-            }
-
-            setAdGroups(adGroupsRes);
-            setKeywords(keywordsRes);
-            setAds(adsRes);
-            setSearchTerms(searchTermsRes);
-            setAssetGroups(globalCampaignFilter ? assetGroupsRes : []);
-            setPmaxAssets(globalCampaignFilter ? pmaxAssetsRes : []);
+        if (activePlatform === 'google') {
+            const customerId = selectedAccountId || 'default';
+            const compareKey = isCompareEnabled ? `${compareDateFilter.start}_${compareDateFilter.end}` : 'none';
+            const baseCacheKey = `${dateFilter.start}_${dateFilter.end}_${customerId}_${compareKey}`;
             
-        } catch (error) {
-            console.error("Error fetching data:", error);
-        } finally {
-            setLoading(false);
+            try {
+                const promises = [];
+                let overviewRes = cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`];
+                let campaignsRes = cacheRef.current[`${baseCacheKey}_campaigns`];
+                let adGroupsRes = cacheRef.current[`${baseCacheKey}_adgroups`];
+                let keywordsRes = cacheRef.current[`${baseCacheKey}_keywords`];
+                let adsRes = cacheRef.current[`${baseCacheKey}_ads`];
+                let searchTermsRes = cacheRef.current[`${baseCacheKey}_searchterms`];
+                let assetGroupsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] : [];
+                let pmaxAssetsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] : [];
+
+                if (!overviewRes) {
+                    promises.push(getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { overviewRes = res; cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`] = res; }));
+                }
+                if (!campaignsRes) {
+                    promises.push(getGoogleCampaigns(user.id, dateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { campaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; }));
+                }
+                if (!adGroupsRes) {
+                    promises.push(getGoogleAdGroups(user.id, dateFilter, selectedAccountId || undefined).then(res => { adGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; }));
+                }
+                if (!keywordsRes) {
+                    promises.push(getGoogleKeywords(user.id, dateFilter, selectedAccountId || undefined).then(res => { keywordsRes = res; cacheRef.current[`${baseCacheKey}_keywords`] = res; }));
+                }
+                if (!adsRes) {
+                    promises.push(getGoogleAds(user.id, dateFilter, selectedAccountId || undefined).then(res => { adsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; }));
+                }
+                if (!searchTermsRes) {
+                    promises.push(getGoogleSearchTerms(user.id, dateFilter, selectedAccountId || undefined).then(res => { searchTermsRes = res; cacheRef.current[`${baseCacheKey}_searchterms`] = res; }));
+                }
+                if (globalCampaignFilter && !assetGroupsRes) {
+                    promises.push(getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; }));
+                }
+                if (globalCampaignFilter && !pmaxAssetsRes) {
+                    promises.push(getGooglePmaxAssets(user.id, globalCampaignFilter, selectedAccountId || undefined).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; }));
+                }
+
+                if (promises.length > 0) {
+                    setLoading(true);
+                    await Promise.all(promises);
+                }
+
+                // Set states
+                if (overviewRes) {
+                    if ('current' in overviewRes) {
+                        setOverviewData([...overviewRes.current].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                        setOverviewComparison([...(overviewRes.previous || [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                    } else {
+                        setOverviewData([...(Array.isArray(overviewRes) ? overviewRes : [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                        setOverviewComparison([]);
+                    }
+                } else {
+                    setOverviewData([]);
+                    setOverviewComparison([]);
+                }
+
+                if (campaignsRes) {
+                    if ('current' in campaignsRes) {
+                        setCampaigns(campaignsRes.current);
+                        setCampaignsComparison(campaignsRes.previous || []);
+                    } else {
+                        setCampaigns(Array.isArray(campaignsRes) ? campaignsRes : []);
+                        setCampaignsComparison([]);
+                    }
+                } else {
+                    setCampaigns([]);
+                    setCampaignsComparison([]);
+                }
+
+                setAdGroups(adGroupsRes || []);
+                setKeywords(keywordsRes || []);
+                setAds(adsRes || []);
+                setSearchTerms(searchTermsRes || []);
+                setAssetGroups(globalCampaignFilter ? (assetGroupsRes || []) : []);
+                setPmaxAssets(globalCampaignFilter ? (pmaxAssetsRes || []) : []);
+                
+            } catch (error) {
+                console.error("Error fetching Google data:", error);
+            } finally {
+                setLoading(false);
+            }
+        } else if (activePlatform === 'meta') {
+            const baseCacheKey = `${dateFilter.start}_${dateFilter.end}_meta`;
+            try {
+                const promises = [];
+                let metaOverviewRes = cacheRef.current[`${baseCacheKey}_overview`];
+                let metaCampaignsRes = cacheRef.current[`${baseCacheKey}_campaigns`];
+                let metaAdGroupsRes = cacheRef.current[`${baseCacheKey}_adgroups`];
+                let metaAdsRes = cacheRef.current[`${baseCacheKey}_ads`];
+                let metaSearchTermsRes = [];
+
+                if (!metaOverviewRes) {
+                    promises.push(getMetaOverview(user.id, dateFilter).then(res => { metaOverviewRes = res; cacheRef.current[`${baseCacheKey}_overview`] = res; }));
+                }
+                if (!metaCampaignsRes) {
+                    promises.push(getMetaCampaigns(user.id, dateFilter).then(res => { metaCampaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; }));
+                }
+                if (!metaAdGroupsRes) {
+                    promises.push(getMetaAdGroups(user.id, dateFilter).then(res => { metaAdGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; }));
+                }
+                if (!metaAdsRes) {
+                    promises.push(getMetaAds(user.id, dateFilter).then(res => { metaAdsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; }));
+                }
+
+                if (promises.length > 0) {
+                    setLoading(true);
+                    await Promise.all(promises);
+                }
+
+                setMetaOverviewData([...(Array.isArray(metaOverviewRes) ? metaOverviewRes : [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+                setMetaCampaigns(Array.isArray(metaCampaignsRes) ? metaCampaignsRes : []);
+                setMetaAdGroups(Array.isArray(metaAdGroupsRes) ? metaAdGroupsRes : []);
+                setMetaAds(Array.isArray(metaAdsRes) ? metaAdsRes : []);
+                setMetaSearchTerms([]);
+
+            } catch (error) {
+                console.error("Error fetching Meta data:", error);
+            } finally {
+                setLoading(false);
+            }
         }
     };
 
     fetchData();
-  }, [user, dateFilter, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId]);
+  }, [user, dateFilter, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId, activePlatform]);
 
   // MCC Check
   useEffect(() => {
@@ -347,40 +410,65 @@ const Marketing: React.FC = () => {
       }
   }, [user, dateFilter]);
 
+  // --- PLATFORM ADAPTERS ---
+  const currentOverviewData = useMemo(() => {
+      return activePlatform === 'meta' ? metaOverviewData : overviewData;
+  }, [activePlatform, metaOverviewData, overviewData]);
+
+  const currentOverviewComparison = useMemo(() => {
+      return activePlatform === 'meta' ? [] : overviewComparison;
+  }, [activePlatform, overviewComparison]);
+
+  const currentCampaigns = useMemo(() => {
+      return activePlatform === 'meta' ? metaCampaigns : campaigns;
+  }, [activePlatform, metaCampaigns, campaigns]);
+
+  const currentAdGroups = useMemo(() => {
+      return activePlatform === 'meta' ? metaAdGroups : adGroups;
+  }, [activePlatform, metaAdGroups, adGroups]);
+
+  const currentAds = useMemo(() => {
+      return activePlatform === 'meta' ? metaAds : ads;
+  }, [activePlatform, metaAds, ads]);
+
+  const currentSearchTerms = useMemo(() => {
+      return activePlatform === 'meta' ? metaSearchTerms : searchTerms;
+  }, [activePlatform, metaSearchTerms, searchTerms]);
+
   // --- FILTERED DATA (FRONTEND) ---
-  const selectedCampaign = campaigns.find(c => c.id.toString() === globalCampaignFilter);
+  const selectedCampaign = currentCampaigns.find(c => c.id.toString() === globalCampaignFilter);
   const campaignType = selectedCampaign?.type || ''; // PERFORMANCE_MAX, SEARCH, DISPLAY, VIDEO, etc.
 
   const filteredCampaigns = globalCampaignFilter 
-      ? campaigns.filter(c => c.id.toString() === globalCampaignFilter)
-      : campaigns;
+      ? currentCampaigns.filter(c => c.id.toString() === globalCampaignFilter)
+      : currentCampaigns;
 
   const filteredAdGroups = useMemo(() => {
-      let data = adGroups;
+      let data = currentAdGroups;
       if (globalCampaignFilter) {
-          const campName = campaigns.find(c => c.id.toString() === globalCampaignFilter)?.name;
+          const campName = currentCampaigns.find(c => c.id.toString() === globalCampaignFilter)?.name;
           if (campName) data = data.filter(ag => ag.campaignName === campName);
       }
       return data;
-  }, [adGroups, globalCampaignFilter, campaigns]);
+  }, [currentAdGroups, globalCampaignFilter, currentCampaigns]);
 
   const filteredKeywords = useMemo(() => {
       let data = keywords;
       if (globalCampaignFilter) {
-          const campName = campaigns.find(c => c.id.toString() === globalCampaignFilter)?.name;
+          const campName = currentCampaigns.find(c => c.id.toString() === globalCampaignFilter)?.name;
           if (campName) data = data.filter(kw => kw.campaignName === campName);
       }
       return data;
-  }, [keywords, globalCampaignFilter, campaigns]);
+  }, [keywords, globalCampaignFilter, currentCampaigns]);
 
   const filteredAds = useMemo(() => {
-      let data = ads;
+      let data = currentAds;
       if (globalCampaignFilter) {
-          const campName = campaigns.find(c => c.id.toString() === globalCampaignFilter)?.name;
+          const campName = currentCampaigns.find(c => c.id.toString() === globalCampaignFilter)?.name;
           if (campName) data = data.filter(ad => ad.campaignName === campName);
       }
       return data;
-  }, [ads, globalCampaignFilter, campaigns]);
+  }, [currentAds, globalCampaignFilter, currentCampaigns]);
 
   // --- HELPER FUNCTIONS ---
   const formatCurrency = (val: number) => `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -453,27 +541,27 @@ const Marketing: React.FC = () => {
   };
 
   const processedOverviewData = useMemo(() => {
-      return overviewData.map(day => {
+      return currentOverviewData.map(day => {
           const enhancedDay = { ...day };
           customMetrics.forEach(metric => {
               enhancedDay[metric.id] = calculateMetricValue(metric, day);
           });
           return enhancedDay;
       });
-  }, [overviewData, customMetrics]);
+  }, [currentOverviewData, customMetrics]);
 
   const processedComparisonData = useMemo(() => {
-      return overviewComparison.map(day => {
+      return currentOverviewComparison.map(day => {
           const enhancedDay = { ...day };
           customMetrics.forEach(metric => {
               enhancedDay[metric.id] = calculateMetricValue(metric, day);
           });
           return enhancedDay;
       });
-  }, [overviewComparison, customMetrics]);
+  }, [currentOverviewComparison, customMetrics]);
 
-  const periodTotals = useMemo(() => calculateTotals(overviewData), [overviewData]);
-  const periodTotalsComparison = useMemo(() => calculateTotals(overviewComparison), [overviewComparison]);
+  const periodTotals = useMemo(() => calculateTotals(currentOverviewData), [currentOverviewData]);
+  const periodTotalsComparison = useMemo(() => calculateTotals(currentOverviewComparison), [currentOverviewComparison]);
 
   const chartData = useMemo(() => {
       if (!isCompareEnabled) return processedOverviewData;
@@ -620,15 +708,50 @@ const Marketing: React.FC = () => {
       }
   };
 
+  const isPlatformConnected = activePlatform === 'meta' ? !!metaAdsStatus : isConnected;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       {/* HEADER */}
       <header className="flex flex-col gap-6">
+        {metaAdsStatus && (
+            <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200/60 shadow-inner">
+                <button
+                    onClick={() => {
+                        setActivePlatform('google');
+                        setActiveTab('overview');
+                    }}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all ${
+                        activePlatform === 'google' 
+                            ? 'bg-white text-navy shadow-md scale-102 font-bold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                >
+                    <Grid size={16} />
+                    <span>Google Ads</span>
+                </button>
+                <button
+                    onClick={() => {
+                        setActivePlatform('meta');
+                        setActiveTab('overview');
+                    }}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all ${
+                        activePlatform === 'meta' 
+                            ? 'bg-white text-navy shadow-md scale-102 font-bold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                >
+                    <Instagram size={16} />
+                    <span>Meta Ads</span>
+                </button>
+            </div>
+        )}
+
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-            <h2 className="text-2xl font-semibold text-navy tracking-tight">Google Ads</h2>
+            <h2 className="text-2xl font-semibold text-navy tracking-tight">{activePlatform === 'meta' ? 'Meta Ads' : 'Google Ads'}</h2>
             <div className="flex items-center gap-2 mt-1">
-                {isConnected ? (
+                {isPlatformConnected ? (
                 <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-emerald-100 flex items-center gap-1"><Zap size={8} fill="currentColor"/> Conectado</span>
                 ) : (
                     <span className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-amber-100 flex items-center gap-1"><AlertCircle size={8} /> Desconectado</span>
@@ -771,7 +894,7 @@ const Marketing: React.FC = () => {
                 className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none w-full md:min-w-[300px] cursor-pointer"
             >
                 <option value="">Todas as Campanhas</option>
-                {campaigns.map(c => (
+                {currentCampaigns.map(c => (
                     <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
                 ))}
             </select>
@@ -785,7 +908,12 @@ const Marketing: React.FC = () => {
 
       {/* TABS */}
       <div className="flex overflow-x-auto pb-px gap-6 border-b border-slate-200 mb-8">
-          {[
+          {(activePlatform === 'meta' ? [
+              { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
+              { id: 'campaigns', label: 'Campanhas', icon: Layers },
+              { id: 'adgroups', label: 'Conjuntos de Anúncios', icon: Grid },
+              { id: 'ads', label: 'Anúncios', icon: MessageSquare }
+          ] : [
               { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
               ...(isMccUser ? [{ id: 'accounts', label: 'Contas', icon: Users }] : []),
               { id: 'campaigns', label: 'Campanhas', icon: Layers },
@@ -797,7 +925,7 @@ const Marketing: React.FC = () => {
                   { id: 'searchterms', label: 'Termos de Busca', icon: Search }
               ]),
               { id: 'ads', label: 'Anúncios', icon: MessageSquare },
-          ].map(tab => (
+          ]).map(tab => (
               <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
@@ -815,7 +943,7 @@ const Marketing: React.FC = () => {
       {loading ? (
         <div className="h-96 flex flex-col items-center justify-center gap-4 bg-white rounded-2xl border border-slate-200">
           <Loader2 size={32} className="text-navy animate-spin" />
-          <p className="text-[10px] font-bold text-navy uppercase tracking-widest">Carregando dados do Google Ads...</p>
+          <p className="text-[10px] font-bold text-navy uppercase tracking-widest">Carregando dados do {activePlatform === 'meta' ? 'Meta' : 'Google'} Ads...</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -1627,7 +1755,7 @@ const Marketing: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="text-sm font-medium text-slate-600 divide-y divide-slate-100">
-                                    {searchTerms
+                                    {currentSearchTerms
                                         .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
                                         .map((term, idx) => (
                                         <tr key={idx} className="hover:bg-slate-50 transition-colors">

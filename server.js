@@ -858,6 +858,286 @@ app.post('/api/meta-ads/disconnect', async (req, res) => {
     }
 });
 
+// Helper backend para obter credenciais do Meta do Banco
+async function getMetaCredentials(user_id) {
+    if (!user_id) {
+        throw new Error('User ID inválido');
+    }
+    const { data, error } = await supabase
+        .from('meta_ads_integrations')
+        .select('access_token, ad_account_id')
+        .eq('user_id', user_id)
+        .single();
+
+    if (error || !data) {
+        throw new Error('Meta Ads não conectado');
+    }
+
+    if (!data.access_token || !data.ad_account_id) {
+        throw new Error('Meta Ads não conectado ou conta não selecionada');
+    }
+
+    return {
+        accessToken: data.access_token,
+        adAccountId: data.ad_account_id
+    };
+}
+
+// 6. Rota POST /api/meta-ads/overview
+app.post('/api/meta-ads/overview', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    try {
+        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+        const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const end = date_range?.end || new Date().toISOString().split('T')[0];
+
+        const overviewUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/insights?` + new URLSearchParams({
+            fields: 'spend,impressions,clicks,actions',
+            time_range: JSON.stringify({ since: start, until: end }),
+            level: 'account',
+            time_increment: '1',
+            limit: '1000',
+            access_token: accessToken
+        }).toString();
+
+        console.log(`[Meta Ads Dashboard] user_id: ${user_id}, ad_account_id: ${ad_account_id}, date_range:`, date_range);
+        console.log(`[Meta Ads Dashboard] URL Graph API: ${overviewUrl}`);
+
+        const response = await fetch(overviewUrl);
+        const overviewData = await response.json();
+
+        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(overviewData, null, 2).substring(0, 500));
+
+        if (overviewData.error) {
+            console.error('[Meta Ads API Error - Overview]:', overviewData.error);
+            return res.status(400).json({ error: overviewData.error.message || 'Erro na Graph API do Meta' });
+        }
+
+        const rawResults = overviewData.data || [];
+        const results = rawResults.map(item => {
+            const conversions = item.actions?.find(a => 
+                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
+            )?.value || '0';
+
+            const parsedSpend = parseFloat(item.spend || '0');
+            const parsedImpressions = parseInt(item.impressions || '0');
+            const parsedClicks = parseInt(item.clicks || '0');
+            const parsedConversions = parseInt(conversions);
+
+            console.log(`[Meta Ads Dashboard] [DEBUG Overview Mapping] item spend: ${item.spend} -> parsed: ${parsedSpend}, impressions: ${item.impressions} -> parsed: ${parsedImpressions}, clicks: ${item.clicks} -> parsed: ${parsedClicks}, conversions: ${conversions} -> parsed: ${parsedConversions}`);
+
+            return {
+                date: item.date_start,
+                spend: parsedSpend,
+                impressions: parsedImpressions,
+                clicks: parsedClicks,
+                conversions: parsedConversions
+            };
+        });
+
+        res.json({ results });
+    } catch (err) {
+        console.error('[Meta Ads Overview Endpoint Error]:', err);
+        res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
+// 7. Rota POST /api/meta-ads/campaigns
+app.post('/api/meta-ads/campaigns', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    try {
+        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+        const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const end = date_range?.end || new Date().toISOString().split('T')[0];
+
+        const time_range_str = JSON.stringify({ since: start, until: end });
+        const campaignsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/campaigns?` + new URLSearchParams({
+            fields: `id,name,status,objective,daily_budget,lifetime_budget,insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            limit: '150',
+            access_token: accessToken
+        }).toString();
+
+        console.log(`[Meta Ads Dashboard] user_id: ${user_id}, ad_account_id: ${ad_account_id}, date_range:`, date_range);
+        console.log(`[Meta Ads Dashboard] URL Graph API: ${campaignsUrl}`);
+
+        const campsResponse = await fetch(campaignsUrl);
+        const campaignsData = await campsResponse.json();
+
+        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(campaignsData, null, 2).substring(0, 500));
+
+        if (campaignsData.error) {
+            console.error('[Meta Ads API Error - Campaigns List]:', campaignsData.error);
+            return res.status(400).json({ error: campaignsData.error.message || 'Erro ao buscar campanhas' });
+        }
+
+        const campaigns = campaignsData.data || [];
+        const results = campaigns.map(c => {
+            const insights = c.insights?.data?.[0] || {};
+            const conversions = insights.actions?.find(a => 
+                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
+            )?.value || '0';
+
+            const parsedBudget = parseFloat(c.daily_budget || c.lifetime_budget || '0') / 100;
+            const parsedSpend = parseFloat(insights.spend || '0');
+            const parsedImpressions = parseInt(insights.impressions || '0');
+            const parsedClicks = parseInt(insights.clicks || '0');
+            const parsedConversions = parseInt(conversions);
+
+            console.log(`[Meta Ads Dashboard] [DEBUG Campaigns Mapping] Campaign: ${c.name} (${c.id}), budget raw: ${c.daily_budget || c.lifetime_budget} -> parsed: ${parsedBudget}, spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
+
+            return {
+                id: c.id,
+                name: c.name,
+                status: c.status,
+                objective: c.objective,
+                budget: parsedBudget,
+                spend: parsedSpend,
+                impressions: parsedImpressions,
+                clicks: parsedClicks,
+                conversions: parsedConversions
+            };
+        });
+
+        res.json({ results });
+    } catch (err) {
+        console.error('[Meta Ads Campaigns Endpoint Error]:', err);
+        res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
+// 8. Rota POST /api/meta-ads/ad-groups
+app.post('/api/meta-ads/ad-groups', async (req, res) => {
+    const { user_id, date_range, campaign_id } = req.body;
+    try {
+        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+        const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const end = date_range?.end || new Date().toISOString().split('T')[0];
+
+        const time_range_str = JSON.stringify({ since: start, until: end });
+        const adsetsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/adsets?` + new URLSearchParams({
+            fields: `id,name,status,campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            limit: '150',
+            access_token: accessToken
+        }).toString();
+
+        console.log(`[Meta Ads Dashboard] user_id: ${user_id}, ad_account_id: ${ad_account_id}, date_range:`, date_range);
+        console.log(`[Meta Ads Dashboard] URL Graph API: ${adsetsUrl}`);
+
+        const adsetsResponse = await fetch(adsetsUrl);
+        const adsetsData = await adsetsResponse.json();
+
+        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsetsData, null, 2).substring(0, 500));
+
+        if (adsetsData.error) {
+            console.error('[Meta Ads API Error - Adsets List]:', adsetsData.error);
+            return res.status(400).json({ error: adsetsData.error.message || 'Erro ao buscar conjuntos de anúncios' });
+        }
+
+        let adsetsList = adsetsData.data || [];
+
+        if (campaign_id) {
+            adsetsList = adsetsList.filter(adset => adset.campaign?.id === campaign_id);
+        }
+
+        const results = adsetsList.map(adset => {
+            const insights = adset.insights?.data?.[0] || {};
+            const conversions = insights.actions?.find(a => 
+                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
+            )?.value || '0';
+
+            const parsedSpend = parseFloat(insights.spend || '0');
+            const parsedImpressions = parseInt(insights.impressions || '0');
+            const parsedClicks = parseInt(insights.clicks || '0');
+            const parsedConversions = parseInt(conversions);
+
+            console.log(`[Meta Ads Dashboard] [DEBUG Ad-Groups Mapping] AdSet: ${adset.name} (${adset.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
+
+            return {
+                id: adset.id,
+                name: adset.name,
+                status: adset.status,
+                campaignName: adset.campaign?.name || 'Campanha desconhecida',
+                spend: parsedSpend,
+                impressions: parsedImpressions,
+                clicks: parsedClicks,
+                conversions: parsedConversions
+            };
+        });
+
+        res.json({ results });
+    } catch (err) {
+        console.error('[Meta Ads Ad-Groups Endpoint Error]:', err);
+        res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
+// 9. Rota POST /api/meta-ads/ads
+app.post('/api/meta-ads/ads', async (req, res) => {
+    const { user_id, date_range } = req.body;
+    try {
+        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+        const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const end = date_range?.end || new Date().toISOString().split('T')[0];
+
+        const time_range_str = JSON.stringify({ since: start, until: end });
+        const adsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/ads?` + new URLSearchParams({
+            fields: `id,name,status,adset{id,name},campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            limit: '150',
+            access_token: accessToken
+        }).toString();
+
+        console.log(`[Meta Ads Dashboard] user_id: ${user_id}, ad_account_id: ${ad_account_id}, date_range:`, date_range);
+        console.log(`[Meta Ads Dashboard] URL Graph API: ${adsUrl}`);
+
+        const adsResponse = await fetch(adsUrl);
+        const adsData = await adsResponse.json();
+
+        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsData, null, 2).substring(0, 500));
+
+        if (adsData.error) {
+            console.error('[Meta Ads API Error - Ads List]:', adsData.error);
+            return res.status(400).json({ error: adsData.error.message || 'Erro ao buscar anúncios' });
+        }
+
+        const adsList = adsData.data || [];
+
+        const results = adsList.map(ad => {
+            const insights = ad.insights?.data?.[0] || {};
+            const conversions = insights.actions?.find(a => 
+                a.action_type === 'offsite_conversion' || a.action_type === 'purchase'
+            )?.value || '0';
+
+            const parsedSpend = parseFloat(insights.spend || '0');
+            const parsedImpressions = parseInt(insights.impressions || '0');
+            const parsedClicks = parseInt(insights.clicks || '0');
+            const parsedConversions = parseInt(conversions);
+
+            console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions raw: ${conversions} -> parsed: ${parsedConversions}`);
+
+            return {
+                id: ad.id,
+                name: ad.name,
+                status: ad.status,
+                campaignName: ad.campaign?.name || 'Campanha desconhecida',
+                adGroupName: ad.adset?.name || 'Conjunto desconhecido',
+                spend: parsedSpend,
+                impressions: parsedImpressions,
+                clicks: parsedClicks,
+                conversions: parsedConversions
+            };
+        });
+
+        res.json({ results });
+    } catch (err) {
+        console.error('[Meta Ads Ads Endpoint Error]:', err);
+        res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
 // ==============================================================================
 // 3. BUSCAR DADOS (Usando Token do Banco)
 // ==============================================================================

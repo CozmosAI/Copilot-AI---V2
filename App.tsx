@@ -274,7 +274,7 @@ const App: React.FC = () => {
   const refreshGoogleCredentials = async () => {
       if (!user) return;
       const { data } = await supabase.from('profiles').select('google_calendar_token').eq('id', user.id).single();
-      if (data?.google_calendar_token) setGoogleCalendarToken(data.google_calendar_token);
+      setGoogleCalendarToken(data?.google_calendar_token || null);
   };
 
   useEffect(() => {
@@ -287,7 +287,7 @@ const App: React.FC = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => fetchAppointments())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, (payload) => {
          const newProfile = payload.new as any;
-         if (newProfile.google_calendar_token && newProfile.google_calendar_token !== googleCalendarToken) {
+         if (newProfile && 'google_calendar_token' in newProfile && newProfile.google_calendar_token !== googleCalendarToken) {
              setGoogleCalendarToken(newProfile.google_calendar_token);
          }
          // Se houver update na config de IA pelo servidor ou outro lugar, atualizamos o state

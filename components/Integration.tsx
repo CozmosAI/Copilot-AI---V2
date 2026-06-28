@@ -935,7 +935,27 @@ const Integration: React.FC = () => {
 
   // Handlers legados
   const handleCalendarLogin = async () => { setLoading('calendar'); try { await signInWithGoogleCalendar(); } catch (e: any) { alert(e.message); setLoading(null); } };
-  const handleCalendarLogout = () => { localStorage.removeItem('google_calendar_token'); setGoogleCalendarToken(null); window.location.reload(); };
+  const handleCalendarLogout = async () => {
+    setLoading('calendar');
+    try {
+      if (user?.id) {
+         await supabase.from('profiles').update({
+            google_calendar_token: null,
+            google_calendar_refresh_token: null
+         }).eq('id', user.id);
+      }
+      localStorage.removeItem('google_calendar_token');
+      setGoogleCalendarToken(null);
+      showToast("Calendário Desconectado", "success", "A integração com o Google Calendar foi removida.");
+      setTimeout(() => {
+         window.location.reload();
+      }, 1500);
+    } catch (e: any) {
+      showToast("Erro ao Desconectar", "error", e.message || "Não foi possível remover a integração.");
+    } finally {
+      setLoading(null);
+    }
+  };
   const handleSheetsLogin = async () => { setLoading('sheets'); try { await signInWithGoogleSheets(); } catch (e: any) { alert(e.message); setLoading(null); } };
   const handleSheetsLogout = () => { localStorage.removeItem('google_sheets_token'); setGoogleSheetsToken(null); setSpreadsheets([]); setSelectedSpreadsheet(null); window.location.reload(); };
   const handleSelectSpreadsheet = async (e: React.ChangeEvent<HTMLSelectElement>) => { const id = e.target.value; if (!id) return; const name = e.target.options[e.target.selectedIndex].text; setSelectedSpreadsheet({ id, name }); setImportLoading(true); try { const tabs = await getSpreadsheetDetails(googleSheetsToken!, id); setSheetTabs(tabs); setSelectedTab(tabs[0] || ''); } catch (e) { alert('Erro ao carregar abas.'); } finally { setImportLoading(false); } };

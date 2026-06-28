@@ -35,9 +35,9 @@ const Agenda: React.FC = () => {
         .then(events => {
           setGoogleEvents(events);
           setLoadingCalendar(false);
-          // Se o serviço fez refresh interno e retornou sucesso, podemos atualizar o estado global
-          // para garantir consistência, embora a chamada já tenha funcionado.
-          // refreshGoogleCredentials(); (Opcional, pois a próxima render já pegaria do banco se a página recarregasse)
+          // Se o serviço fez refresh interno e retornou sucesso, atualiza o estado global
+          // para garantir consistência e evitar múltiplos refreshes desnecessários.
+          refreshGoogleCredentials();
         })
         .catch((err) => {
           setLoadingCalendar(false);

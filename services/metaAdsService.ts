@@ -171,3 +171,133 @@ export const disconnectMetaAds = async (userId: string) => {
 
   return data;
 };
+
+export const getMetaOverview = async (userId: string, dateRange?: { start: string, end: string }) => {
+  try {
+    const response = await apiFetch('/api/meta-ads/overview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, date_range: dateRange })
+    });
+    const data = await safeJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || 'Erro ao buscar overview Meta Ads');
+    return (data.results || []).map((row: any) => ({
+      date: row.date,
+      spend: parseFloat(row.spend) || 0,
+      impressions: parseInt(row.impressions) || 0,
+      clicks: parseInt(row.clicks) || 0,
+      conversions: parseInt(row.conversions) || 0,
+      actions: row.actions || []
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar overview Meta:", error);
+    return [];
+  }
+};
+
+export const getMetaCampaigns = async (userId: string, dateRange?: { start: string, end: string }) => {
+  try {
+    const response = await apiFetch('/api/meta-ads/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, date_range: dateRange })
+    });
+    const data = await safeJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || 'Erro ao buscar campanhas Meta Ads');
+    return (data.results || []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      platform: 'meta',
+      type: row.objective || 'N/A',
+      budget: parseFloat(row.budget) || 0,
+      spend: parseFloat(row.spend) || 0,
+      clicks: parseInt(row.clicks) || 0,
+      impressions: parseInt(row.impressions) || 0,
+      conversions: parseInt(row.conversions) || 0,
+      conversionsValue: 0,
+      ctr: row.impressions > 0 ? (row.clicks / row.impressions) : 0,
+      averageCpc: row.clicks > 0 ? (row.spend / row.clicks) : 0,
+      status: row.status
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar campanhas Meta:", error);
+    return [];
+  }
+};
+
+export const getMetaAdGroups = async (userId: string, dateRange?: { start: string, end: string }, campaignId?: string) => {
+  try {
+    const response = await apiFetch('/api/meta-ads/ad-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, date_range: dateRange, campaign_id: campaignId })
+    });
+    const data = await safeJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || 'Erro ao buscar ad groups Meta Ads');
+    return (data.results || []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      campaignName: row.campaignName,
+      status: row.status,
+      clicks: parseInt(row.clicks) || 0,
+      impressions: parseInt(row.impressions) || 0,
+      spend: parseFloat(row.spend) || 0,
+      conversions: parseInt(row.conversions) || 0,
+      conversionsValue: 0
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar conjuntos de anúncios Meta:", error);
+    return [];
+  }
+};
+
+export const getMetaAds = async (userId: string, dateRange?: { start: string, end: string }) => {
+  try {
+    const response = await apiFetch('/api/meta-ads/ads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, date_range: dateRange })
+    });
+    const data = await safeJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || 'Erro ao buscar anúncios Meta Ads');
+    return (data.results || []).map((row: any) => ({
+      id: row.id,
+      headlines: row.name,
+      status: row.status,
+      campaignName: row.campaignName,
+      adGroupName: row.adGroupName,
+      clicks: parseInt(row.clicks) || 0,
+      impressions: parseInt(row.impressions) || 0,
+      spend: parseFloat(row.spend) || 0,
+      conversions: parseInt(row.conversions) || 0
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar anúncios Meta:", error);
+    return [];
+  }
+};
+
+export const getMetaSearchTerms = async (userId: string, dateRange: { start: string, end: string }) => {
+  try {
+    const response = await apiFetch('/api/meta-ads/search-terms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, date_range: dateRange })
+    });
+    const data = await safeJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || 'Erro ao buscar search-terms Meta Ads');
+    return (data.results || []).map((row: any) => ({
+      searchTerm: row.searchTerm || '',
+      campaignName: row.campaignName || '',
+      adGroupName: row.adGroupName || '',
+      clicks: parseInt(row.clicks) || 0,
+      impressions: parseInt(row.impressions) || 0,
+      spend: parseFloat(row.spend) || 0,
+      conversions: parseInt(row.conversions) || 0,
+      ctr: row.ctr || 0
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar termos de pesquisa Meta:", error);
+    return [];
+  }
+};
