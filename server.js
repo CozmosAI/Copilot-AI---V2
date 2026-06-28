@@ -379,6 +379,149 @@ async function getValidMetaToken(userId) {
     return data.access_token;
 }
 
+// Rota de diagnóstico para debugar o fluxo OAuth do Meta Ads
+app.get('/api/debug/oauth', (req, res) => {
+    const rawRedirectUri = req.query.redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
+    const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
+    
+    const hostHeader = req.headers.host || '';
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const detectedOrigin = `${protocol}://${hostHeader}`;
+
+    const configIdStatus = META_CONFIG_ID ? 'Configurado ✅' : 'Ausente ❌ (Usando config_id padrão se aplicável)';
+    const appIdStatus = META_APP_ID ? 'Configurado ✅' : 'Ausente ❌';
+    const appSecretStatus = META_APP_SECRET ? 'Configurado ✅' : 'Ausente ❌';
+    
+    const html = `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Diagnóstico de OAuth Meta Ads - AXIS AI</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+        <style>
+            body { font-family: 'Inter', sans-serif; }
+            code, pre { font-family: 'JetBrains Mono', monospace; }
+        </style>
+    </head>
+    <body class="bg-slate-50 text-slate-800 min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+            <!-- Header -->
+            <div class="bg-slate-900 text-white p-8 md:p-10">
+                <div class="flex items-center gap-3 mb-2">
+                    <span class="px-3 py-1 bg-blue-500/10 text-blue-400 text-xs font-bold uppercase tracking-wider rounded-full border border-blue-500/20">Ferramenta de Suporte</span>
+                    <span class="text-xs text-slate-400">v1.1.0</span>
+                </div>
+                <h1 class="text-3xl font-black tracking-tight">Diagnóstico de Integração Meta Ads</h1>
+                <p class="text-slate-400 text-sm mt-2">Esta página oculta analisa o handshake do Facebook Login for Business e as URIs de redirecionamento para evitar erros de <strong>redirect_uri_mismatch</strong>.</p>
+            </div>
+
+            <!-- Content -->
+            <div class="p-8 md:p-10 space-y-8">
+                <!-- Status das Chaves de Ambiente -->
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                        1. Variáveis de Ambiente (.env) no Backend
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">META_APP_ID</p>
+                            <p class="text-sm font-semibold mt-1 text-slate-800">${appIdStatus}</p>
+                            ${META_APP_ID ? `<p class="text-[10px] text-slate-400 font-mono mt-1">Valor: ${META_APP_ID.substring(0, 4)}...${META_APP_ID.slice(-4)}</p>` : ''}
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">META_APP_SECRET</p>
+                            <p class="text-sm font-semibold mt-1 text-slate-800">${appSecretStatus}</p>
+                            ${META_APP_SECRET ? `<p class="text-[10px] text-slate-400 font-mono mt-1">Valor: ${META_APP_SECRET.substring(0, 3)}...${META_APP_SECRET.slice(-3)}</p>` : ''}
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">META_CONFIG_ID (Facebook Business Login)</p>
+                            <p class="text-sm font-semibold mt-1 text-slate-800">${configIdStatus}</p>
+                            ${META_CONFIG_ID ? `<p class="text-[10px] text-slate-400 font-mono mt-1">Valor: ${META_CONFIG_ID}</p>` : ''}
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">META_REDIRECT_URI (Configurada no .env)</p>
+                            <p class="text-sm font-mono text-slate-800 mt-1 truncate">${META_REDIRECT_URI || 'Não configurada (Usando fallback automático)'}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Handshake Redirect URIs -->
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                        2. URIs de Redirecionamento em Tempo de Execução
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl">
+                            <h3 class="text-xs font-bold text-blue-900 uppercase tracking-wider">URI enviada no Dialog de Login (Auth URL)</h3>
+                            <p class="text-sm font-mono text-blue-900 font-semibold mt-1 select-all break-all">${finalRedirectUri}</p>
+                            <p class="text-[11px] text-blue-700 mt-1">Esta é a URI exata passada ao Facebook no parâmetro <code>redirect_uri</code> para autenticação.</p>
+                        </div>
+
+                        <div class="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl">
+                            <h3 class="text-xs font-bold text-emerald-900 uppercase tracking-wider">URI enviada na Troca de Token (Exchange URL)</h3>
+                            <p class="text-sm font-mono text-emerald-900 font-semibold mt-1 select-all break-all">${finalRedirectUri}</p>
+                            <p class="text-[11px] text-emerald-700 mt-1">Esta URI é enviada no POST da troca de código por token (<code>/oauth/access_token</code>) e **DEVE** ser idêntica à de cima.</p>
+                        </div>
+
+                        <div class="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl">
+                            <h3 class="text-xs font-bold text-amber-900 uppercase tracking-wider">Origem Autodetectada desta Requisição</h3>
+                            <p class="text-sm font-mono text-amber-900 mt-1 break-all">${detectedOrigin}</p>
+                            <p class="text-[11px] text-amber-700 mt-1">Detectado a partir dos cabeçalhos do servidor. Caso seu app mude de domínio, configure a <code>META_REDIRECT_URI</code> para o domínio correto.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Solução passo a passo -->
+                <div class="p-6 bg-slate-900 text-white rounded-3xl space-y-4">
+                    <h3 class="text-base font-black flex items-center gap-2">
+                        💡 Como resolver o erro "redirect_uri_mismatch"?
+                    </h3>
+                    <ol class="list-decimal pl-5 space-y-2.5 text-xs text-slate-300">
+                        <li>Acesse o <a href="https://developers.facebook.com/" target="_blank" class="text-blue-400 hover:underline font-bold">Meta for Developers</a> e entre no seu Aplicativo.</li>
+                        <li>No menu lateral esquerdo, vá em <strong>Facebook Login para Empresas (Facebook Login for Business)</strong> ou <strong>Facebook Login</strong> e clique em <strong>Configurações</strong>.</li>
+                        <li>No campo <strong>URIs de redirecionamento do OAuth válidas</strong>, você DEVE inserir exatamente o seguinte link:
+                            <div class="mt-2 p-3 bg-slate-800 text-slate-200 font-mono text-xs rounded-xl border border-slate-700 select-all break-all">
+                                ${finalRedirectUri}
+                            </div>
+                        </li>
+                        <li>Se você usa múltiplos ambientes ou domínios (como Render, Vercel ou o preview do AI Studio), certifique-se de adicionar **TODAS** as URLs de redirecionamento correspondentes como válidas.</li>
+                        <li>Clique em <strong>Salvar alterações</strong> no rodapé do painel do Facebook.</li>
+                    </ol>
+                </div>
+
+                <!-- Testes Rápidos -->
+                <div>
+                    <h3 class="text-sm font-bold text-slate-900 mb-2">Simular Geração de Link</h3>
+                    <p class="text-xs text-slate-400 mb-3">Teste a montagem do link de login com o usuário padrão <code>test-user</code>:</p>
+                    <a href="/api/auth/meta-ads/url?user_id=test-user&redirect_uri=${encodeURIComponent(finalRedirectUri)}" target="_blank" class="inline-flex items-center gap-1 text-xs font-bold text-blue-500 hover:text-blue-700 hover:underline">
+                        Testar endpoint de geração de URL &rarr;
+                    </a>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="bg-slate-50 px-8 py-6 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-400">
+                <p>&copy; AXIS AI - Todos os direitos reservados.</p>
+                <div class="flex gap-4">
+                    <a href="/" class="hover:text-slate-600 underline">Voltar para o App</a>
+                    <span class="text-slate-300">|</span>
+                    <span class="font-mono text-[10px] text-emerald-500 font-bold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100/50">Status: Prontidão Operacional</span>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+});
+
 // 1. Gerar URL de Auth Meta Ads
 app.get('/api/auth/meta-ads/url', (req, res) => {
     const { user_id, redirect_uri } = req.query;
@@ -425,6 +568,21 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
         const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com';
         const finalRedirectUri = rawRedirectUri.trim().replace(/\/+$/, '');
 
+        // Logs de depuração profunda para redirect_uri
+        console.log('[Meta Ads Debug] Detalhes da Redirect URI para o Handshake:');
+        console.log(`- Recebido do Request Body (redirect_uri): "${redirect_uri || ''}"`);
+        console.log(`- META_REDIRECT_URI do .env: "${META_REDIRECT_URI || ''}"`);
+        console.log(`- Final processado (finalRedirectUri): "${finalRedirectUri}"`);
+        console.log(`- Comprimento da string final: ${finalRedirectUri.length} caracteres`);
+        
+        // Exibe representação em array de códigos para detectar caracteres invisíveis/Unicode extras (\r, \n, %20, etc.)
+        const charCodes = Array.from(finalRedirectUri).map(char => `${char}:${char.charCodeAt(0)}`).join(', ');
+        console.log(`- Mapeamento de Caracteres [char:charCode]: [${charCodes}]`);
+        
+        // Verifica se há espaços, barras ou quebras de linha escondidos
+        if (/\s/.test(finalRedirectUri)) console.warn('[Meta Ads Debug] ALERTA: A finalRedirectUri contém espaços em branco!');
+        if (/\r|\n/.test(finalRedirectUri)) console.warn('[Meta Ads Debug] ALERTA: A finalRedirectUri contém quebras de linha (\\r ou \\n)!');
+
         // 2.1 Trocar code por short-lived token
         const shortLivedUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?` + new URLSearchParams({
             client_id: META_APP_ID,
@@ -433,7 +591,9 @@ app.post('/api/auth/meta-ads/exchange', async (req, res) => {
             code: code
         }).toString();
 
-        console.log(`[Meta Ads] Exchange - redirect_uri: ${finalRedirectUri}`);
+        console.log(`[Meta Ads] Chamando OAuth Graph API...`);
+        console.log(`- URL completa de requisição (sem secret): https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&code=[OMITTED]&client_secret=[OMITTED]`);
+        console.log(`- redirect_uri exato que está sendo enviado ao Facebook: "${finalRedirectUri}"`);
         const shortResp = await fetch(shortLivedUrl);
         const shortData = await shortResp.json();
         
