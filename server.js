@@ -541,14 +541,14 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
     const params = new URLSearchParams({
         client_id: META_APP_ID,
         redirect_uri: finalRedirectUri,
-        config_id: META_CONFIG_ID,
+        scope: 'ads_read',
         state: state,
         response_type: 'code'
     });
 
     const url = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`;
     
-    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, config_id: ${META_CONFIG_ID ? 'presente' : 'AUSENTE'}, redirect_uri: ${finalRedirectUri}`);
+    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, scope: ads_read, redirect_uri: ${finalRedirectUri}`);
     res.json({ ok: true, url });
 });
 
