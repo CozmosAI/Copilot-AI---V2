@@ -164,11 +164,13 @@ const App: React.FC = () => {
           // Navegar para Conexões e processar
           setActiveSection(AppSection.INTEGRACAO);
           
+          console.log('[OAuth Debug] App.tsx detectou callback:', { provider, hasCode: !!code, state });
+
           setTimeout(() => {
               window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
                   detail: { provider, code, errorParam, state } 
               }));
-          }, 300);
+          }, 1000);  // Aumentado de 300 para 1000
           
           // Limpar URL
           window.history.replaceState({}, document.title, window.location.pathname);
