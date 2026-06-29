@@ -662,15 +662,10 @@ const Integration: React.FC = () => {
   useEffect(() => {
       const handleOAuthCallback = async (e: any) => {
           if (!user) return;
-          const { provider, code, errorParam, errorDesc, state } = e.detail;
-
-          console.log('[OAuth Debug] Integration.tsx recebeu evento:', { provider, hasCode: !!code });
-
-          if (oauthProcessedRef.current) {
-              console.log('[OAuth Debug] Callback já foi processado anteriormente (ignorado)');
-              return;
-          }
+          if (oauthProcessedRef.current) return;
           oauthProcessedRef.current = true;
+
+          const { provider, code, errorParam, errorDesc, state } = e.detail;
 
           if (provider === 'meta') {
               if (errorParam) {
@@ -780,28 +775,33 @@ const Integration: React.FC = () => {
       return () => window.removeEventListener('oauth-callback-received', handleOAuthCallback as any);
   }, [user]);
 
-  // FALLBACK: Detectar code diretamente da URL (caso o evento seja perdido)
+  // FALLBACK: Detectar code diretamente da URL e processar imediatamente
   useEffect(() => {
       if (!user) return;
+      if (oauthProcessedRef.current) return;
       
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
       const state = params.get('state') || '';
-      const errorParam = params.get('error');
       
-      if (!code && !errorParam) return;
+      if (!code) return;
       if (!state.startsWith('google-ads') && !state.startsWith('meta-ads-oauth')) return;
       
-      // Se tem code e state do Google Ads, processar diretamente
-      if (code && state.startsWith('google-ads')) {
-          console.log('[OAuth Fallback] Detectado code do Google Ads na URL, processando...');
-          // Disparar o evento manualmente pro handler existente processar
-          window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
-              detail: { provider: 'google', code, errorParam, state } 
-          }));
-          // Limpar URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-      }
+      // Marcar como processado IMEDIATAMENTE
+      oauthProcessedRef.current = true;
+      
+      // Disparar evento pro handler existente (que tem toda a lógica de exchange)
+      window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
+          detail: { 
+              provider: state.startsWith('meta-ads-oauth') ? 'meta' : 'google', 
+              code, 
+              errorParam: params.get('error'), 
+              state 
+          } 
+      }));
+      
+      // Limpar URL
+      window.history.replaceState({}, document.title, window.location.pathname);
   }, [user]);
 
   // Handle Account Selection
