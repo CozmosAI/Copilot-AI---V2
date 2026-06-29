@@ -54,11 +54,20 @@ const Integration: React.FC = () => {
 
   useEffect(() => {
       localStorage.setItem('show_google_modal', String(showAccountSelector));
-      localStorage.setItem('pending_google_accounts', JSON.stringify(availableAccounts));
+      if (availableAccounts.length > 0 && !googleAdsToken) {
+          localStorage.setItem('pending_google_accounts', JSON.stringify(availableAccounts));
+      } else {
+          localStorage.removeItem('pending_google_accounts');
+      }
+
       localStorage.setItem('show_meta_modal', String(showMetaAccountSelector));
-      localStorage.setItem('pending_meta_accounts', JSON.stringify(availableMetaAccounts));
+      if (availableMetaAccounts.length > 0 && !metaAdsStatus) {
+          localStorage.setItem('pending_meta_accounts', JSON.stringify(availableMetaAccounts));
+      } else {
+          localStorage.removeItem('pending_meta_accounts');
+      }
       window.dispatchEvent(new Event('pending-accounts-updated'));
-  }, [showAccountSelector, availableAccounts, showMetaAccountSelector, availableMetaAccounts]);
+  }, [showAccountSelector, availableAccounts, showMetaAccountSelector, availableMetaAccounts, googleAdsToken, metaAdsStatus]);
 
   // Open modal listeners
   useEffect(() => {
@@ -691,6 +700,8 @@ const Integration: React.FC = () => {
                           setMetaAdsStatus('backend-connected'); 
                           localStorage.setItem('meta_ads_connected', 'backend-connected');
                           setMetaAccountName(result.account?.name || '');
+                          setAvailableMetaAccounts([]);
+                          localStorage.removeItem('pending_meta_accounts');
                           showToast("Meta Ads conectado com sucesso!", "success", `Sua conta "${result.account?.name || 'Meta Ads'}" foi integrada com sucesso.`);
                       } else {
                           const errMsg = result.error || "Erro desconhecido";
@@ -743,6 +754,8 @@ const Integration: React.FC = () => {
                           setGoogleAdsToken('backend-connected'); 
                           localStorage.setItem('google_ads_token', 'backend-connected');
                           setAccountName(result.account?.name || '');
+                          setAvailableAccounts([]);
+                          localStorage.removeItem('pending_google_accounts');
                           showToast("Google Ads conectado com sucesso!", "success");
                       }
                   } catch (error: any) {
@@ -786,6 +799,8 @@ const Integration: React.FC = () => {
           localStorage.setItem('google_ads_token', 'backend-connected');
           setAccountName(accName);
           setShowAccountSelector(false);
+          setAvailableAccounts([]);
+          localStorage.removeItem('pending_google_accounts');
           setSelectedManagerId(null);
           alert(`Conta "${accName}" vinculada com sucesso!`);
       } catch (error: any) {
@@ -884,6 +899,10 @@ const Integration: React.FC = () => {
       localStorage.removeItem('google_ads_token'); 
       setGoogleAdsToken(null); 
       setAccountName('');
+      setAvailableAccounts([]);
+      setShowAccountSelector(false);
+      localStorage.removeItem('pending_google_accounts');
+      localStorage.removeItem('show_google_modal');
   };
 
   const handleMetaLogin = async () => { 
@@ -920,6 +939,10 @@ const Integration: React.FC = () => {
               localStorage.removeItem('meta_ads_connected');
               setMetaAccountName('');
               setMetaConnectionError(null);
+              setAvailableMetaAccounts([]);
+              setShowMetaAccountSelector(false);
+              localStorage.removeItem('pending_meta_accounts');
+              localStorage.removeItem('show_meta_modal');
               showToast("Meta Ads Desconectado", "success", "Sua integração com o Meta Ads foi removida com sucesso.");
           } catch (error: any) {
               showToast("Erro ao Desconectar", "error", error.message || "Não foi possível remover a conexão do Meta Ads.");
@@ -939,6 +962,8 @@ const Integration: React.FC = () => {
           localStorage.setItem('meta_ads_connected', 'backend-connected');
           setMetaAccountName(accName);
           setShowMetaAccountSelector(false);
+          setAvailableMetaAccounts([]);
+          localStorage.removeItem('pending_meta_accounts');
           showToast("Conta Vinculada", "success", `A conta de anúncios "${accName}" foi configurada com êxito para sincronização de dados.`);
       } catch (error: any) {
           showToast("Erro ao Selecionar Conta", "error", error.message || "Não foi possível vincular esta conta de anúncios.");

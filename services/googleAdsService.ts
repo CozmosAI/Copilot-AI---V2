@@ -62,6 +62,34 @@ export const listMccChildren = async (userId: string, managerId: string) => {
     });
 };
 
+export const toggleGoogleCampaignStatus = async (userId: string, customerId: string, campaignId: string, action: 'pause' | 'enable') => {
+    try {
+        return await apiCall('/api/google-ads/campaigns/toggle-status', {
+            user_id: userId,
+            customer_id: customerId,
+            campaign_id: campaignId,
+            action
+        });
+    } catch (error) {
+        console.error("Erro ao alterar status da campanha:", error);
+        throw error;
+    }
+};
+
+export const updateGoogleCampaignBudget = async (userId: string, customerId: string, budgetId: string, newAmount: number) => {
+    try {
+        return await apiCall('/api/google-ads/campaigns/update-budget', {
+            user_id: userId,
+            customer_id: customerId,
+            budget_id: budgetId,
+            new_amount: newAmount
+        });
+    } catch (error) {
+        console.error("Erro ao atualizar orçamento:", error);
+        throw error;
+    }
+};
+
 /**
  * Passo 3: Buscar Campanhas
  */
@@ -86,6 +114,7 @@ export const getGoogleCampaigns = async (userId: string, dateRange?: { start: st
             platform: 'google',
             type: row.campaign.advertisingChannelType,
             budget: (parseInt(row.campaignBudget?.amountMicros) || 0) / 1000000,
+            budgetId: row.campaignBudget?.id || row.campaignBudget?.resourceName?.split('/').pop(),
             spend: (parseInt(row.metrics.costMicros) || 0) / 1000000,
             clicks: parseInt(row.metrics.clicks) || 0,
             impressions: parseInt(row.metrics.impressions) || 0,

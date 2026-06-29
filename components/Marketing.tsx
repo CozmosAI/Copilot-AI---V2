@@ -4,7 +4,7 @@ import {
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
   ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save, Bell,
-  FileUp, Download, Image as ImageIcon
+  FileUp, Download, Image as ImageIcon, Play, Pause
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, Brush, ComposedChart, Bar
@@ -13,7 +13,8 @@ import html2canvas from 'html2canvas';
 import { useApp } from '../App';
 import { 
   getGoogleCampaigns, getGoogleOverview, getGoogleAdGroups, getGoogleKeywords, getGoogleAds, getGoogleAssetGroups,
-  getGoogleMccOverview, getGoogleSearchTerms, getGooglePmaxAssets, checkGoogleAdsAlerts
+  getGoogleMccOverview, getGoogleSearchTerms, getGooglePmaxAssets, checkGoogleAdsAlerts,
+  toggleGoogleCampaignStatus, updateGoogleCampaignBudget
 } from '../services/googleAdsService';
 import {
   getMetaOverview, getMetaCampaigns, getMetaAdGroups, getMetaAds, getMetaSearchTerms
@@ -134,6 +135,12 @@ const Marketing: React.FC = () => {
 
   // Chart Customization State
   const [metricStyles, setMetricStyles] = useState(DEFAULT_METRIC_STYLES);
+
+  // Mutation states (Google Ads)
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [statusConfirmModal, setStatusConfirmModal] = useState<{ open: boolean, campaignId: string, campaignName: string, action: 'pause' | 'enable', customerId: string } | null>(null);
+  const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: string, budgetId: string, campaignName: string, currentBudget: number, customerId: string } | null>(null);
+  const [newBudgetAmount, setNewBudgetAmount] = useState<string>('');
 
   // Update metric styles when custom metrics change
   useEffect(() => {
@@ -410,6 +417,46 @@ const Marketing: React.FC = () => {
           }).catch(err => console.error("MCC Check Error", err));
       }
   }, [user, dateFilter]);
+
+  const handleToggleGoogleCampaign = async () => {
+      if (!user || !statusConfirmModal) return;
+      setActionLoadingId(statusConfirmModal.campaignId);
+      try {
+          await toggleGoogleCampaignStatus(user.id, statusConfirmModal.customerId, statusConfirmModal.campaignId, statusConfirmModal.action);
+          // Toast should be here, but marketing.tsx uses an alert or toast internally. Wait, Marketing.tsx does not have showToast. 
+          // I will use alert for simplicity or check if there is a toast.
+          alert(`Campanha ${statusConfirmModal.action === 'pause' ? 'pausada' : 'ativada'} com sucesso!`);
+          
+          setCampaigns(prev => prev.map(c => c.id === statusConfirmModal.campaignId ? { ...c, status: statusConfirmModal.action === 'pause' ? 'PAUSED' : 'ENABLED' } : c));
+      } catch (error: any) {
+          alert(`Erro ao alterar status: ${error.message}`);
+      } finally {
+          setActionLoadingId(null);
+          setStatusConfirmModal(null);
+      }
+  };
+
+  const handleUpdateGoogleBudget = async () => {
+      if (!user || !budgetModal || !newBudgetAmount) return;
+      const numAmount = parseFloat(newBudgetAmount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+          alert("Digite um valor válido para o orçamento");
+          return;
+      }
+
+      setActionLoadingId(budgetModal.campaignId);
+      try {
+          await updateGoogleCampaignBudget(user.id, budgetModal.customerId, budgetModal.budgetId, numAmount);
+          alert(`Orçamento atualizado para R$ ${numAmount.toFixed(2)} com sucesso!`);
+          setCampaigns(prev => prev.map(c => c.id === budgetModal.campaignId ? { ...c, budget: numAmount } : c));
+      } catch (error: any) {
+          alert(`Erro ao atualizar orçamento: ${error.message}`);
+      } finally {
+          setActionLoadingId(null);
+          setBudgetModal(null);
+          setNewBudgetAmount('');
+      }
+  };
 
   // --- PLATFORM ADAPTERS ---
   const currentOverviewData = useMemo(() => {
@@ -1181,10 +1228,11 @@ const Marketing: React.FC = () => {
                                         { k: 'name', l: 'Campanha' }, { k: 'status', l: 'Status' }, { k: 'type', l: 'Tipo' },
                                         { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' },
                                         { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
-                                        { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
+                                        { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' },
+                                        { k: 'actions', l: 'Ações' }
                                     ].map(h => (
-                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
-                                            <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
+                                        <th key={h.k} onClick={() => h.k !== 'actions' ? handleSort(h.k) : undefined} className={`px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap ${h.k !== 'actions' ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}>
+                                            <div className="flex items-center gap-1">{h.l} {h.k !== 'actions' && renderSortIcon(h.k)}</div>
                                         </th>
                                     ))}
                                     {customMetrics.map(m => (
@@ -1213,6 +1261,30 @@ const Marketing: React.FC = () => {
                                             <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
                                             <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
                                             <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
+                                            <td className="px-6 py-4 text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex items-center gap-2">
+                                                    {c.status === 'ENABLED' || c.status === 'PAUSED' ? (
+                                                        <button 
+                                                            onClick={() => setStatusConfirmModal({ open: true, campaignId: c.id.toString(), campaignName: c.name, action: c.status === 'ENABLED' ? 'pause' : 'enable', customerId: selectedAccountId || '' })}
+                                                            disabled={actionLoadingId === c.id.toString()}
+                                                            className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
+                                                            title={c.status === 'ENABLED' ? 'Pausar' : 'Ativar'}
+                                                        >
+                                                            {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : c.status === 'ENABLED' ? <Pause size={16} /> : <Play size={16} />}
+                                                        </button>
+                                                    ) : null}
+                                                    {c.budgetId && (
+                                                        <button 
+                                                            onClick={() => { setNewBudgetAmount(c.budget?.toString() || '0'); setBudgetModal({ open: true, campaignId: c.id.toString(), budgetId: c.budgetId.toString(), campaignName: c.name, currentBudget: c.budget, customerId: selectedAccountId || '' }); }}
+                                                            disabled={actionLoadingId === c.id.toString()}
+                                                            className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
+                                                            title="Editar Orçamento"
+                                                        >
+                                                            {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : <DollarSign size={16} />}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
                                             {customMetrics.map(m => (
                                                 <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
                                                     {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
@@ -1233,6 +1305,7 @@ const Marketing: React.FC = () => {
                                     <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).conversions, calculateTotals(filteredCampaignsComparison).conversions, 'number')}</td>
                                     <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}</td>
                                     <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}</td>
+                                    <td className="px-6 py-4"></td>
                                     {customMetrics.map(m => (
                                         <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
                                             {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
@@ -1931,6 +2004,101 @@ const Marketing: React.FC = () => {
               </div>
           </div>
       )}
+
+      {/* STATUS CONFIRM MODAL */}
+      {statusConfirmModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                          <div className={`p-2 rounded-xl ${statusConfirmModal.action === 'pause' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                              {statusConfirmModal.action === 'pause' ? <Pause size={24} /> : <Play size={24} />}
+                          </div>
+                          <div>
+                              <h3 className="text-lg font-black text-slate-900 tracking-tight">Confirmar Ação</h3>
+                          </div>
+                      </div>
+                      <p className="text-sm text-slate-600 mb-6">
+                          Tem certeza que deseja <strong className="uppercase">{statusConfirmModal.action === 'pause' ? 'pausar' : 'ativar'}</strong> a campanha "{statusConfirmModal.campaignName}"?
+                          <br/><br/>
+                          Esta ação afeta seus anúncios em produção no Google Ads.
+                      </p>
+                      <div className="flex justify-end gap-3">
+                          <button 
+                              onClick={() => setStatusConfirmModal(null)}
+                              disabled={actionLoadingId !== null}
+                              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors disabled:opacity-50"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={handleToggleGoogleCampaign}
+                              disabled={actionLoadingId !== null}
+                              className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg flex items-center gap-2 transition-all disabled:opacity-50 text-white ${statusConfirmModal.action === 'pause' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200'}`}
+                          >
+                              {actionLoadingId !== null ? <Loader2 size={16} className="animate-spin" /> : null}
+                              Confirmar {statusConfirmModal.action === 'pause' ? 'Pausar' : 'Ativar'}
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* BUDGET MODAL */}
+      {budgetModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-100 text-blue-600 rounded-xl"><DollarSign size={20} /></div>
+                          <div>
+                              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Editar Orçamento</h3>
+                              <p className="text-[10px] text-slate-500 font-medium truncate w-48">{budgetModal.campaignName}</p>
+                          </div>
+                      </div>
+                      <button onClick={() => setBudgetModal(null)} className="text-slate-400 hover:text-slate-600 bg-white p-1.5 rounded-lg shadow-sm border border-slate-200">
+                          <X size={18} />
+                      </button>
+                  </div>
+                  <div className="p-6">
+                      <div className="mb-4">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                              Orçamento Diário Atual: R$ {budgetModal.currentBudget.toFixed(2)}
+                          </label>
+                          <div className="relative">
+                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">R$</span>
+                              <input 
+                                  type="number"
+                                  value={newBudgetAmount}
+                                  onChange={(e) => setNewBudgetAmount(e.target.value)}
+                                  placeholder="0.00"
+                                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
+                              />
+                          </div>
+                      </div>
+                      <div className="flex justify-end gap-3 mt-6">
+                          <button 
+                              onClick={() => setBudgetModal(null)}
+                              disabled={actionLoadingId !== null}
+                              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors disabled:opacity-50"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={handleUpdateGoogleBudget}
+                              disabled={!newBudgetAmount || actionLoadingId !== null}
+                              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                          >
+                              {actionLoadingId !== null ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                              Salvar
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };

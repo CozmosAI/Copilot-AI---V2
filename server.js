@@ -1329,6 +1329,28 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerI
     return results;
 }
 
+async function executeGoogleAdsMutation(user_id, customerId, operations, typeName) {
+    const { cleanId, headers } = await getValidAccessToken(user_id, customerId);
+    
+    const mutateUrl = `https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:mutate`;
+    const body = JSON.stringify({
+        mutate_operations: operations
+    });
+    
+    const resp = await fetch(mutateUrl, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body
+    });
+    
+    const data = await resp.json();
+    if (data.error) {
+        console.error('[Google Ads Mutation] Error:', JSON.stringify(data.error));
+        throw new Error(data.error.message || 'Erro na mutação Google Ads');
+    }
+    return data;
+}
+
 // Rota: Campanhas (Mantida e refatorada)
 app.post('/api/google-ads/campaigns', async (req, res) => {
     let { user_id, date_range, compare_start, compare_end, customer_id } = req.body;
@@ -1345,6 +1367,7 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
             campaign.name, 
             campaign.status, 
             campaign.advertising_channel_type,
+            campaign_budget.id,
             campaign_budget.amount_micros,
             metrics.clicks, 
             metrics.impressions, 
@@ -1377,6 +1400,110 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
 
     } catch (error) {
         console.error("Ads Fetch Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
+    const { user_id, customer_id, campaign_id, action } = req.body;
+    if (!user_id || !customer_id || !campaign_id || !action) {
+        return res.status(400).json({ error: 'Missing params' });
+    }
+
+    try {
+        // Fetch current status to log
+        const query = `SELECT campaign.name, campaign.status FROM campaign WHERE campaign.id = ${campaign_id}`;
+        const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        const currentCampaign = queryResults[0]?.campaign;
+        
+        if (!currentCampaign) {
+             throw new Error('Campanha não encontrada para auditar o status.');
+        }
+
+        const oldStatus = currentCampaign.status;
+        const newStatus = action === 'pause' ? 'PAUSED' : 'ENABLED';
+        const campaignName = currentCampaign.name;
+
+        const operations = [{
+            campaign_operation: {
+                update: {
+                    resource_name: `customers/${customer_id}/campaigns/${campaign_id}`,
+                    status: newStatus
+                },
+                update_mask: 'status'
+            }
+        }];
+        
+        await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign');
+
+        // Log audit
+        await supabase
+            .from('google_ads_audit_logs')
+            .insert([{
+                user_id,
+                customer_id,
+                campaign_id,
+                campaign_name: campaignName,
+                action: action,
+                old_value: oldStatus,
+                new_value: newStatus
+            }]);
+
+        res.json({ ok: true, message: `Campanha ${action === 'pause' ? 'pausada' : 'ativada'} com sucesso` });
+    } catch (error) {
+        console.error("Ads Toggle Status Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
+    const { user_id, customer_id, budget_id, new_amount } = req.body;
+    if (!user_id || !customer_id || !budget_id || new_amount === undefined) {
+        return res.status(400).json({ error: 'Missing params' });
+    }
+
+    try {
+        // Fetch current budget to log
+        const query = `
+            SELECT campaign.id, campaign.name, campaign_budget.amount_micros 
+            FROM campaign 
+            WHERE campaign_budget.id = ${budget_id}
+            LIMIT 1
+        `;
+        const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        const currentCampaign = queryResults[0]?.campaign;
+        const currentBudget = queryResults[0]?.campaign_budget;
+
+        const oldAmount = currentBudget?.amount_micros ? (parseInt(currentBudget.amount_micros) / 1000000).toString() : null;
+        
+        const operations = [{
+            campaign_budget_operation: {
+                update: {
+                    resource_name: `customers/${customer_id}/campaignBudgets/${budget_id}`,
+                    amount_micros: Math.round(new_amount * 1000000)
+                },
+                update_mask: 'amount_micros'
+            }
+        }];
+        
+        await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign_budget');
+
+        // Log audit
+        await supabase
+            .from('google_ads_audit_logs')
+            .insert([{
+                user_id,
+                customer_id,
+                campaign_id: currentCampaign?.id || null,
+                campaign_name: currentCampaign?.name || 'Unknown',
+                action: 'update_budget',
+                old_value: oldAmount,
+                new_value: new_amount.toString()
+            }]);
+
+        res.json({ ok: true, message: 'Orçamento atualizado com sucesso', new_amount: new_amount });
+    } catch (error) {
+        console.error("Ads Update Budget Error:", error);
         res.status(500).json({ error: error.message });
     }
 });
