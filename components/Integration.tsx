@@ -52,6 +52,10 @@ const Integration: React.FC = () => {
   const [metaAccountName, setMetaAccountName] = useState<string>('');
   const [metaConnectionError, setMetaConnectionError] = useState<{ type: string; title: string; desc: string } | null>(null);
   const oauthProcessedRef = useRef(false);
+  const userRef = useRef(user);
+  useEffect(() => {
+      userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
       localStorage.setItem('show_google_modal', String(showAccountSelector));
@@ -661,8 +665,14 @@ const Integration: React.FC = () => {
   // Handle OAuth Callback from Global Event
   useEffect(() => {
       const handleOAuthCallback = async (e: any) => {
-          if (!user) return;
           if (oauthProcessedRef.current) return;
+
+          const currentUser = userRef.current;
+          if (!currentUser) {
+              console.log('[OAuth] User não pronto, aguardando...');
+              setTimeout(() => handleOAuthCallback(e), 500);
+              return;
+          }
           oauthProcessedRef.current = true;
 
           const { provider, code, errorParam, errorDesc, state } = e.detail;
@@ -685,6 +695,7 @@ const Integration: React.FC = () => {
                   
                   setMetaConnectionError({ type: errType, title: friendlyTitle, desc: friendlyDesc });
                   showToast(friendlyTitle, 'error', friendlyDesc);
+                  window.history.replaceState({}, document.title, window.location.pathname);
                   return;
               }
               
@@ -692,7 +703,7 @@ const Integration: React.FC = () => {
                   setLoading('meta-ads');
                   showToast("Conectando Meta Ads...", "info", "Aguarde enquanto autenticamos sua conta.");
                   try {
-                      const result = await exchangeMetaCode(code, user.id);
+                      const result = await exchangeMetaCode(code, currentUser.id);
                       
                       if (result.mode === 'selection_required') {
                           setMetaConnectionError(null);
@@ -741,6 +752,8 @@ const Integration: React.FC = () => {
                       showToast(friendlyTitle, 'error', friendlyDesc);
                   } finally {
                       setLoading(null);
+                      // Limpar URL só agora, depois que tudo foi processado
+                      window.history.replaceState({}, document.title, window.location.pathname);
                   }
               }
           } else if (provider === 'google') {
@@ -748,7 +761,7 @@ const Integration: React.FC = () => {
                   setLoading('google-ads');
                   showToast("Conectando Google Ads...", "info", "Aguarde enquanto autenticamos sua conta.");
                   try {
-                      const result = await exchangeCodeForToken(code, user.id);
+                      const result = await exchangeCodeForToken(code, currentUser.id);
                       
                       if (result.mode === 'selection_required') {
                           setAvailableAccounts(result.accounts);
@@ -766,6 +779,8 @@ const Integration: React.FC = () => {
                       showToast("Erro na conexão", "error", error.message);
                   } finally {
                       setLoading(null);
+                      // Limpar URL só agora, depois que tudo foi processado
+                      window.history.replaceState({}, document.title, window.location.pathname);
                   }
               }
           }
@@ -773,11 +788,10 @@ const Integration: React.FC = () => {
 
       window.addEventListener('oauth-callback-received', handleOAuthCallback as any);
       return () => window.removeEventListener('oauth-callback-received', handleOAuthCallback as any);
-  }, [user]);
+  }, []);
 
   // FALLBACK: Detectar code diretamente da URL e processar imediatamente
   useEffect(() => {
-      if (!user) return;
       if (oauthProcessedRef.current) return;
       
       const params = new URLSearchParams(window.location.search);
@@ -800,7 +814,6 @@ const Integration: React.FC = () => {
           } 
       }));
       
-      // Limpar URL
       window.history.replaceState({}, document.title, window.location.pathname);
   }, [user]);
 

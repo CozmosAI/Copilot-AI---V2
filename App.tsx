@@ -138,6 +138,7 @@ const App: React.FC = () => {
   const [pendingGoogleAccounts, setPendingGoogleAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_google_accounts') || '[]'));
   const [showPendingMetaModal, setShowPendingMetaModal] = useState<boolean>(() => localStorage.getItem('show_meta_modal') === 'true');
   const [showPendingGoogleModal, setShowPendingGoogleModal] = useState<boolean>(() => localStorage.getItem('show_google_modal') === 'true');
+  const [pendingOAuth, setPendingOAuth] = useState<{provider: string, code: string, state: string, errorParam: string} | null>(null);
 
   // Listen for updates from Integration.tsx
   useEffect(() => {
@@ -161,19 +162,25 @@ const App: React.FC = () => {
       if ((code || errorParam) && (state.startsWith('meta-ads-oauth') || state.startsWith('google-ads'))) {
           const provider = state.startsWith('meta-ads-oauth') ? 'meta' : 'google';
           
-          // Navegar para Conexões e processar
           setActiveSection(AppSection.INTEGRACAO);
+          setPendingOAuth({ provider, code: code || '', state, errorParam: errorParam || '' });
           
-          setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
-                  detail: { provider, code, errorParam, state } 
-              }));
-          }, 200);
-          
-          // Limpar URL
+          // Limpar URL DEPOIS de armazenar no state
           window.history.replaceState({}, document.title, window.location.pathname);
       }
   }, []);
+
+  // Quando o Integration.tsx montar, disparar evento com os dados do state
+  useEffect(() => {
+      if (pendingOAuth) {
+          const timer = setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
+                  detail: pendingOAuth 
+              }));
+          }, 500);
+          return () => clearTimeout(timer);
+      }
+  }, [pendingOAuth]);
 
   // Data State
   const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>([]);
