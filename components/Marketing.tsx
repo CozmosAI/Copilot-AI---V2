@@ -265,6 +265,18 @@ const Marketing: React.FC = () => {
 
   // --- FETCH DATA ---
   const cacheRef = useRef<Record<string, any>>({});
+  const apiCacheRef = useRef<Map<string, { data: any, timestamp: number }>>(new Map());
+  const CACHE_DURATION = 30000; // 30 segundos
+
+  const cachedApiCall = async (key: string, apiFn: () => Promise<any>) => {
+      const cached = apiCacheRef.current.get(key);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+          return cached.data;
+      }
+      const data = await apiFn();
+      apiCacheRef.current.set(key, { data, timestamp: Date.now() });
+      return data;
+  };
 
   // Clear cache when filters that affect all data change
   useEffect(() => {
@@ -292,28 +304,68 @@ const Marketing: React.FC = () => {
                 let pmaxAssetsRes = globalCampaignFilter ? cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] : [];
 
                 if (!overviewRes) {
-                    promises.push(getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { overviewRes = res; cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`,
+                            () => getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined)
+                        ).then(res => { overviewRes = res; cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`] = res; })
+                    );
                 }
                 if (!campaignsRes) {
-                    promises.push(getGoogleCampaigns(user.id, dateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined).then(res => { campaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_campaigns`,
+                            () => getGoogleCampaigns(user.id, dateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined)
+                        ).then(res => { campaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; })
+                    );
                 }
                 if (!adGroupsRes) {
-                    promises.push(getGoogleAdGroups(user.id, dateFilter, selectedAccountId || undefined).then(res => { adGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_adgroups`,
+                            () => getGoogleAdGroups(user.id, dateFilter, selectedAccountId || undefined)
+                        ).then(res => { adGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; })
+                    );
                 }
                 if (!keywordsRes) {
-                    promises.push(getGoogleKeywords(user.id, dateFilter, selectedAccountId || undefined).then(res => { keywordsRes = res; cacheRef.current[`${baseCacheKey}_keywords`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_keywords`,
+                            () => getGoogleKeywords(user.id, dateFilter, selectedAccountId || undefined)
+                        ).then(res => { keywordsRes = res; cacheRef.current[`${baseCacheKey}_keywords`] = res; })
+                    );
                 }
                 if (!adsRes) {
-                    promises.push(getGoogleAds(user.id, dateFilter, selectedAccountId || undefined).then(res => { adsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_ads`,
+                            () => getGoogleAds(user.id, dateFilter, selectedAccountId || undefined)
+                        ).then(res => { adsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; })
+                    );
                 }
                 if (!searchTermsRes) {
-                    promises.push(getGoogleSearchTerms(user.id, dateFilter, selectedAccountId || undefined).then(res => { searchTermsRes = res; cacheRef.current[`${baseCacheKey}_searchterms`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_searchterms`,
+                            () => getGoogleSearchTerms(user.id, dateFilter, selectedAccountId || undefined)
+                        ).then(res => { searchTermsRes = res; cacheRef.current[`${baseCacheKey}_searchterms`] = res; })
+                    );
                 }
                 if (globalCampaignFilter && !assetGroupsRes) {
-                    promises.push(getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_assetgroups_${globalCampaignFilter}`,
+                            () => getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined)
+                        ).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; })
+                    );
                 }
                 if (globalCampaignFilter && !pmaxAssetsRes) {
-                    promises.push(getGooglePmaxAssets(user.id, globalCampaignFilter, selectedAccountId || undefined).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_pmaxassets_${globalCampaignFilter}`,
+                            () => getGooglePmaxAssets(user.id, globalCampaignFilter, selectedAccountId || undefined)
+                        ).then(res => { pmaxAssetsRes = res; cacheRef.current[`${baseCacheKey}_pmaxassets_${globalCampaignFilter}`] = res; })
+                    );
                 }
 
                 if (promises.length > 0) {
@@ -371,16 +423,36 @@ const Marketing: React.FC = () => {
                 let metaSearchTermsRes = [];
 
                 if (!metaOverviewRes) {
-                    promises.push(getMetaOverview(user.id, dateFilter).then(res => { metaOverviewRes = res; cacheRef.current[`${baseCacheKey}_overview`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_overview`,
+                            () => getMetaOverview(user.id, dateFilter)
+                        ).then(res => { metaOverviewRes = res; cacheRef.current[`${baseCacheKey}_overview`] = res; })
+                    );
                 }
                 if (!metaCampaignsRes) {
-                    promises.push(getMetaCampaigns(user.id, dateFilter).then(res => { metaCampaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_campaigns`,
+                            () => getMetaCampaigns(user.id, dateFilter)
+                        ).then(res => { metaCampaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; })
+                    );
                 }
                 if (!metaAdGroupsRes) {
-                    promises.push(getMetaAdGroups(user.id, dateFilter).then(res => { metaAdGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_adgroups`,
+                            () => getMetaAdGroups(user.id, dateFilter)
+                        ).then(res => { metaAdGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; })
+                    );
                 }
                 if (!metaAdsRes) {
-                    promises.push(getMetaAds(user.id, dateFilter).then(res => { metaAdsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; }));
+                    promises.push(
+                        cachedApiCall(
+                            `${baseCacheKey}_ads`,
+                            () => getMetaAds(user.id, dateFilter)
+                        ).then(res => { metaAdsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; })
+                    );
                 }
 
                 if (promises.length > 0) {
@@ -1220,101 +1292,108 @@ const Marketing: React.FC = () => {
             {/* CAMPAIGNS TAB */}
             {activeTab === 'campaigns' && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr>
-                                    {[
-                                        { k: 'name', l: 'Campanha' }, { k: 'status', l: 'Status' }, { k: 'type', l: 'Tipo' },
-                                        { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' },
-                                        { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
-                                        { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' },
-                                        { k: 'actions', l: 'Ações' }
-                                    ].map(h => (
-                                        <th key={h.k} onClick={() => h.k !== 'actions' ? handleSort(h.k) : undefined} className={`px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap ${h.k !== 'actions' ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}>
-                                            <div className="flex items-center gap-1">{h.l} {h.k !== 'actions' && renderSortIcon(h.k)}</div>
-                                        </th>
-                                    ))}
-                                    {customMetrics.map(m => (
-                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
-                                            <div className="flex items-center gap-1">
-                                                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
-                                                {m.name} {renderSortIcon(m.id)}
-                                            </div>
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {sortData(filteredCampaigns).map((c, i) => {
-                                    const prev = getPrevCampaign(c.id);
-                                    return (
-                                        <tr key={i} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-900 group-hover:text-blue-600 transition-colors">{c.name}</td>
-                                            <td className="px-6 py-4">{renderStatusBadge(c.status)}</td>
-                                            <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.impressions, prev?.impressions, 'number')}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}</td>
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}</td>
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
-                                                <div className="flex items-center gap-2">
-                                                    {c.status === 'ENABLED' || c.status === 'PAUSED' ? (
-                                                        <button 
-                                                            onClick={() => setStatusConfirmModal({ open: true, campaignId: c.id.toString(), campaignName: c.name, action: c.status === 'ENABLED' ? 'pause' : 'enable', customerId: selectedAccountId || '' })}
-                                                            disabled={actionLoadingId === c.id.toString()}
-                                                            className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
-                                                            title={c.status === 'ENABLED' ? 'Pausar' : 'Ativar'}
-                                                        >
-                                                            {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : c.status === 'ENABLED' ? <Pause size={16} /> : <Play size={16} />}
-                                                        </button>
-                                                    ) : null}
-                                                    {c.budgetId && (
-                                                        <button 
-                                                            onClick={() => { setNewBudgetAmount(c.budget?.toString() || '0'); setBudgetModal({ open: true, campaignId: c.id.toString(), budgetId: c.budgetId.toString(), campaignName: c.name, currentBudget: c.budget, customerId: selectedAccountId || '' }); }}
-                                                            disabled={actionLoadingId === c.id.toString()}
-                                                            className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
-                                                            title="Editar Orçamento"
-                                                        >
-                                                            {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : <DollarSign size={16} />}
-                                                        </button>
-                                                    )}
+                    {loading && filteredCampaigns.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 bg-white">
+                            <Loader2 className="animate-spin text-blue-600 mb-3" size={32} />
+                            <span className="text-sm font-medium text-slate-500">Carregando campanhas...</span>
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        {[
+                                            { k: 'name', l: 'Campanha' }, { k: 'status', l: 'Status' }, { k: 'type', l: 'Tipo' },
+                                            { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' },
+                                            { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
+                                            { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' },
+                                            { k: 'actions', l: 'Ações' }
+                                        ].map(h => (
+                                            <th key={h.k} onClick={() => h.k !== 'actions' ? handleSort(h.k) : undefined} className={`px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap ${h.k !== 'actions' ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}>
+                                                <div className="flex items-center gap-1">{h.l} {h.k !== 'actions' && renderSortIcon(h.k)}</div>
+                                            </th>
+                                        ))}
+                                        {customMetrics.map(m => (
+                                            <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
+                                                <div className="flex items-center gap-1">
+                                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
+                                                    {m.name} {renderSortIcon(m.id)}
                                                 </div>
-                                            </td>
-                                            {customMetrics.map(m => (
-                                                <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
-                                                    {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {sortData(filteredCampaigns).map((c, i) => {
+                                        const prev = getPrevCampaign(c.id);
+                                        return (
+                                            <tr key={i} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900 group-hover:text-blue-600 transition-colors">{c.name}</td>
+                                                <td className="px-6 py-4">{renderStatusBadge(c.status)}</td>
+                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.impressions, prev?.impressions, 'number')}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
+                                                <td className="px-6 py-4 text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center gap-2">
+                                                        {c.status === 'ENABLED' || c.status === 'PAUSED' ? (
+                                                            <button 
+                                                                onClick={() => setStatusConfirmModal({ open: true, campaignId: c.id.toString(), campaignName: c.name, action: c.status === 'ENABLED' ? 'pause' : 'enable', customerId: selectedAccountId || '' })}
+                                                                disabled={actionLoadingId === c.id.toString()}
+                                                                className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
+                                                                title={c.status === 'ENABLED' ? 'Pausar' : 'Ativar'}
+                                                            >
+                                                                {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : c.status === 'ENABLED' ? <Pause size={16} /> : <Play size={16} />}
+                                                            </button>
+                                                        ) : null}
+                                                        {c.budgetId && (
+                                                            <button 
+                                                                onClick={() => { setNewBudgetAmount(c.budget?.toString() || '0'); setBudgetModal({ open: true, campaignId: c.id.toString(), budgetId: c.budgetId.toString(), campaignName: c.name, currentBudget: c.budget, customerId: selectedAccountId || '' }); }}
+                                                                disabled={actionLoadingId === c.id.toString()}
+                                                                className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
+                                                                title="Editar Orçamento"
+                                                            >
+                                                                {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : <DollarSign size={16} />}
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
-                                            ))}
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                            <tfoot className="bg-slate-50 border-t border-slate-100">
-                                <tr>
-                                    <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={3}>Totais</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}</td>
-                                    <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}</td>
-                                    <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).conversions, calculateTotals(filteredCampaignsComparison).conversions, 'number')}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}</td>
-                                    <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}</td>
-                                    <td className="px-6 py-4"></td>
-                                    {customMetrics.map(m => (
-                                        <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
-                                            {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
-                                        </td>
-                                    ))}
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
+                                                {customMetrics.map(m => (
+                                                    <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
+                                                        {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                                <tfoot className="bg-slate-50 border-t border-slate-100">
+                                    <tr>
+                                        <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={3}>Totais</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}</td>
+                                        <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}</td>
+                                        <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).conversions, calculateTotals(filteredCampaignsComparison).conversions, 'number')}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}</td>
+                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}</td>
+                                        <td className="px-6 py-4"></td>
+                                        {customMetrics.map(m => (
+                                            <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
+                                                {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    )}
                 </div>
             )}
 

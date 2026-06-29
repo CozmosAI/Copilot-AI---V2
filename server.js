@@ -1297,6 +1297,12 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerI
     const adsData = await adsResp.json();
     
     if (adsData.error) {
+        // Tratamento específico para erro de cota
+        if (adsData.error.code === 429 || 
+            (adsData.error.message && adsData.error.message.includes('RESOURCE_EXHAUSTED'))) {
+            console.warn('[Google Ads] Cota excedida, retornando vazio. Aguarde 15min.');
+            return [];
+        }
         // Tratamento específico para erro de MCC
         if (adsData.error.message.includes('REQUESTED_METRICS_FOR_MANAGER') && !managerId) {
              throw new Error('Esta é uma conta gerenciadora (MCC). Por favor, desconecte e selecione uma conta cliente.');
@@ -1633,7 +1639,10 @@ app.post('/api/google-ads/ads', async (req, res) => {
 // Rota: Asset Groups (P-MAX)
 app.post('/api/google-ads/asset-groups', async (req, res) => {
     const { user_id, date_range, campaign_id, customer_id } = req.body;
-    if (!user_id || !date_range || !campaign_id) return res.status(400).json({ error: 'Missing params' });
+    if (!campaign_id || campaign_id === 'undefined' || campaign_id === 'null') {
+        return res.json({ results: [] });
+    }
+    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
         const query = `
@@ -1660,7 +1669,10 @@ app.post('/api/google-ads/asset-groups', async (req, res) => {
 // Rota: PMAX Assets
 app.post('/api/google-ads/pmax-assets', async (req, res) => {
     const { user_id, campaign_id, customer_id } = req.body;
-    if (!user_id || !campaign_id) return res.status(400).json({ error: 'Missing params' });
+    if (!campaign_id || campaign_id === 'undefined' || campaign_id === 'null') {
+        return res.json({ results: [] });
+    }
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
         const campaignResourceName = `customers/${customer_id}/campaigns/${campaign_id}`;
