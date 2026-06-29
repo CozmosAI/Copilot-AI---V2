@@ -5198,27 +5198,24 @@ function normalizeUazapiWebhookPayload(payload) {
             }
 
             // 5. Documento
-            const doc = actualMessage.documentMessage || actualMessage.document;
-            if (doc || raw.messageType === 'document' || raw.type === 'document' || raw.mediaType === 'document') {
+            const doc = actualMessage.documentMessage || actualMessage.document || raw.documentMessage || raw.document;
+            if (doc) {
                 finalType = 'document';
-                if (doc) {
-                    caption = doc.caption || null;
-                    mediaUrl = doc.url || doc.fileUrl || doc.directPath || null;
-                    mediaMimeType = doc.mimetype || doc.mimeType || 'application/octet-stream';
-                    mediaFilename = doc.fileName || doc.filename || doc.title || null;
-                    if (doc.fileLength) sizeBytes = Number(doc.fileLength);
-                }
+                mediaUrl = doc.url || doc.directPath || null;
+                mediaMimeType = doc.mimetype || doc.mimeType || 'application/octet-stream';
+                // Tentar vários campos de filename
+                mediaFilename = doc.fileName || doc.filename || doc.title || raw.fileName || raw.filename || `document_${externalMessageId}.${(mediaMimeType.split('/')[1] || 'bin')}`;
+                text = doc.caption || doc.fileName || '[documento]';
             }
 
             // 6. Sticker
-            const stk = actualMessage.stickerMessage || actualMessage.sticker;
-            if (stk || raw.messageType === 'sticker' || raw.type === 'sticker' || raw.mediaType === 'sticker') {
+            const stk = actualMessage.stickerMessage || actualMessage.sticker || raw.stickerMessage || raw.sticker;
+            if (stk) {
                 finalType = 'sticker';
-                if (stk) {
-                    mediaUrl = stk.url || stk.fileUrl || stk.directPath || null;
-                    mediaMimeType = stk.mimetype || stk.mimeType || 'image/webp';
-                    if (stk.fileLength) sizeBytes = Number(stk.fileLength);
-                }
+                mediaUrl = stk.url || stk.directPath || null;
+                mediaMimeType = stk.mimetype || stk.mimeType || 'image/webp';
+                mediaFilename = `sticker_${externalMessageId}.webp`;
+                text = '[sticker]';
             }
 
             // 7. Localização
@@ -5259,6 +5256,55 @@ function normalizeUazapiWebhookPayload(payload) {
                 }
             }
 
+            // Poll (Enquete)
+            const poll = actualMessage.pollCreationMessage || actualMessage.pollCreationV2Message || actualMessage.pollMessage || raw.pollCreationMessage;
+            if (poll) {
+                finalType = 'poll';
+                const pollName = poll.name || poll.pollName || 'Enquete';
+                const options = (poll.options || poll.pollOptions || []).map((opt, i) => 
+                    opt.optionName || opt.text || `Opção ${i+1}`
+                );
+                text = `Enquete: ${pollName}\nOpções: ${options.join(', ')}`;
+                extraInfo.pollName = pollName;
+                extraInfo.pollOptions = options;
+            }
+
+            // Event (Evento)
+            const event = actualMessage.eventMessage || actualMessage.eventCreationMessage || raw.eventMessage;
+            if (event) {
+                finalType = 'event';
+                const eventName = event.name || event.eventName || 'Evento';
+                const eventDesc = event.description || '';
+                const eventTime = event.startTime ? new Date(event.startTime * 1000).toLocaleString('pt-BR') : '';
+                text = `Evento: ${eventName}${eventTime ? ' - ' + eventTime : ''}${eventDesc ? ' - ' + eventDesc : ''}`;
+                extraInfo.eventName = eventName;
+                extraInfo.eventTime = eventTime;
+                extraInfo.eventDescription = eventDesc;
+            }
+
+            // PIX / Payment
+            const payment = actualMessage.requestPaymentMessage || actualMessage.paymentMessage || raw.requestPaymentMessage;
+            if (payment) {
+                finalType = 'payment';
+                const amount = payment.amount1000 ? (payment.amount1000 / 1000).toFixed(2) : '';
+                const currency = payment.currencyCode || 'BRL';
+                const note = payment.note || '';
+                text = `Pagamento PIX: R$ ${amount}${note ? ' - ' + note : ''}`;
+                extraInfo.paymentAmount = amount;
+                extraInfo.paymentCurrency = currency;
+            }
+
+            // Order (Pedido de catálogo)
+            const order = actualMessage.orderMessage || raw.orderMessage;
+            if (order) {
+                finalType = 'order';
+                const orderTitle = order.title || 'Pedido';
+                const itemCount = order.itemCount || 0;
+                text = `Pedido: ${orderTitle} (${itemCount} itens)`;
+                extraInfo.orderTitle = orderTitle;
+                extraInfo.orderItemCount = itemCount;
+            }
+
             // 9. Reação
             const react = actualMessage.reactionMessage || actualMessage.reaction || raw.reactionMessage;
             if (react || raw.messageType === 'reaction' || raw.type === 'reaction') {
@@ -5291,12 +5337,12 @@ function normalizeUazapiWebhookPayload(payload) {
                 }
             }
 
+            if (!text) {
+                text = actualMessage.conversation || actualMessage.text || raw.text || raw.body || raw.conversation || null;
+            }
+            // Se encontramos texto via fallback, promover tipo para text
             if (finalType === 'unknown' && text) {
                 finalType = 'text';
-            }
-
-            if (finalType === 'text' && !text) {
-                text = actualMessage.conversation || actualMessage.text || raw.text || raw.body || null;
             }
 
             if (!mediaUrl) {
@@ -5399,6 +5445,16 @@ function normalizeUazapiWebhookPayload(payload) {
             timestamp = new Date();
         }
 
+        if (finalType === 'unknown') {
+            console.warn('[Webhook Debug] Tipo de mensagem não reconhecido. Payload:', 
+                JSON.stringify({
+                    keys: Object.keys(actualMessage || {}),
+                    rawKeys: Object.keys(raw || {}),
+                    type: raw.type || raw.message?.type
+                }, null, 2)
+            );
+        }
+
         messages.push({
             externalMessageId,
             externalChatId,
@@ -5435,7 +5491,6 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const body = req.body;
     let webhookEventId = null;
     
-    console.log('[Webhook Debug] Body cru recebido:', JSON.stringify(body, null, 2).substring(0, 2000));
     console.log(`[Webhook Uazapi] Recebido evento para a conexão ID: ${connectionId}`);
     
     try {
