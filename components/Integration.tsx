@@ -887,7 +887,7 @@ const Integration: React.FC = () => {
   const handleGoogleLogin = async () => { 
       setLoading('google-ads'); 
       try { 
-          await initiateGoogleAdsAuth(); 
+          await initiateGoogleAdsAuth(user?.id); 
       } catch (error: any) { 
           alert("Erro: " + error.message); 
           setLoading(null); 

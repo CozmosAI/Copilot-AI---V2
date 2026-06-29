@@ -16,9 +16,12 @@ const apiCall = async (endpoint: string, body: any) => {
 /**
  * Passo 1: Obter URL de Autorização
  */
-export const initiateGoogleAdsAuth = async () => {
+export const initiateGoogleAdsAuth = async (userId?: string) => {
     const redirectUri = window.location.origin;
-    const response = await fetch(`/api/auth/google-ads/url?redirect_uri=${encodeURIComponent(redirectUri)}`);
+    const url = userId 
+        ? `/api/auth/google-ads/url?redirect_uri=${encodeURIComponent(redirectUri)}&user_id=${userId}`
+        : `/api/auth/google-ads/url?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const response = await fetch(url);
     const data = await response.json();
     
     if (data.url) {

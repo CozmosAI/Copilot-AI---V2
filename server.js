@@ -86,7 +86,7 @@ app.use(express.static(path.join(__dirname, 'dist')));
 // 1. GERAR URL DE LOGIN (Para o Frontend)
 // ==============================================================================
 app.get('/api/auth/google-ads/url', (req, res) => {
-    const { redirect_uri } = req.query;
+    const { redirect_uri, user_id } = req.query;
     
     if (!GOOGLE_CLIENT_ID) return res.status(500).json({ error: 'GOOGLE_CLIENT_ID not set' });
 
@@ -94,7 +94,9 @@ app.get('/api/auth/google-ads/url', (req, res) => {
         'https://www.googleapis.com/auth/adwords'
     ].join(' ');
 
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirect_uri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+    const state = `google-ads-oauth-${user_id || 'unknown'}`;
+
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirect_uri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
     
     res.json({ url });
 });
