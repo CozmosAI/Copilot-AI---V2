@@ -88,6 +88,8 @@ const Marketing: React.FC = () => {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedAccountName, setSelectedAccountName] = useState<string>('');
   const [searchTermFilter, setSearchTermFilter] = useState('');
+  const [selectedMetaAdIdForPreview, setSelectedMetaAdIdForPreview] = useState<string | null>(null);
+  const [metaPreviewPlatform, setMetaPreviewPlatform] = useState<'facebook' | 'instagram' | 'stories'>('facebook');
   
   // Comparison State
   const [isCompareEnabled, setIsCompareEnabled] = useState(false);
@@ -1070,12 +1072,12 @@ const Marketing: React.FC = () => {
               <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 pb-3 text-sm font-medium transition-colors whitespace-nowrap relative ${activeTab === tab.id ? 'text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
+                  className={`flex items-center gap-2 pb-3 text-sm font-medium transition-colors whitespace-nowrap relative ${activeTab === tab.id ? (activePlatform === 'meta' ? 'text-[#0866ff]' : 'text-blue-600') : 'text-slate-500 hover:text-slate-800'}`}
               >
-                  <tab.icon size={16} className={activeTab === tab.id ? 'text-blue-600' : 'text-slate-400'} />
+                  <tab.icon size={16} className={activeTab === tab.id ? (activePlatform === 'meta' ? 'text-[#0866ff]' : 'text-blue-600') : 'text-slate-400'} />
                   {tab.label}
                   {activeTab === tab.id && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t-full" />
+                      <div className={`absolute bottom-0 left-0 right-0 h-0.5 ${activePlatform === 'meta' ? 'bg-[#0866ff]' : 'bg-blue-600'} rounded-t-full`} />
                   )}
               </button>
           ))}
@@ -1317,6 +1319,152 @@ const Marketing: React.FC = () => {
                         <div className="flex flex-col items-center justify-center py-20 bg-white">
                             <Loader2 className="animate-spin text-blue-600 mb-3" size={32} />
                             <span className="text-sm font-medium text-slate-500">Carregando campanhas...</span>
+                        </div>
+                    ) : activePlatform === 'meta' ? (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-50/80 border-b border-slate-300">
+                                    <tr className="divide-x divide-slate-200 h-10 text-slate-600">
+                                        <th className="w-12 px-3 text-center border-r border-slate-200">
+                                            <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                        </th>
+                                        <th className="w-14 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
+                                        {[
+                                            { k: 'name', l: 'Campanha', align: 'left' },
+                                            { k: 'budget', l: 'Orçamento', align: 'right' },
+                                            { k: 'status', l: 'Status de Veiculação', align: 'left' },
+                                            { k: 'type', l: 'Objetivo', align: 'left' },
+                                            { k: 'impressions', l: 'Alcance', align: 'right' },
+                                            { k: 'clicks', l: 'Cliques no Link', align: 'right' },
+                                            { k: 'ctr', l: 'CTR (todos)', align: 'right' },
+                                            { k: 'averageCpc', l: 'CPC Méd.', align: 'right' },
+                                            { k: 'spend', l: 'Valor Gasto', align: 'right' },
+                                            { k: 'conversions', l: 'Resultados', align: 'right' },
+                                            { k: 'costPerConv', l: 'Custo por Result.', align: 'right' }
+                                        ].map(h => (
+                                            <th 
+                                                key={h.k} 
+                                                onClick={() => handleSort(h.k)} 
+                                                className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                            >
+                                                <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                                    <span>{h.l}</span>
+                                                    {renderSortIcon(h.k)}
+                                                </div>
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200 text-slate-700">
+                                    {sortData(filteredCampaigns).map((c, i) => {
+                                        return (
+                                            <tr key={i} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-12 divide-x divide-slate-200">
+                                                <td className="px-3 py-2 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                    <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                </td>
+                                                {/* Meta Style Toggle Switch */}
+                                                <td className="px-3 py-2 text-center w-14 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center justify-center">
+                                                        <label className="relative inline-flex items-center cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
+                                                                onChange={() => {
+                                                                    setMetaCampaigns(prev => prev.map((item, idx) => (item.id === c.id || idx === i) ? { ...item, status: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                }}
+                                                                className="sr-only peer" 
+                                                            />
+                                                            <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                        </label>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-2 font-normal">
+                                                    <div className="flex items-center gap-2 overflow-hidden">
+                                                        <div className="w-5 h-5 bg-[#0866ff]/10 border border-[#0866ff]/20 rounded flex items-center justify-center shrink-0">
+                                                            <Instagram size={11} className="text-[#0866ff]" />
+                                                        </div>
+                                                        <span 
+                                                            onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                            className="text-[#0866ff] hover:underline font-medium cursor-pointer truncate text-sm"
+                                                            title={c.name}
+                                                        >
+                                                            {c.name}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                    <div>
+                                                        <p className="font-semibold">{formatCurrency(c.budget || 0)}</p>
+                                                        <p className="text-[9px] text-slate-400 font-normal">Diário</p>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-2 text-left font-normal">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className={`w-2 h-2 rounded-full ${(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'bg-[#0f9d58] shadow-sm shadow-emerald-200' : 'bg-slate-400'}`} />
+                                                        <span className="text-xs font-medium text-slate-700">
+                                                            {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'Veiculando' : 'Pausado'}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-2 text-left text-xs font-normal text-slate-500 uppercase tracking-wider">
+                                                    <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-semibold">{c.type?.replace(/_/g, ' ')}</span>
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {formatNumber(c.impressions)}
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {formatNumber(c.clicks)}
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {formatPercent(c.ctr * 100 || 0)}
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {formatCurrency(c.averageCpc || 0)}
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-bold text-slate-800">
+                                                    {formatCurrency(c.spend)}
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-bold text-indigo-600 bg-indigo-50/20">
+                                                    {formatNumber(c.conversions)}
+                                                </td>
+                                                <td className="px-4 py-2 text-right text-xs font-semibold text-slate-800">
+                                                    {formatCurrency(c.conversions > 0 ? c.spend / c.conversions : 0)}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                                <tfoot className="bg-slate-50 border-t-2 border-slate-300">
+                                    <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-100/50">
+                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                            Resultados Totais (Meta)
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {formatNumber(calculateTotals(filteredCampaigns).impressions)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {formatNumber(calculateTotals(filteredCampaigns).clicks)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {formatPercent(calculateTotals(filteredCampaigns).ctr)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {formatCurrency(calculateTotals(filteredCampaigns).cpc)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0866ff] bg-[#0866ff]/5">
+                                            {formatCurrency(calculateTotals(filteredCampaigns).spend)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-indigo-600">
+                                            {formatNumber(calculateTotals(filteredCampaigns).conversions)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {formatCurrency(calculateTotals(filteredCampaigns).conversions > 0 ? calculateTotals(filteredCampaigns).spend / calculateTotals(filteredCampaigns).conversions : 0)}
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
@@ -1784,6 +1932,146 @@ const Marketing: React.FC = () => {
                     {campaignType === 'PERFORMANCE_MAX' ? (
                         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-8 text-center">
                             <InfoMessage title="Campanha Performance Max" message="Campanhas P-MAX utilizam 'Grupos de Recursos' em vez de grupos de anúncios tradicionais. A API atual foca na visão consolidada." />
+                        </div>
+                    ) : activePlatform === 'meta' ? (
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                        <tr className="divide-x divide-slate-200 h-10">
+                                            <th className="w-12 px-3 text-center border-r border-slate-200">
+                                                <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                            </th>
+                                            <th className="w-14 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
+                                            {[
+                                                { k: 'name', l: 'Conjunto de Anúncios', align: 'left' },
+                                                { k: 'campaignName', l: 'Campanha', align: 'left' },
+                                                { k: 'status', l: 'Status', align: 'left' },
+                                                { k: 'impressions', l: 'Impressões', align: 'right' },
+                                                { k: 'clicks', l: 'Cliques no Link', align: 'right' },
+                                                { k: 'ctr', l: 'CTR', align: 'right' },
+                                                { k: 'cpc', l: 'CPC Méd.', align: 'right' },
+                                                { k: 'spend', l: 'Valor Gasto', align: 'right' },
+                                                { k: 'conversions', l: 'Resultados', align: 'right' },
+                                                { k: 'costPerConv', l: 'Custo por Result.', align: 'right' }
+                                            ].map(h => (
+                                                <th 
+                                                    key={h.k} 
+                                                    onClick={() => handleSort(h.k)} 
+                                                    className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                                >
+                                                    <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                                        <span>{h.l}</span>
+                                                        {renderSortIcon(h.k)}
+                                                    </div>
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {sortData(metaAdGroups).map((ag, i) => {
+                                            const agCtr = ag.impressions > 0 ? (ag.clicks / ag.impressions) * 100 : 0;
+                                            const agCpc = ag.clicks > 0 ? ag.spend / ag.clicks : 0;
+                                            const agCostPerConv = ag.conversions > 0 ? ag.spend / ag.conversions : 0;
+                                            return (
+                                                <tr key={i} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-12 divide-x divide-slate-200">
+                                                    <td className="px-3 py-2 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                    </td>
+                                                    {/* Meta Style Toggle Switch */}
+                                                    <td className="px-3 py-2 text-center w-14 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-center">
+                                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={ag.status === 'ENABLED' || ag.status === 'ACTIVE'} 
+                                                                    onChange={() => {
+                                                                        setMetaAdGroups(prev => prev.map((item, idx) => (item.id === ag.id || idx === i) ? { ...item, status: (ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                    }}
+                                                                    className="sr-only peer" 
+                                                                />
+                                                                <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                            </label>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 font-normal">
+                                                        <div className="flex items-center gap-2 overflow-hidden">
+                                                            <div className="w-5 h-5 bg-[#0866ff]/5 border border-[#0866ff]/10 rounded flex items-center justify-center shrink-0 text-[#0866ff]">
+                                                                <Grid size={11} />
+                                                            </div>
+                                                            <span className="text-[#0866ff] hover:underline font-medium cursor-pointer truncate text-sm" title={ag.name}>
+                                                                {ag.name}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
+                                                        {ag.campaignName}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className={`w-2 h-2 rounded-full ${(ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'bg-[#0f9d58]' : 'bg-slate-400'}`} />
+                                                            <span className="text-xs font-medium text-slate-700">
+                                                                {(ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'Ativo' : 'Pausado'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatNumber(ag.impressions)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatNumber(ag.clicks)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent(agCtr)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatCurrency(agCpc)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-bold text-slate-800">
+                                                        {formatCurrency(ag.spend)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-bold text-indigo-600 bg-indigo-50/20">
+                                                        {formatNumber(ag.conversions)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-semibold text-slate-800">
+                                                        {formatCurrency(agCostPerConv)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                    <tfoot className="bg-slate-50 border-t-2 border-slate-300">
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-100/50">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={3}>
+                                                Totais dos Conjuntos de Anúncios (Meta)
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(metaAdGroups).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(metaAdGroups).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(metaAdGroups).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(metaAdGroups).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0866ff] bg-[#0866ff]/5">
+                                                {formatCurrency(calculateTotals(metaAdGroups).spend)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-indigo-600">
+                                                {formatNumber(calculateTotals(metaAdGroups).conversions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(metaAdGroups).costPerConv)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -2302,7 +2590,357 @@ const Marketing: React.FC = () => {
             {/* ADS TAB */}
             {activeTab === 'ads' && (
                 <>
-                    {campaignType === 'PERFORMANCE_MAX' ? (
+                    {activePlatform === 'meta' ? (
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            {/* LEFT PANEL: TABLE OF META ADS */}
+                            <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                                <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <Instagram size={18} className="text-[#0866ff]" />
+                                        <h3 className="font-bold text-slate-800 text-sm">Gerenciador de Anúncios (Meta Ads)</h3>
+                                    </div>
+                                    <span className="text-xs bg-indigo-50 text-[#0866ff] font-semibold px-2.5 py-1 rounded-full border border-indigo-100">
+                                        {metaAds.length} Anúncios Ativos
+                                    </span>
+                                </div>
+                                
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead className="bg-[#f8f9fa] border-b border-slate-250">
+                                            <tr className="divide-x divide-slate-200 text-slate-500">
+                                                <th className="w-10 px-2 py-3 text-center border-r border-slate-200">
+                                                    <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                </th>
+                                                <th className="w-14 px-2 py-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider">Status</th>
+                                                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200">Criativo / Nome do Anúncio</th>
+                                                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200 text-right">Resultados</th>
+                                                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200 text-right">Alcance</th>
+                                                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200 text-right">Cliques (Link)</th>
+                                                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200 text-right">Custo (Gasto)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-200 text-slate-700">
+                                            {metaAds.map((ad, idx) => {
+                                                const activePreviewAd = metaAds.find(a => a.id?.toString() === selectedMetaAdIdForPreview) || metaAds[0];
+                                                const isSelected = activePreviewAd?.id === ad.id;
+                                                return (
+                                                    <tr 
+                                                        key={ad.id || idx} 
+                                                        onClick={() => setSelectedMetaAdIdForPreview(ad.id?.toString())}
+                                                        className={`group cursor-pointer transition-all h-14 divide-x divide-slate-200 ${isSelected ? 'bg-indigo-50/40 border-l-4 border-l-[#0866ff]' : 'hover:bg-[#f2f4f7]/40'}`}
+                                                    >
+                                                        <td className="px-2 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                            <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                        </td>
+                                                        <td className="px-2 py-2 text-center w-14 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center justify-center">
+                                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={ad.status === 'ENABLED' || ad.status === 'ACTIVE'} 
+                                                                        onChange={() => {
+                                                                            setMetaAds(prev => prev.map((item, idx2) => (item.id === ad.id || idx2 === idx) ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                        }}
+                                                                        className="sr-only peer" 
+                                                                    />
+                                                                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                                </label>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2">
+                                                            <div className="flex items-center gap-3">
+                                                                {/* Image Thumbnail preview */}
+                                                                <div className="w-10 h-10 shrink-0 rounded bg-slate-100 border border-slate-200 overflow-hidden relative flex items-center justify-center">
+                                                                    {ad.imageUrl ? (
+                                                                        <img src={ad.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                                    ) : ad.videoId ? (
+                                                                        <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
+                                                                            <Play size={14} className="text-white fill-white" />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <ImageIcon size={14} className="text-slate-400" />
+                                                                    )}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="font-semibold text-slate-800 text-xs truncate max-w-[180px]" title={ad.headlines || ad.title}>
+                                                                        {ad.headlines || ad.title || `Anúncio #${ad.id}`}
+                                                                    </p>
+                                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                                        <span className="text-[9px] text-slate-400 font-normal block truncate max-w-[100px]" title={ad.campaignName}>
+                                                                            C: {ad.campaignName}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-300 shrink-0">|</span>
+                                                                        <span className="text-[9px] text-slate-400 font-normal block truncate max-w-[100px]" title={ad.adGroupName}>
+                                                                            CJ: {ad.adGroupName}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2 text-right text-xs font-semibold text-indigo-600">
+                                                            {formatNumber(ad.conversions || 0)}
+                                                        </td>
+                                                        <td className="px-4 py-2 text-right text-xs text-slate-600">
+                                                            {formatNumber(ad.impressions || 0)}
+                                                        </td>
+                                                        <td className="px-4 py-2 text-right text-xs text-slate-600">
+                                                            {formatNumber(ad.clicks || 0)}
+                                                        </td>
+                                                        <td className="px-4 py-2 text-right text-xs font-bold text-slate-900 bg-slate-50/30">
+                                                            {formatCurrency(ad.spend || 0)}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot className="bg-slate-50 border-t border-slate-200">
+                                            <tr className="divide-x divide-slate-200 font-bold text-slate-800 text-xs h-10">
+                                                <td colSpan={3} className="px-4 py-2 text-slate-600">Total de Anúncios</td>
+                                                <td className="px-4 py-2 text-right text-indigo-600">{formatNumber(calculateTotals(metaAds).conversions)}</td>
+                                                <td className="px-4 py-2 text-right">{formatNumber(calculateTotals(metaAds).impressions)}</td>
+                                                <td className="px-4 py-2 text-right">{formatNumber(calculateTotals(metaAds).clicks)}</td>
+                                                <td className="px-4 py-2 text-right text-[#0866ff] bg-[#0866ff]/5">{formatCurrency(calculateTotals(metaAds).spend)}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* RIGHT PANEL: INTERACTIVE PREVIEW */}
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5">
+                                <div className="border-b border-slate-100 pb-4 mb-4">
+                                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                                        <Eye size={16} className="text-[#0866ff]" />
+                                        Visualização do Anúncio (Meta Mockup)
+                                    </h4>
+                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5 uppercase tracking-wider">Selecione uma plataforma abaixo para ver a prévia:</p>
+                                    
+                                    {/* Mockup Platforms Tabs selector */}
+                                    <div className="grid grid-cols-3 gap-1.5 mt-3 bg-slate-100 p-1 rounded-xl">
+                                        {[
+                                            { id: 'facebook', label: 'FB Feed' },
+                                            { id: 'instagram', label: 'IG Feed' },
+                                            { id: 'stories', label: 'IG Stories' }
+                                        ].map(plat => (
+                                            <button
+                                                key={plat.id}
+                                                onClick={() => setMetaPreviewPlatform(plat.id as any)}
+                                                className={`py-1.5 px-2 rounded-lg text-[10px] font-bold uppercase transition-all ${metaPreviewPlatform === plat.id ? 'bg-white text-[#0866ff] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                            >
+                                                {plat.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {(metaAds.find(a => a.id?.toString() === selectedMetaAdIdForPreview) || metaAds[0]) ? (
+                                    (() => {
+                                        const activePreviewAd = metaAds.find(a => a.id?.toString() === selectedMetaAdIdForPreview) || metaAds[0];
+                                        return (
+                                            <div className="flex-1 flex flex-col items-center justify-center py-2">
+                                                {/* FB FEED MOCKUP */}
+                                                {metaPreviewPlatform === 'facebook' && (
+                                                    <div className="w-full max-w-[340px] border border-slate-200 rounded-xl bg-white shadow-md overflow-hidden flex flex-col text-slate-900">
+                                                        {/* Header */}
+                                                        <div className="p-3 flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-9 h-9 rounded-full bg-[#0866ff] flex items-center justify-center text-white font-extrabold text-sm shadow-sm select-none">
+                                                                    AX
+                                                                </div>
+                                                                <div>
+                                                                    <h5 className="text-xs font-bold hover:underline cursor-pointer">Axis AI Gestão</h5>
+                                                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 font-medium mt-0.5">
+                                                                        <span>Patrocinado</span>
+                                                                        <span>•</span>
+                                                                        <span className="w-3 h-3 flex items-center justify-center text-[8px] font-bold bg-slate-100 border border-slate-200 rounded-full">🌐</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <button className="text-slate-400 hover:text-slate-600 font-bold px-1 text-sm">•••</button>
+                                                        </div>
+
+                                                        {/* Caption / Primary Text */}
+                                                        <div className="px-3 pb-3 text-xs text-slate-800 leading-normal font-normal">
+                                                            {activePreviewAd.body || "Acelere a gestão da sua empresa com inteligência artificial de ponta. Automatize processos e aumente seus lucros com o Axis AI Gestão!"}
+                                                        </div>
+
+                                                        {/* Creative Media */}
+                                                        <div className="aspect-[1.91/1] w-full bg-slate-100 border-y border-slate-150 overflow-hidden relative flex items-center justify-center">
+                                                            {activePreviewAd.imageUrl ? (
+                                                                <img src={activePreviewAd.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                            ) : activePreviewAd.videoId ? (
+                                                                <div className="absolute inset-0 bg-black flex flex-col items-center justify-center text-white">
+                                                                    <Play size={32} className="fill-white" />
+                                                                    <span className="text-[10px] uppercase font-bold tracking-wider mt-2">Vídeo do Anúncio</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex flex-col items-center justify-center text-slate-400">
+                                                                    <ImageIcon size={32} className="stroke-1.5" />
+                                                                    <span className="text-[10px] font-semibold mt-1">Sem imagem</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Headline & CTA Link block */}
+                                                        <div className="bg-[#f2f3f5] p-3 flex items-center justify-between gap-2 border-b border-slate-150">
+                                                            <div className="min-w-0">
+                                                                <span className="text-[10px] text-slate-500 uppercase tracking-wide font-medium block truncate">axisgestao.com</span>
+                                                                <span className="text-xs font-bold text-slate-800 block truncate mt-0.5" title={activePreviewAd.title}>
+                                                                    {activePreviewAd.title || "Transforme sua Operação"}
+                                                                </span>
+                                                            </div>
+                                                            <button className="bg-white hover:bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-xs font-bold text-slate-800 shrink-0 shadow-sm transition-all">
+                                                                Saiba mais
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Social Feedback Bar */}
+                                                        <div className="p-2.5 flex items-center justify-between border-b border-slate-100 text-slate-500 text-[11px] font-medium px-4">
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-xs">👍❤️😮</span>
+                                                                <span>148</span>
+                                                            </div>
+                                                            <div className="flex gap-2">
+                                                                <span>12 coment.</span>
+                                                                <span>•</span>
+                                                                <span>8 compart.</span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="grid grid-cols-3 text-slate-500 text-xs font-semibold py-1.5 border-t border-slate-100 bg-slate-50/40 text-center">
+                                                            <button className="hover:bg-slate-100 py-1 rounded flex items-center justify-center gap-1.5 transition-colors">👍 Curtir</button>
+                                                            <button className="hover:bg-slate-100 py-1 rounded flex items-center justify-center gap-1.5 transition-colors">💬 Comentar</button>
+                                                            <button className="hover:bg-slate-100 py-1 rounded flex items-center justify-center gap-1.5 transition-colors">↩️ Compartilhar</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* IG FEED MOCKUP */}
+                                                {metaPreviewPlatform === 'instagram' && (
+                                                    <div className="w-full max-w-[340px] border border-slate-200 rounded-xl bg-white shadow-md overflow-hidden flex flex-col text-slate-900 font-sans">
+                                                        {/* Header */}
+                                                        <div className="p-3 flex items-center justify-between border-b border-slate-100">
+                                                            <div className="flex items-center gap-2">
+                                                                {/* Avatar with circle gradient border */}
+                                                                <div className="p-[1.5px] rounded-full bg-gradient-to-tr from-yellow-500 via-red-500 to-purple-600">
+                                                                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center p-[2px]">
+                                                                        <div className="w-full h-full rounded-full bg-[#0866ff] flex items-center justify-center text-white text-[11px] font-bold shadow-sm select-none">
+                                                                            AX
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <h5 className="text-[11px] font-bold hover:underline cursor-pointer leading-tight">axis.ai.gestao</h5>
+                                                                    <span className="text-[9px] text-slate-500 block leading-none font-medium mt-0.5">Patrocinado</span>
+                                                                </div>
+                                                            </div>
+                                                            <button className="text-slate-400 hover:text-slate-600 font-bold px-1 text-sm">•••</button>
+                                                        </div>
+
+                                                        {/* Creative Square Media */}
+                                                        <div className="aspect-square w-full bg-slate-50 overflow-hidden relative flex items-center justify-center">
+                                                            {activePreviewAd.imageUrl ? (
+                                                                <img src={activePreviewAd.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                            ) : activePreviewAd.videoId ? (
+                                                                <div className="absolute inset-0 bg-black flex flex-col items-center justify-center text-white">
+                                                                    <Play size={40} className="fill-white" />
+                                                                    <span className="text-[10px] uppercase font-bold tracking-wider mt-2">Vídeo no Instagram</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex flex-col items-center justify-center text-slate-400">
+                                                                    <ImageIcon size={32} className="stroke-1.5" />
+                                                                    <span className="text-[10px] font-semibold mt-1">Sem imagem</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Call To Action Banner */}
+                                                        <div className="bg-[#0866ff] hover:bg-[#0855d0] text-white px-4 py-2.5 flex items-center justify-between text-xs font-bold transition-colors cursor-pointer">
+                                                            <span>Saiba mais</span>
+                                                            <span>➔</span>
+                                                        </div>
+
+                                                        {/* Icons actions bar */}
+                                                        <div className="p-3 flex items-center justify-between text-slate-700">
+                                                            <div className="flex items-center gap-3">
+                                                                <button className="hover:scale-110 transition-transform">❤️</button>
+                                                                <button className="hover:scale-110 transition-transform">💬</button>
+                                                                <button className="hover:scale-110 transition-transform">✈️</button>
+                                                            </div>
+                                                            <button className="hover:scale-110 transition-transform">🔖</button>
+                                                        </div>
+
+                                                        {/* Caption block */}
+                                                        <div className="px-3 pb-4 text-[11px] text-slate-800 leading-relaxed font-normal">
+                                                            <span className="font-bold mr-1.5">axis.ai.gestao</span>
+                                                            {activePreviewAd.body || "Automatize seus processos hoje com nossa tecnologia avançada."}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* STORIES MOCKUP */}
+                                                {metaPreviewPlatform === 'stories' && (
+                                                    <div className="w-full max-w-[260px] aspect-[9/16] border border-slate-700 rounded-2xl bg-slate-950 shadow-2xl overflow-hidden relative flex flex-col text-white font-sans">
+                                                        {/* Top Status Bar Mock */}
+                                                        <div className="absolute top-0 inset-x-0 h-1 bg-white/20 z-10 m-2 flex gap-1 rounded-full overflow-hidden">
+                                                            <div className="flex-1 bg-white rounded-full"></div>
+                                                        </div>
+
+                                                        {/* Header info */}
+                                                        <div className="absolute top-3 inset-x-0 p-3 flex items-center justify-between z-10 bg-gradient-to-b from-black/40 to-transparent">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-7 h-7 rounded-full bg-[#0866ff] flex items-center justify-center text-white text-[9px] font-bold shadow-md select-none border border-white/20">
+                                                                    AX
+                                                                </div>
+                                                                <div>
+                                                                    <h5 className="text-[10px] font-bold drop-shadow">axis.ai.gestao</h5>
+                                                                    <span className="text-[8px] text-white/80 block leading-none font-medium mt-0.5 drop-shadow">Patrocinado</span>
+                                                                </div>
+                                                            </div>
+                                                            <button className="text-white hover:text-white/80 font-bold px-1 text-xs drop-shadow">✕</button>
+                                                        </div>
+
+                                                        {/* Main Stories Creative background */}
+                                                        <div className="absolute inset-0 z-0 bg-slate-900 flex items-center justify-center">
+                                                            {activePreviewAd.imageUrl ? (
+                                                                <img src={activePreviewAd.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                            ) : activePreviewAd.videoId ? (
+                                                                <div className="flex flex-col items-center justify-center text-white/70">
+                                                                    <Play size={40} className="fill-white/80" />
+                                                                    <span className="text-[9px] uppercase font-bold tracking-widest mt-2">Vídeo Stories</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex flex-col items-center justify-center text-slate-500">
+                                                                    <ImageIcon size={40} className="stroke-1" />
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Bottom Stories Swiper / Swipe-up bar overlay */}
+                                                        <div className="absolute bottom-0 inset-x-0 p-4 z-10 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col items-center justify-end gap-1 text-center">
+                                                            {/* Headline overlay */}
+                                                            <p className="text-xs font-bold drop-shadow text-white/90 truncate max-w-full px-2">
+                                                                {activePreviewAd.title || "Axis AI Gestão Inteligente"}
+                                                            </p>
+                                                            
+                                                            <div className="animate-bounce text-[10px] mt-2 text-white/90">▲</div>
+                                                            <span className="bg-white/20 backdrop-blur-md border border-white/30 rounded-full px-4 py-1.5 text-[9px] font-extrabold uppercase tracking-widest hover:bg-white/35 transition-all text-white select-none cursor-pointer">
+                                                                Saiba mais
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()
+                                ) : (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center py-20 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                        <p className="text-xs text-slate-400 font-medium">Nenhum anúncio selecionado para prévia.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : campaignType === 'PERFORMANCE_MAX' ? (
                         <div className="space-y-8">
                             <div className="bg-blue-50 border border-blue-100 rounded-2xl p-8 text-center">
                                 <InfoMessage title="Recursos Performance Max" message="Campanhas P-MAX não possuem anúncios tradicionais. O Google combina os recursos abaixo para criar anúncios dinâmicos em todas as redes." />

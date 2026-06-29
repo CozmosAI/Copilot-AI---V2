@@ -717,6 +717,9 @@ const Integration: React.FC = () => {
                           setMetaAccountName(result.account?.name || '');
                           setAvailableMetaAccounts([]);
                           localStorage.removeItem('pending_meta_accounts');
+                          localStorage.removeItem('show_meta_modal');
+                          // DISPARAR EVENTO MANUALMENTE
+                          window.dispatchEvent(new Event('pending-accounts-updated'));
                           showToast("Meta Ads conectado com sucesso!", "success", `Sua conta "${result.account?.name || 'Meta Ads'}" foi integrada com sucesso.`);
                       } else {
                           const errMsg = result.error || "Erro desconhecido";
@@ -773,6 +776,9 @@ const Integration: React.FC = () => {
                           setAccountName(result.account?.name || '');
                           setAvailableAccounts([]);
                           localStorage.removeItem('pending_google_accounts');
+                          localStorage.removeItem('show_google_modal');
+                          // DISPARAR EVENTO MANUALMENTE
+                          window.dispatchEvent(new Event('pending-accounts-updated'));
                           showToast("Google Ads conectado com sucesso!", "success");
                       }
                   } catch (error: any) {
@@ -847,7 +853,10 @@ const Integration: React.FC = () => {
           setShowAccountSelector(false);
           setAvailableAccounts([]);
           localStorage.removeItem('pending_google_accounts');
+          localStorage.removeItem('show_google_modal');
           setSelectedManagerId(null);
+          // DISPARAR EVENTO MANUALMENTE
+          window.dispatchEvent(new Event('pending-accounts-updated'));
           alert(`Conta "${accName}" vinculada com sucesso!`);
       } catch (error: any) {
           alert("Erro ao selecionar conta: " + error.message);
@@ -949,6 +958,8 @@ const Integration: React.FC = () => {
       setShowAccountSelector(false);
       localStorage.removeItem('pending_google_accounts');
       localStorage.removeItem('show_google_modal');
+      // DISPARAR EVENTO MANUALMENTE
+      window.dispatchEvent(new Event('pending-accounts-updated'));
   };
 
   const handleMetaLogin = async () => { 
@@ -989,6 +1000,8 @@ const Integration: React.FC = () => {
               setShowMetaAccountSelector(false);
               localStorage.removeItem('pending_meta_accounts');
               localStorage.removeItem('show_meta_modal');
+              // DISPARAR EVENTO MANUALMENTE
+              window.dispatchEvent(new Event('pending-accounts-updated'));
               showToast("Meta Ads Desconectado", "success", "Sua integração com o Meta Ads foi removida com sucesso.");
           } catch (error: any) {
               showToast("Erro ao Desconectar", "error", error.message || "Não foi possível remover a conexão do Meta Ads.");
@@ -1010,6 +1023,9 @@ const Integration: React.FC = () => {
           setShowMetaAccountSelector(false);
           setAvailableMetaAccounts([]);
           localStorage.removeItem('pending_meta_accounts');
+          localStorage.removeItem('show_meta_modal');
+          // DISPARAR EVENTO MANUALMENTE
+          window.dispatchEvent(new Event('pending-accounts-updated'));
           showToast("Conta Vinculada", "success", `A conta de anúncios "${accName}" foi configurada com êxito para sincronização de dados.`);
       } catch (error: any) {
           showToast("Erro ao Selecionar Conta", "error", error.message || "Não foi possível vincular esta conta de anúncios.");
