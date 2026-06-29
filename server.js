@@ -5435,6 +5435,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const body = req.body;
     let webhookEventId = null;
     
+    console.log('[Webhook Debug] Body cru recebido:', JSON.stringify(body, null, 2).substring(0, 2000));
     console.log(`[Webhook Uazapi] Recebido evento para a conexão ID: ${connectionId}`);
     
     try {

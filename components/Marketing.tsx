@@ -4,7 +4,7 @@ import {
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
   ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save, Bell,
-  FileUp, Download, Image as ImageIcon, Play, Pause
+  FileUp, Download, Image as ImageIcon, Play, Pause, Pencil, Settings, Folder, HelpCircle
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, Brush, ComposedChart, Bar
@@ -141,6 +141,10 @@ const Marketing: React.FC = () => {
   const [statusConfirmModal, setStatusConfirmModal] = useState<{ open: boolean, campaignId: string, campaignName: string, action: 'pause' | 'enable', customerId: string } | null>(null);
   const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: string, budgetId: string, campaignName: string, currentBudget: number, customerId: string } | null>(null);
   const [newBudgetAmount, setNewBudgetAmount] = useState<string>('');
+  const [activeStatusMenuCampaignId, setActiveStatusMenuCampaignId] = useState<string | null>(null);
+  const [activeStatusMenuAdGroupId, setActiveStatusMenuAdGroupId] = useState<string | null>(null);
+  const [activeStatusMenuKeywordId, setActiveStatusMenuKeywordId] = useState<string | null>(null);
+  const [activeStatusMenuAdId, setActiveStatusMenuAdId] = useState<string | null>(null);
 
   // Update metric styles when custom metrics change
   useEffect(() => {
@@ -620,8 +624,25 @@ const Marketing: React.FC = () => {
   const sortData = (data: any[]) => {
       if (!sortConfig) return data;
       return [...data].sort((a, b) => {
-          if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
-          if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+          let valA = a[sortConfig.key];
+          let valB = b[sortConfig.key];
+          
+          if (sortConfig.key === 'ctr') {
+              valA = (a.clicks / a.impressions) || 0;
+              valB = (b.clicks / b.impressions) || 0;
+          } else if (sortConfig.key === 'cpc') {
+              valA = (a.spend / a.clicks) || 0;
+              valB = (b.spend / b.clicks) || 0;
+          } else if (sortConfig.key === 'convRate') {
+              valA = (a.conversions / a.clicks) || 0;
+              valB = (b.conversions / b.clicks) || 0;
+          } else if (sortConfig.key === 'costPerConv') {
+              valA = a.conversions > 0 ? (a.spend / a.conversions) : 0;
+              valB = b.conversions > 0 ? (b.spend / b.conversions) : 0;
+          }
+          
+          if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
           return 0;
       });
   };
@@ -1291,7 +1312,7 @@ const Marketing: React.FC = () => {
 
             {/* CAMPAIGNS TAB */}
             {activeTab === 'campaigns' && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                     {loading && filteredCampaigns.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 bg-white">
                             <Loader2 className="animate-spin text-blue-600 mb-3" size={32} />
@@ -1299,23 +1320,54 @@ const Marketing: React.FC = () => {
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50 border-b border-slate-200">
-                                    <tr>
-                                        {[
-                                            { k: 'name', l: 'Campanha' }, { k: 'status', l: 'Status' }, { k: 'type', l: 'Tipo' },
-                                            { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' },
-                                            { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
-                                            { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' },
-                                            { k: 'actions', l: 'Ações' }
-                                        ].map(h => (
-                                            <th key={h.k} onClick={() => h.k !== 'actions' ? handleSort(h.k) : undefined} className={`px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap ${h.k !== 'actions' ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}>
-                                                <div className="flex items-center gap-1">{h.l} {h.k !== 'actions' && renderSortIcon(h.k)}</div>
-                                            </th>
-                                        ))}
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-[#f8f9fa] border-b border-slate-200">
+                                    <tr className="divide-x divide-slate-200">
+                                        <th className="px-3 py-3 w-10 text-center border-r border-slate-200">
+                                            <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" />
+                                        </th>
+                                        <th className="px-3 py-3 w-10 text-center border-r border-slate-200 text-slate-400 font-bold text-xs">•</th>
+                                        <th onClick={() => handleSort('name')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center gap-1">Campanha {renderSortIcon('name')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('budget')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Orçamento {renderSortIcon('budget')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('status')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center gap-1">Status {renderSortIcon('status')}</div>
+                                        </th>
+                                        <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right border-r border-slate-200 whitespace-nowrap">Optimization score</th>
+                                        <th onClick={() => handleSort('type')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center gap-1">Tipo de campanha {renderSortIcon('type')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('impressions')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Impr. {renderSortIcon('impressions')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('clicks')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">↓ Interações {renderSortIcon('clicks')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('ctr')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Taxa de interação {renderSortIcon('ctr')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('cpc')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Custo médio {renderSortIcon('cpc')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('spend')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Custo {renderSortIcon('spend')}</div>
+                                        </th>
+                                        <th className="px-4 py-3 text-xs font-semibold text-slate-500 border-r border-slate-200 whitespace-nowrap">Bid strategy type</th>
+                                        <th onClick={() => handleSort('convRate')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Taxa de conv. {renderSortIcon('convRate')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('conversions')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Conversões {renderSortIcon('conversions')}</div>
+                                        </th>
+                                        <th onClick={() => handleSort('costPerConv')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1">Custo / conv. {renderSortIcon('costPerConv')}</div>
+                                        </th>
                                         {customMetrics.map(m => (
-                                            <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
-                                                <div className="flex items-center gap-1">
+                                            <th key={m.id} onClick={() => handleSort(m.id)} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center gap-1 justify-end">
                                                     <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                                                     {m.name} {renderSortIcon(m.id)}
                                                 </div>
@@ -1323,48 +1375,234 @@ const Marketing: React.FC = () => {
                                         ))}
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-200">
+                                    {/* DRAFTS ROW */}
+                                    <tr className="bg-[#e6f4ea]/30 text-xs text-slate-700 h-10 border-b border-slate-200 divide-x divide-slate-200/80">
+                                        <td className="px-3 py-2 text-center w-10">
+                                            <ChevronDown size={14} className="inline text-slate-500 cursor-pointer" />
+                                        </td>
+                                        <td className="px-3 py-2 text-center w-10">
+                                            <Folder size={14} className="inline text-slate-450" />
+                                        </td>
+                                        <td className="px-4 py-2 font-medium" colSpan={14 + customMetrics.length}>
+                                            <span className="text-slate-700 text-xs font-medium">Rascunhos em andamento: 0</span>
+                                        </td>
+                                    </tr>
+
+                                    {/* REAL CAMPAIGN ROWS */}
                                     {sortData(filteredCampaigns).map((c, i) => {
                                         const prev = getPrevCampaign(c.id);
+                                        const isPMax = c.type?.includes('PERFORMANCE_MAX');
                                         return (
-                                            <tr key={i} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => setGlobalCampaignFilter(c.id.toString())}>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900 group-hover:text-blue-600 transition-colors">{c.name}</td>
-                                                <td className="px-6 py-4">{renderStatusBadge(c.status)}</td>
-                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{c.type?.replace('PERFORMANCE_MAX', 'P-MAX')}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.impressions, prev?.impressions, 'number')}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{renderCellWithVariation(c.conversions, prev?.conversions, 'number')}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center gap-2">
-                                                        {c.status === 'ENABLED' || c.status === 'PAUSED' ? (
-                                                            <button 
-                                                                onClick={() => setStatusConfirmModal({ open: true, campaignId: c.id.toString(), campaignName: c.name, action: c.status === 'ENABLED' ? 'pause' : 'enable', customerId: selectedAccountId || '' })}
-                                                                disabled={actionLoadingId === c.id.toString()}
-                                                                className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
-                                                                title={c.status === 'ENABLED' ? 'Pausar' : 'Ativar'}
-                                                            >
-                                                                {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : c.status === 'ENABLED' ? <Pause size={16} /> : <Play size={16} />}
-                                                            </button>
-                                                        ) : null}
-                                                        {c.budgetId && (
-                                                            <button 
-                                                                onClick={() => { setNewBudgetAmount(c.budget?.toString() || '0'); setBudgetModal({ open: true, campaignId: c.id.toString(), budgetId: c.budgetId.toString(), campaignName: c.name, currentBudget: c.budget, customerId: selectedAccountId || '' }); }}
-                                                                disabled={actionLoadingId === c.id.toString()}
-                                                                className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
-                                                                title="Editar Orçamento"
-                                                            >
-                                                                {actionLoadingId === c.id.toString() ? <Loader2 size={16} className="animate-spin" /> : <DollarSign size={16} />}
-                                                            </button>
+                                            <tr key={i} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
+                                                {/* Checkbox */}
+                                                <td className="px-3 py-2 text-center w-10" onClick={(e) => e.stopPropagation()}>
+                                                    <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" />
+                                                </td>
+
+                                                {/* Interactive Status Dot */}
+                                                <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuCampaignId(activeStatusMenuCampaignId === c.id.toString() ? null : c.id.toString())}>
+                                                        {c.status === 'ENABLED' ? (
+                                                            <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
+                                                        ) : c.status === 'PAUSED' ? (
+                                                            <div className="w-4 h-4 rounded-full bg-slate-350 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                        ) : (
+                                                            <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
                                                         )}
                                                     </div>
+
+                                                    {/* Status Selector Dropdown */}
+                                                    {activeStatusMenuCampaignId === c.id.toString() && (
+                                                        <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                            <div className="p-1">
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setActiveStatusMenuCampaignId(null);
+                                                                        setStatusConfirmModal({ 
+                                                                            open: true, 
+                                                                            campaignId: c.id.toString(), 
+                                                                            campaignName: c.name, 
+                                                                            action: 'enable', 
+                                                                            customerId: selectedAccountId || '' 
+                                                                        });
+                                                                    }}
+                                                                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                >
+                                                                    <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
+                                                                    Ativar
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setActiveStatusMenuCampaignId(null);
+                                                                        setStatusConfirmModal({ 
+                                                                            open: true, 
+                                                                            campaignId: c.id.toString(), 
+                                                                            campaignName: c.name, 
+                                                                            action: 'pause', 
+                                                                            customerId: selectedAccountId || '' 
+                                                                        });
+                                                                    }}
+                                                                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                >
+                                                                    <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                    Pausar
+                                                                </button>
+                                                            </div>
+                                                            <div className="p-1">
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setActiveStatusMenuCampaignId(null);
+                                                                        alert("A remoção de campanhas deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
+                                                                    }}
+                                                                    className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
+                                                                >
+                                                                    <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                    Remover
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </td>
+
+                                                {/* Campaign Name & Network Icon */}
+                                                <td className="px-4 py-2 font-normal">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-2 overflow-hidden">
+                                                            <div className="w-6 h-6 bg-slate-100 border border-slate-200 rounded flex items-center justify-center text-slate-500 shrink-0">
+                                                                {isPMax ? <TrendingUp size={13} className="text-blue-500" /> : <Search size={13} className="text-slate-500" />}
+                                                            </div>
+                                                            <span 
+                                                                onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                                className="text-[#1a73e8] hover:text-[#1557b0] hover:underline font-medium cursor-pointer truncate text-sm"
+                                                                title={c.name}
+                                                            >
+                                                                {c.name}
+                                                            </span>
+                                                        </div>
+                                                        
+                                                        {/* Inline Hover Action Tools */}
+                                                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity duration-150 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setNewBudgetAmount(c.budget?.toString() || '0');
+                                                                    setBudgetModal({ 
+                                                                        open: true, 
+                                                                        campaignId: c.id.toString(), 
+                                                                        budgetId: c.budgetId?.toString() || '', 
+                                                                        campaignName: c.name, 
+                                                                        currentBudget: c.budget, 
+                                                                        customerId: selectedAccountId || '' 
+                                                                    });
+                                                                }}
+                                                                className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                                                                title="Editar"
+                                                            >
+                                                                <Pencil size={12} />
+                                                            </button>
+                                                            <button className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors" title="Configurações">
+                                                                <Settings size={12} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* Budget Column */}
+                                                <td className="px-4 py-2 text-right font-normal group/budget" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        <span className="text-slate-800 text-xs font-medium">{formatCurrency(c.budget || 0)}/dia</span>
+                                                        <button 
+                                                            onClick={() => {
+                                                                setNewBudgetAmount(c.budget?.toString() || '0');
+                                                                setBudgetModal({ 
+                                                                    open: true, 
+                                                                    campaignId: c.id.toString(), 
+                                                                    budgetId: c.budgetId?.toString() || '', 
+                                                                    campaignName: c.name, 
+                                                                    currentBudget: c.budget, 
+                                                                    customerId: selectedAccountId || '' 
+                                                                });
+                                                            }}
+                                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 rounded transition-opacity"
+                                                        >
+                                                            <Pencil size={11} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+
+                                                {/* Status Column */}
+                                                <td className="px-4 py-2 text-left font-normal">
+                                                    <div className="flex flex-col">
+                                                        <span className={`text-xs font-semibold ${c.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                            {c.status === 'ENABLED' ? 'Qualificada' : 'Pausada'}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
+                                                            {c.status === 'ENABLED' ? 'Ativa' : 'Campanha pausada'}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* Optimization Score */}
+                                                <td className="px-4 py-2 text-right font-normal text-slate-400">-</td>
+
+                                                {/* Tipo de campanha */}
+                                                <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs whitespace-nowrap">
+                                                    {isPMax ? 'Performance Max' : 'Pesquisa'}
+                                                </td>
+
+                                                {/* Impr. */}
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {renderCellWithVariation(c.impressions, prev?.impressions, 'number')}
+                                                </td>
+
+                                                {/* Interações */}
+                                                <td className="px-4 py-2 text-right font-normal text-slate-800">
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-xs">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</span>
+                                                        <span className="text-[9px] text-slate-400 text-right leading-tight mt-0.5">
+                                                            cliques, <br/> engajamentos
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* Taxa de interação */}
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}
+                                                </td>
+
+                                                {/* Custo médio */}
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}
+                                                </td>
+
+                                                {/* Custo */}
+                                                <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                    {renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}
+                                                </td>
+
+                                                {/* Bid strategy type */}
+                                                <td className="px-4 py-2 text-left font-normal text-xs whitespace-nowrap">
+                                                    <span className="text-[#1a73e8] hover:underline cursor-pointer">Maximizar conversões</span>
+                                                </td>
+
+                                                {/* Taxa de conv. */}
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}
+                                                </td>
+
+                                                {/* Conversões */}
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {c.conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+
+                                                {/* Custo / conv. */}
+                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                    {renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}
+                                                </td>
+
+                                                {/* Custom metrics */}
                                                 {customMetrics.map(m => (
-                                                    <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
+                                                    <td key={m.id} className="px-4 py-2 text-right text-xs font-medium text-slate-800 border-l border-slate-200">
                                                         {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
                                                     </td>
                                                 ))}
@@ -1372,20 +1610,92 @@ const Marketing: React.FC = () => {
                                         );
                                     })}
                                 </tbody>
-                                <tfoot className="bg-slate-50 border-t border-slate-100">
-                                    <tr>
-                                        <td className="px-6 py-4 text-xs font-black text-navy uppercase" colSpan={3}>Totais</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}</td>
-                                        <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}</td>
-                                        <td className="px-6 py-4 text-xs font-black text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).conversions, calculateTotals(filteredCampaignsComparison).conversions, 'number')}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}</td>
-                                        <td className="px-6 py-4 text-xs font-bold text-navy">{renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}</td>
-                                        <td className="px-6 py-4"></td>
+                                <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                    {/* Total Row 1: All but removed campaigns */}
+                                    <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
+                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11">
+                                            Total: All but removed campaigns in your current view
+                                            <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
+                                        <td className="px-4 py-2 border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                            {calculateTotals(filteredCampaigns).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}
+                                        </td>
                                         {customMetrics.map(m => (
-                                            <td key={m.id} className="px-6 py-4 text-xs font-black text-navy border-l border-slate-100">
+                                            <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
+                                                {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
+                                            </td>
+                                        ))}
+                                    </tr>
+
+                                    {/* Total Row 2: Total: conta */}
+                                    <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
+                                        <td className="px-3 py-2 text-center border-r border-slate-200">
+                                            <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
+                                        </td>
+                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11">
+                                            Total: conta
+                                            <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-medium text-slate-600">R$ 0,00/dia</td>
+                                        <td className="px-4 py-2 border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
+                                        <td className="px-4 py-2 border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200"></td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                            {calculateTotals(filteredCampaigns).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </td>
+                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}
+                                        </td>
+                                        {customMetrics.map(m => (
+                                            <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
                                                 {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
                                             </td>
                                         ))}
@@ -1478,64 +1788,244 @@ const Marketing: React.FC = () => {
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                        <tr className="divide-x divide-slate-200 h-10">
+                                            <th className="w-10 px-3 text-center border-r border-slate-200">
+                                                <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                            </th>
+                                            <th className="w-10 px-3 text-center border-r border-slate-200"></th>
                                             {[
-                                                { k: 'name', l: 'Grupo de Anúncios' }, { k: 'campaignName', l: 'Campanha' }, { k: 'status', l: 'Status' },
-                                                { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' },
-                                                { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
-                                                { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
+                                                { k: 'name', l: 'Grupo de Anúncios', align: 'left' },
+                                                { k: 'campaignName', l: 'Campanha', align: 'left' },
+                                                { k: 'status', l: 'Status do Grupo', align: 'left' },
+                                                { k: 'impressions', l: 'Impr.', align: 'right' },
+                                                { k: 'clicks', l: 'Cliques', align: 'right' },
+                                                { k: 'ctr', l: 'CTR', align: 'right' },
+                                                { k: 'cpc', l: 'CPC Méd.', align: 'right' },
+                                                { k: 'spend', l: 'Custo', align: 'right' },
+                                                { k: 'conversions', l: 'Conv.', align: 'right' },
+                                                { k: 'convRate', l: 'Taxa Conv.', align: 'right' },
+                                                { k: 'costPerConv', l: 'Custo/Conv.', align: 'right' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
-                                                    <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
+                                                <th 
+                                                    key={h.k} 
+                                                    onClick={() => handleSort(h.k)} 
+                                                    className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                                >
+                                                    <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                                        <span>{h.l}</span>
+                                                        {renderSortIcon(h.k)}
+                                                    </div>
                                                 </th>
                                             ))}
                                             {customMetrics.map(m => (
-                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
-                                                    <div className="flex items-center gap-1">
+                                                <th 
+                                                    key={m.id} 
+                                                    onClick={() => handleSort(m.id)} 
+                                                    className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-right"
+                                                >
+                                                    <div className="flex items-center gap-1 justify-end">
                                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
-                                                        {m.name} {renderSortIcon(m.id)}
+                                                        <span>{m.name}</span>
+                                                        {renderSortIcon(m.id)}
                                                     </div>
                                                 </th>
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {sortData(filteredAdGroups).map((ag, i) => (
-                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{ag.name}</td>
-                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ag.campaignName}</td>
-                                                <td className="px-6 py-4">{renderStatusBadge(ag.status)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.impressions)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.clicks)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatCurrency(ag.spend)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatNumber(ag.conversions)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ag.conversions / ag.clicks) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</td>
-                                                {customMetrics.map(m => (
-                                                    <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
-                                                        {formatMetricValue(calculateMetricValue(m, ag), m.format)}
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {sortData(filteredAdGroups).map((ag, i) => {
+                                            return (
+                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
+                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
                                                     </td>
-                                                ))}
-                                            </tr>
-                                        ))}
+                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuAdGroupId(activeStatusMenuAdGroupId === (ag.id?.toString() || i.toString()) ? null : (ag.id?.toString() || i.toString()))}>
+                                                            {ag.status === 'ENABLED' ? (
+                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
+                                                            ) : ag.status === 'PAUSED' ? (
+                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                            ) : (
+                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                            )}
+                                                        </div>
+                                                        {activeStatusMenuAdGroupId === (ag.id?.toString() || i.toString()) && (
+                                                            <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuAdGroupId(null);
+                                                                            setAdGroups(prev => prev.map((item, idx) => (item.id === ag.id || idx === i) ? { ...item, status: 'ENABLED' } : item));
+                                                                            alert(`Grupo de Anúncios "${ag.name}" ativado com sucesso!`);
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
+                                                                        Ativar
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuAdGroupId(null);
+                                                                            setAdGroups(prev => prev.map((item, idx) => (item.id === ag.id || idx === i) ? { ...item, status: 'PAUSED' } : item));
+                                                                            alert(`Grupo de Anúncios "${ag.name}" pausado com sucesso!`);
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                        Pausar
+                                                                    </button>
+                                                                </div>
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuAdGroupId(null);
+                                                                            alert("A remoção de grupos de anúncios deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                        Remover
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-2 font-normal">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                                <div className="w-5 h-5 bg-blue-50 border border-blue-100 rounded flex items-center justify-center text-[#1a73e8] shrink-0">
+                                                                    <Folder size={11} />
+                                                                </div>
+                                                                <span className="text-[#1a73e8] hover:underline font-medium cursor-pointer truncate text-sm" title={ag.name}>
+                                                                    {ag.name}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
+                                                        {ag.campaignName}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal">
+                                                        <div className="flex flex-col">
+                                                            <span className={`text-xs font-semibold ${ag.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                                {ag.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-normal mt-0.5">
+                                                                {ag.status === 'ENABLED' ? 'Qualificado' : 'Grupo pausado'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatNumber(ag.impressions)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-normal text-slate-800">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-xs">{formatNumber(ag.clicks)}</span>
+                                                            <span className="text-[9px] text-slate-400 text-right mt-0.5 leading-tight">cliques</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent((ag.clicks / ag.impressions) * 100 || 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatCurrency(ag.clicks > 0 ? ag.spend / ag.clicks : 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                        {formatCurrency(ag.spend)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {ag.conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent((ag.conversions / ag.clicks) * 100 || 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}
+                                                    </td>
+                                                    {customMetrics.map(m => (
+                                                        <td key={m.id} className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                            {formatMetricValue(calculateMetricValue(m, ag), m.format)}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
-                                    <tfoot className="bg-slate-50 border-t border-slate-200">
-                                        <tr>
-                                            <td className="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider" colSpan={3}>Totais</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredAdGroups).impressions)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredAdGroups).clicks)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredAdGroups).ctr)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredAdGroups).cpc)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredAdGroups).spend)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredAdGroups).conversions)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredAdGroups).clicks > 0 ? (calculateTotals(filteredAdGroups).conversions / calculateTotals(filteredAdGroups).clicks) * 100 : 0)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredAdGroups).costPerConv)}</td>
+                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={3}>
+                                                Total: All but removed ad groups in your current view
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {formatNumber(calculateTotals(filteredAdGroups).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredAdGroups).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredAdGroups).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredAdGroups).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {formatCurrency(calculateTotals(filteredAdGroups).spend)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {calculateTotals(filteredAdGroups).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredAdGroups).clicks > 0 ? (calculateTotals(filteredAdGroups).conversions / calculateTotals(filteredAdGroups).clicks) * 100 : 0)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredAdGroups).costPerConv)}
+                                            </td>
                                             {customMetrics.map(m => (
-                                                <td key={m.id} className="px-6 py-4 text-sm font-bold text-slate-900 border-l border-slate-200">
+                                                <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
+                                                    {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredAdGroups)), m.format)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200">
+                                                <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
+                                            </td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11" colSpan={3}>
+                                                Total: conta
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {formatNumber(calculateTotals(filteredAdGroups).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredAdGroups).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredAdGroups).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredAdGroups).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {formatCurrency(calculateTotals(filteredAdGroups).spend)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {calculateTotals(filteredAdGroups).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredAdGroups).clicks > 0 ? (calculateTotals(filteredAdGroups).conversions / calculateTotals(filteredAdGroups).clicks) * 100 : 0)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredAdGroups).costPerConv)}
+                                            </td>
+                                            {customMetrics.map(m => (
+                                                <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
                                                     {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredAdGroups)), m.format)}
                                                 </td>
                                             ))}
@@ -1562,65 +2052,241 @@ const Marketing: React.FC = () => {
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                        <tr className="divide-x divide-slate-200 h-10">
+                                            <th className="w-10 px-3 text-center border-r border-slate-200">
+                                                <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                            </th>
+                                            <th className="w-10 px-3 text-center border-r border-slate-200"></th>
                                             {[
-                                                { k: 'text', l: 'Palavra-chave' }, { k: 'matchType', l: 'Tipo' }, { k: 'status', l: 'Status' },
-                                                { k: 'qualityScore', l: 'Qualidade' }, { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' },
-                                                { k: 'ctr', l: 'CTR' }, { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
-                                                { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
+                                                { k: 'text', l: 'Palavra-chave', align: 'left' },
+                                                { k: 'matchType', l: 'Tipo de correspondência', align: 'left' },
+                                                { k: 'status', l: 'Status da palavra-chave', align: 'left' },
+                                                { k: 'qualityScore', l: 'Índice de Qualidade', align: 'right' },
+                                                { k: 'impressions', l: 'Impr.', align: 'right' },
+                                                { k: 'clicks', l: 'Cliques', align: 'right' },
+                                                { k: 'ctr', l: 'CTR', align: 'right' },
+                                                { k: 'cpc', l: 'CPC Méd.', align: 'right' },
+                                                { k: 'spend', l: 'Custo', align: 'right' },
+                                                { k: 'conversions', l: 'Conv.', align: 'right' },
+                                                { k: 'convRate', l: 'Taxa Conv.', align: 'right' },
+                                                { k: 'costPerConv', l: 'Custo/Conv.', align: 'right' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
-                                                    <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
+                                                <th 
+                                                    key={h.k} 
+                                                    onClick={() => handleSort(h.k)} 
+                                                    className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                                >
+                                                    <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                                        <span>{h.l}</span>
+                                                        {renderSortIcon(h.k)}
+                                                    </div>
                                                 </th>
                                             ))}
                                             {customMetrics.map(m => (
-                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
-                                                    <div className="flex items-center gap-1">
+                                                <th 
+                                                    key={m.id} 
+                                                    onClick={() => handleSort(m.id)} 
+                                                    className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-right"
+                                                >
+                                                    <div className="flex items-center gap-1 justify-end">
                                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
-                                                        {m.name} {renderSortIcon(m.id)}
+                                                        <span>{m.name}</span>
+                                                        {renderSortIcon(m.id)}
                                                     </div>
                                                 </th>
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {sortData(filteredKeywords).map((kw, i) => (
-                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{kw.text}</td>
-                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{kw.matchType}</td>
-                                                <td className="px-6 py-4">{renderStatusBadge(kw.status)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{kw.qualityScore}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(kw.impressions)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(kw.clicks)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((kw.clicks / kw.impressions) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(kw.clicks > 0 ? kw.spend / kw.clicks : 0)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatCurrency(kw.spend)}</td>
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900">{formatNumber(kw.conversions)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((kw.conversions / kw.clicks) * 100 || 0)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatCurrency(kw.conversions > 0 ? kw.spend / kw.conversions : 0)}</td>
-                                                {customMetrics.map(m => (
-                                                    <td key={m.id} className="px-6 py-4 text-sm font-medium text-slate-900 border-l border-slate-100">
-                                                        {formatMetricValue(calculateMetricValue(m, kw), m.format)}
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {sortData(filteredKeywords).map((kw, i) => {
+                                            return (
+                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
+                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
                                                     </td>
-                                                ))}
-                                            </tr>
-                                        ))}
+                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuKeywordId(activeStatusMenuKeywordId === (kw.id?.toString() || i.toString()) ? null : (kw.id?.toString() || i.toString()))}>
+                                                            {kw.status === 'ENABLED' ? (
+                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
+                                                            ) : kw.status === 'PAUSED' ? (
+                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                            ) : (
+                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                            )}
+                                                        </div>
+                                                        {activeStatusMenuKeywordId === (kw.id?.toString() || i.toString()) && (
+                                                            <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuKeywordId(null);
+                                                                            setKeywords(prev => prev.map((item, idx) => (item.text === kw.text || idx === i) ? { ...item, status: 'ENABLED' } : item));
+                                                                            alert(`Palavra-chave "${kw.text}" ativada com sucesso!`);
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
+                                                                        Ativar
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuKeywordId(null);
+                                                                            setKeywords(prev => prev.map((item, idx) => (item.text === kw.text || idx === i) ? { ...item, status: 'PAUSED' } : item));
+                                                                            alert(`Palavra-chave "${kw.text}" pausada com sucesso!`);
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                        Pausar
+                                                                    </button>
+                                                                </div>
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuKeywordId(null);
+                                                                            alert("A remoção de palavras-chave deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                        Remover
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-2 font-semibold text-slate-900">
+                                                        <span className="hover:underline cursor-pointer text-[#1a73e8]" title={kw.text}>
+                                                            {kw.matchType === 'PHRASE' ? `"${kw.text}"` : kw.matchType === 'EXACT' ? `[${kw.text}]` : kw.text}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
+                                                        {kw.matchType === 'EXACT' ? 'Correspondência exata' : kw.matchType === 'PHRASE' ? 'Correspondência de frase' : 'Correspondência ampla'}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal">
+                                                        <div className="flex flex-col">
+                                                            <span className={`text-xs font-semibold ${kw.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                                {kw.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-normal mt-0.5">
+                                                                {kw.status === 'ENABLED' ? 'Qualificada' : 'Pausada'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        <span className="font-medium">{kw.qualityScore}/10</span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatNumber(kw.impressions)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-normal text-slate-800">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-xs">{formatNumber(kw.clicks)}</span>
+                                                            <span className="text-[9px] text-slate-400 text-right mt-0.5 leading-tight">cliques</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent((kw.clicks / kw.impressions) * 100 || 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatCurrency(kw.clicks > 0 ? kw.spend / kw.clicks : 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                        {formatCurrency(kw.spend)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {kw.conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent((kw.conversions / kw.clicks) * 100 || 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatCurrency(kw.conversions > 0 ? kw.spend / kw.conversions : 0)}
+                                                    </td>
+                                                    {customMetrics.map(m => (
+                                                        <td key={m.id} className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                            {formatMetricValue(calculateMetricValue(m, kw), m.format)}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
-                                    <tfoot className="bg-slate-50 border-t border-slate-200">
-                                        <tr>
-                                            <td className="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider" colSpan={4}>Totais</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredKeywords).impressions)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredKeywords).clicks)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredKeywords).ctr)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredKeywords).cpc)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredKeywords).spend)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(filteredKeywords).conversions)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatPercent(calculateTotals(filteredKeywords).clicks > 0 ? (calculateTotals(filteredKeywords).conversions / calculateTotals(filteredKeywords).clicks) * 100 : 0)}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(calculateTotals(filteredKeywords).costPerConv)}</td>
+                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                                Total: All but removed keywords in your current view
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {formatNumber(calculateTotals(filteredKeywords).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredKeywords).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredKeywords).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredKeywords).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {formatCurrency(calculateTotals(filteredKeywords).spend)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {calculateTotals(filteredKeywords).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredKeywords).clicks > 0 ? (calculateTotals(filteredKeywords).conversions / calculateTotals(filteredKeywords).clicks) * 100 : 0)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredKeywords).costPerConv)}
+                                            </td>
                                             {customMetrics.map(m => (
-                                                <td key={m.id} className="px-6 py-4 text-sm font-bold text-slate-900 border-l border-slate-200">
+                                                <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
+                                                    {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredKeywords)), m.format)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200">
+                                                <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
+                                            </td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                                Total: conta
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {formatNumber(calculateTotals(filteredKeywords).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredKeywords).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredKeywords).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredKeywords).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {formatCurrency(calculateTotals(filteredKeywords).spend)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {calculateTotals(filteredKeywords).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredKeywords).clicks > 0 ? (calculateTotals(filteredKeywords).conversions / calculateTotals(filteredKeywords).clicks) * 100 : 0)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredKeywords).costPerConv)}
+                                            </td>
+                                            {customMetrics.map(m => (
+                                                <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
                                                     {formatMetricValue(calculateMetricValue(m, calculateTotals(filteredKeywords)), m.format)}
                                                 </td>
                                             ))}
@@ -1699,44 +2365,198 @@ const Marketing: React.FC = () => {
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                        <tr className="divide-x divide-slate-200 h-10">
+                                            <th className="w-10 px-3 text-center border-r border-slate-200">
+                                                <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                            </th>
+                                            <th className="w-10 px-3 text-center border-r border-slate-200"></th>
                                             {[
-                                                ...(activePlatform === 'meta' ? [{ k: 'preview', l: 'Preview' }] : []),
-                                                { k: 'headlines', l: 'Anúncio (Títulos)' }, { k: 'campaignName', l: 'Campanha' }, { k: 'adGroupName', l: 'Grupo' },
-                                                { k: 'status', l: 'Status' }, { k: 'impressions', l: 'Impr.' }, { k: 'clicks', l: 'Cliques' }, { k: 'ctr', l: 'CTR' }
+                                                { k: 'headlines', l: 'Anúncio (Títulos)', align: 'left' },
+                                                { k: 'campaignName', l: 'Campanha', align: 'left' },
+                                                { k: 'adGroupName', l: 'Grupo de anúncios', align: 'left' },
+                                                { k: 'status', l: 'Status do Anúncio', align: 'left' },
+                                                { k: 'impressions', l: 'Impr.', align: 'right' },
+                                                { k: 'clicks', l: 'Cliques', align: 'right' },
+                                                { k: 'ctr', l: 'CTR', align: 'right' },
+                                                { k: 'cpc', l: 'CPC Méd.', align: 'right' },
+                                                { k: 'spend', l: 'Custo', align: 'right' }
                                             ].map(h => (
-                                                <th key={h.k} onClick={() => h.k !== 'preview' ? handleSort(h.k) : undefined} className={`px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap ${h.k !== 'preview' ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}>
-                                                    <div className="flex items-center gap-1">{h.l} {h.k !== 'preview' && renderSortIcon(h.k)}</div>
+                                                <th 
+                                                    key={h.k} 
+                                                    onClick={() => handleSort(h.k)} 
+                                                    className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                                >
+                                                    <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                                        <span>{h.l}</span>
+                                                        {renderSortIcon(h.k)}
+                                                    </div>
                                                 </th>
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {sortData(filteredAds).map((ad, i) => (
-                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                                                {activePlatform === 'meta' && (
-                                                    <td className="px-6 py-4">
-                                                        {ad.imageUrl ? (
-                                                            <img src={ad.imageUrl} alt={ad.headlines || 'Ad Preview'} className="w-12 h-12 rounded object-cover border border-slate-200" />
-                                                        ) : (
-                                                            <div className="w-12 h-12 rounded bg-slate-100 flex items-center justify-center border border-slate-200 text-slate-400">
-                                                                <ImageIcon size={20} />
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {sortData(filteredAds).map((ad, i) => {
+                                            return (
+                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-11 divide-x divide-slate-200">
+                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuAdId(activeStatusMenuAdId === (ad.id?.toString() || i.toString()) ? null : (ad.id?.toString() || i.toString()))}>
+                                                            {ad.status === 'ENABLED' ? (
+                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
+                                                            ) : ad.status === 'PAUSED' ? (
+                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                            ) : (
+                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                            )}
+                                                        </div>
+                                                        {activeStatusMenuAdId === (ad.id?.toString() || i.toString()) && (
+                                                            <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuAdId(null);
+                                                                            setAds(prev => prev.map((item, idx) => (item.id === ad.id || idx === i) ? { ...item, status: 'ENABLED' } : item));
+                                                                            alert(`Anúncio ativado com sucesso!`);
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
+                                                                        Ativar
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuAdId(null);
+                                                                            setAds(prev => prev.map((item, idx) => (item.id === ad.id || idx === i) ? { ...item, status: 'PAUSED' } : item));
+                                                                            alert(`Anúncio pausado com sucesso!`);
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                        Pausar
+                                                                    </button>
+                                                                </div>
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuAdId(null);
+                                                                            alert("A remoção de anúncios deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                        Remover
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         )}
                                                     </td>
-                                                )}
-                                                <td className="px-6 py-4 text-sm font-medium text-slate-900 max-w-xs truncate" title={ad.headlines}>{ad.headlines}</td>
-                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ad.campaignName}</td>
-                                                <td className="px-6 py-4 text-[10px] font-medium text-slate-500 uppercase tracking-wider">{ad.adGroupName}</td>
-                                                <td className="px-6 py-4">{renderStatusBadge(ad.status)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ad.impressions)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ad.clicks)}</td>
-                                                <td className="px-6 py-4 text-sm text-slate-600">{formatPercent((ad.clicks / ad.impressions) * 100 || 0)}</td>
-                                            </tr>
-                                        ))}
+                                                    <td className="px-4 py-2 font-normal max-w-md">
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">RSA</span>
+                                                                <span className="text-[#1a73e8] hover:underline font-medium cursor-pointer text-sm truncate" title={ad.headlines}>
+                                                                    {ad.headlines?.split(' | ')[0] || 'Anúncio responsivo de pesquisa'}
+                                                                </span>
+                                                            </div>
+                                                            {ad.headlines?.split(' | ').length > 1 && (
+                                                                <p className="text-[10.5px] text-slate-500 font-normal truncate">
+                                                                    {ad.headlines?.split(' | ').slice(1).join(' • ')}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
+                                                        {ad.campaignName}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
+                                                        {ad.adGroupName}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-left font-normal">
+                                                        <div className="flex flex-col">
+                                                            <span className={`text-xs font-semibold ${ad.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                                {ad.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-normal mt-0.5">
+                                                                {ad.status === 'ENABLED' ? 'Qualificada (Aprovado)' : 'Anúncio pausado'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatNumber(ad.impressions)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-normal text-slate-800">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-xs">{formatNumber(ad.clicks)}</span>
+                                                            <span className="text-[9px] text-slate-400 text-right mt-0.5 leading-tight">cliques</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent((ad.clicks / ad.impressions) * 100 || 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatCurrency(ad.clicks > 0 ? ad.spend / ad.clicks : 0)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                        {formatCurrency(ad.spend)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
+                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                                Total: All but removed ads in your current view
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {formatNumber(calculateTotals(filteredAds).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredAds).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredAds).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredAds).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {formatCurrency(calculateTotals(filteredAds).spend)}
+                                            </td>
+                                        </tr>
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200">
+                                                <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
+                                            </td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                                Total: conta
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {formatNumber(calculateTotals(filteredAds).impressions)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredAds).clicks)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredAds).ctr)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredAds).cpc)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {formatCurrency(calculateTotals(filteredAds).spend)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                         </div>
@@ -1907,45 +2727,147 @@ const Marketing: React.FC = () => {
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        <th className="p-4 px-6">Termo de Busca</th>
-                                        <th className="p-4 px-6">Campanha / Grupo</th>
-                                        <th className="p-4 px-6 text-right">Cliques</th>
-                                        <th className="p-4 px-6 text-right">Impr.</th>
-                                        <th className="p-4 px-6 text-right">Custo</th>
-                                        <th className="p-4 px-6 text-right">Conv.</th>
-                                        <th className="p-4 px-6 text-right">CTR</th>
-                                        <th className="p-4 px-6 text-center">Status</th>
+                                <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                    <tr className="divide-x divide-slate-200 h-10">
+                                        <th className="w-10 px-3 text-center border-r border-slate-200">
+                                            <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                        </th>
+                                        <th className="w-10 px-3 text-center border-r border-slate-200"></th>
+                                        {[
+                                            { k: 'searchTerm', l: 'Termo de Busca', align: 'left' },
+                                            { k: 'campaignName', l: 'Campanha / Grupo', align: 'left' },
+                                            { k: 'impressions', l: 'Impr.', align: 'right' },
+                                            { k: 'clicks', l: 'Cliques', align: 'right' },
+                                            { k: 'ctr', l: 'CTR', align: 'right' },
+                                            { k: 'spend', l: 'Custo', align: 'right' },
+                                            { k: 'conversions', l: 'Conv.', align: 'right' },
+                                            { k: 'status', l: 'Insight do Termo', align: 'center' }
+                                        ].map(h => (
+                                            <th 
+                                                key={h.k} 
+                                                className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap border-r border-slate-200 text-${h.align}`}
+                                            >
+                                                <span>{h.l}</span>
+                                            </th>
+                                        ))}
                                     </tr>
                                 </thead>
-                                <tbody className="text-sm font-medium text-slate-600 divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-200 text-slate-700">
                                     {currentSearchTerms
                                         .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
-                                        .map((term, idx) => (
-                                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-4 px-6 font-bold text-slate-900">{term.searchTerm}</td>
-                                            <td className="p-4 px-6">
-                                                <div className="text-slate-900">{term.campaignName}</div>
-                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">{term.adGroupName}</div>
-                                            </td>
-                                            <td className="p-4 px-6 text-right">{formatNumber(term.clicks)}</td>
-                                            <td className="p-4 px-6 text-right">{formatNumber(term.impressions)}</td>
-                                            <td className="p-4 px-6 text-right">{formatCurrency(term.spend)}</td>
-                                            <td className="p-4 px-6 text-right">{formatNumber(term.conversions)}</td>
-                                            <td className="p-4 px-6 text-right">{formatPercent(term.ctr)}</td>
-                                            <td className="p-4 px-6 text-center">
-                                                {term.conversions > 0 ? (
-                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-wider">Convertido</span>
-                                                ) : term.spend > 50 ? ( // Threshold for potential negative
-                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 uppercase tracking-wider">Potencial Negativa</span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 uppercase tracking-wider">-</span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                        .map((term, i) => {
+                                            return (
+                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
+                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200">
+                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center w-10 text-slate-400">
+                                                        <Search size={14} className="mx-auto" />
+                                                    </td>
+                                                    <td className="px-4 py-2 font-semibold text-[#1a73e8] hover:underline cursor-pointer">
+                                                        {term.searchTerm}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="flex flex-col text-xs font-medium text-slate-800">
+                                                            <span>{term.campaignName}</span>
+                                                            <span className="text-[10px] text-slate-400 font-normal mt-0.5 uppercase tracking-wider">{term.adGroupName}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatNumber(term.impressions)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-normal text-slate-800">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-xs font-medium">{formatNumber(term.clicks)}</span>
+                                                            <span className="text-[9px] text-slate-400 text-right mt-0.5 leading-tight">cliques</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {formatPercent(term.ctr)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                        {formatCurrency(term.spend)}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {term.conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-center">
+                                                        {term.conversions > 0 ? (
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-[#e6f4ea] text-[#137333] uppercase tracking-wider">Convertido</span>
+                                                        ) : term.spend > 50 ? (
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-50 text-rose-700 uppercase tracking-wider">Potencial Negativa</span>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs font-normal">-</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                 </tbody>
+                                <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                    {(() => {
+                                        const visible = currentSearchTerms.filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()));
+                                        const totalImpr = visible.reduce((acc, t) => acc + (t.impressions || 0), 0);
+                                        const totalClicks = visible.reduce((acc, t) => acc + (t.clicks || 0), 0);
+                                        const totalSpend = visible.reduce((acc, t) => acc + (t.spend || 0), 0);
+                                        const totalConvs = visible.reduce((acc, t) => acc + (t.conversions || 0), 0);
+                                        const totalCtr = totalImpr > 0 ? (totalClicks / totalImpr) * 100 : 0;
+                                        return (
+                                            <>
+                                                <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
+                                                    <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                                    <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={2}>
+                                                        Total: All matching search terms in current view
+                                                        <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                        {formatNumber(totalImpr)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                        {formatNumber(totalClicks)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                        {formatPercent(totalCtr)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                        {formatCurrency(totalSpend)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                        {totalConvs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-center"></td>
+                                                </tr>
+                                                <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
+                                                    <td className="px-3 py-2 text-center border-r border-slate-200">
+                                                        <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11" colSpan={2}>
+                                                        Total: conta
+                                                        <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                        {formatNumber(totalImpr)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                        {formatNumber(totalClicks)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                        {formatPercent(totalCtr)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                        {formatCurrency(totalSpend)}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                        {totalConvs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-200 text-center"></td>
+                                                </tr>
+                                            </>
+                                        );
+                                    })()}
+                                </tfoot>
                             </table>
                         </div>
                     </div>
