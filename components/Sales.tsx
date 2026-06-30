@@ -105,6 +105,8 @@ const Sales: React.FC = () => {
 
   // Image Preview Modal state and esc listener
   const [selectedImagePreview, setSelectedImagePreview] = useState<{ src: string; attachment?: any; msg?: any } | null>(null);
+  const [showClearChatModal, setShowClearChatModal] = useState(false);
+  const [isClearingChat, setIsClearingChat] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -460,6 +462,78 @@ const Sales: React.FC = () => {
       setChatError('Erro ao carregar mensagens do CRM.');
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  const handleClearChatHistory = async () => {
+    if (!selectedConversationId) return;
+    setIsClearingChat(true);
+    try {
+      // 1. Deletar os anexos das mensagens dessa conversa
+      const { error: attachmentsError } = await supabase
+        .from('crm_message_attachments')
+        .delete()
+        .eq('conversation_id', selectedConversationId);
+      
+      if (attachmentsError) throw attachmentsError;
+
+      // 2. Deletar as mensagens da conversa
+      const { error: messagesError } = await supabase
+        .from('crm_messages')
+        .delete()
+        .eq('conversation_id', selectedConversationId);
+      
+      if (messagesError) throw messagesError;
+
+      // 3. Atualizar crm_conversations para limpar os dados da última mensagem
+      const { error: convError } = await supabase
+        .from('crm_conversations')
+        .update({
+          last_message_text: null,
+          last_message_type: null,
+          last_message_at: null
+        })
+        .eq('id', selectedConversationId);
+
+      if (convError) throw convError;
+
+      // 4. Limpar o estado local de mensagens
+      setChatMessages([]);
+
+      // 5. Atualizar o conversationsMap local do React para limpar a última mensagem mostrada na esquerda
+      setConversationsMap(prev => {
+        const existing = prev[selectedConversationId];
+        if (!existing) return prev;
+        const updated = {
+          ...existing,
+          last_message_text: null,
+          last_message_type: null,
+          last_message_at: null
+        };
+        return {
+          ...prev,
+          [selectedConversationId]: updated,
+          ...(updated.lead_id ? { [`lead_${updated.lead_id}`]: updated } : {})
+        };
+      });
+
+      if (selectedConversation) {
+        setSelectedConversation((prev: any) => prev ? {
+          ...prev,
+          last_message_text: null,
+          last_message_type: null,
+          last_message_at: null
+        } : null);
+      }
+
+      // Fechar modal e avisar sucesso
+      setShowClearChatModal(false);
+      alert("Histórico de mensagens apagado com sucesso!");
+    } catch (err: any) {
+      console.error("Erro ao apagar histórico de mensagens:", err);
+      alert("Falha ao apagar histórico de mensagens: " + (err.message || err));
+    } finally {
+      setIsClearingChat(false);
     }
   };
 
@@ -1324,6 +1398,16 @@ const Sales: React.FC = () => {
                                 <button onClick={handleAnalyzeLead} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-blue-600 hover:border-blue-200 flex items-center gap-2 transition-all">
                                     {isAnalyzing ? <span className="animate-spin">⌛</span> : <span className="text-lg">✨</span>} AI Insight
                                 </button>
+                                {selectedConversationId && (
+                                    <button 
+                                        onClick={() => setShowClearChatModal(true)} 
+                                        className="px-4 py-2 bg-rose-50 border border-rose-200 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-100 hover:text-rose-700 flex items-center gap-2 transition-all"
+                                        title="Limpar Histórico de Mensagens"
+                                    >
+                                        <Trash2 size={14} />
+                                        Limpar Chat
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -2005,6 +2089,51 @@ const Sales: React.FC = () => {
       )}
 
       {/* OVERLAY DIALOG / IMAGE PREVIEW MODAL */}
+      {/* MODAL DE CONFIRMAÇÃO DE LIMPEZA DE CHAT */}
+      {showClearChatModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-navy/80 backdrop-blur-sm animate-in fade-in p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 flex flex-col p-6">
+                  <div className="flex items-start gap-4">
+                      <div className="p-3 bg-rose-50 rounded-2xl text-rose-500">
+                          <Trash2 size={24} />
+                      </div>
+                      <div className="flex-1">
+                          <h3 className="text-lg font-bold text-navy">Apagar histórico de mensagens?</h3>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-0.5">Ação Irreversível</p>
+                          <p className="text-sm text-slate-500 mt-3 leading-relaxed">
+                              Tem certeza que deseja apagar permanentemente todo o histórico de mensagens e anexos deste lead?
+                          </p>
+                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3 flex gap-2.5 items-start">
+                              <span className="text-amber-500 text-sm mt-0.5">⚠️</span>
+                              <p className="text-[11px] text-amber-800 leading-relaxed font-medium">
+                                  <strong>Atenção:</strong> Isso removerá todas as mensagens e mídias salvas localmente no CRM para este contato. Esta ação não poderá ser desfeita.
+                              </p>
+                          </div>
+                      </div>
+                  </div>
+                  
+                  <div className="flex gap-3 mt-6 justify-end">
+                      <button 
+                          type="button" 
+                          onClick={() => setShowClearChatModal(false)} 
+                          className="px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-50 rounded-xl transition-all"
+                          disabled={isClearingChat}
+                      >
+                          Cancelar
+                      </button>
+                      <button 
+                          type="button" 
+                          onClick={handleClearChatHistory} 
+                          className="px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-rose-600 hover:bg-rose-700 active:scale-95 rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                          disabled={isClearingChat}
+                      >
+                          {isClearingChat ? "Limpando..." : "Sim, Apagar tudo"}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {selectedImagePreview && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-4 transition-all animate-fade-in">
           {/* Top toolbar */}
