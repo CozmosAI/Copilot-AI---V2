@@ -3276,6 +3276,63 @@ app.post('/api/crm/conversations/:conversationId/mark-read', async (req, res) =>
     }
 });
 
+// POST /api/crm/conversations/:conversationId/clear-chat - Apagar o histórico de mensagens e anexos do lead
+app.post('/api/crm/conversations/:conversationId/clear-chat', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { conversationId } = req.params;
+
+        const client = supabaseAdmin || supabase;
+
+        // 1. Verificar se a conversa pertence ao usuário logado
+        const { data: conv, error: convFetchError } = await client
+            .from('crm_conversations')
+            .select('id')
+            .eq('id', conversationId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (convFetchError) throw convFetchError;
+        if (!conv) {
+            return res.status(404).json({ ok: false, error: "Conversa não encontrada ou não pertence a este usuário." });
+        }
+
+        // 2. Deletar os anexos vinculados a esta conversa
+        const { error: deleteAttachmentsError } = await client
+            .from('crm_message_attachments')
+            .delete()
+            .eq('conversation_id', conversationId);
+
+        if (deleteAttachmentsError) throw deleteAttachmentsError;
+
+        // 3. Deletar as mensagens desta conversa
+        const { error: deleteMessagesError } = await client
+            .from('crm_messages')
+            .delete()
+            .eq('conversation_id', conversationId);
+
+        if (deleteMessagesError) throw deleteMessagesError;
+
+        // 4. Limpar o status de última mensagem na tabela de conversas
+        const { error: updateConvError } = await client
+            .from('crm_conversations')
+            .update({
+                last_message_text: null,
+                last_message_type: null,
+                last_message_at: null
+            })
+            .eq('id', conversationId);
+
+        if (updateConvError) throw updateConvError;
+
+        return res.status(200).json({ ok: true, message: "Histórico de mensagens apagado com sucesso." });
+
+    } catch (err) {
+        console.error("Erro ao apagar histórico de mensagens:", err);
+        return res.status(500).json({ ok: false, error: "Erro interno ao apagar histórico de mensagens." });
+    }
+});
+
 // GET /api/crm/debug/phone-normalize
 app.get('/api/crm/debug/phone-normalize', async (req, res) => {
     try {
@@ -5446,14 +5503,11 @@ function normalizeUazapiWebhookPayload(payload) {
         }
 
         if (finalType === 'unknown') {
-            console.warn('[Webhook Debug] Tipo de mensagem não reconhecido. Payload:', 
-                JSON.stringify({
-                    keys: Object.keys(actualMessage || {}),
-                    rawKeys: Object.keys(raw || {}),
-                    type: raw.type || raw.message?.type
-                }, null, 2)
-            );
+            console.warn('[Webhook Debug] Tipo UNKNOWN. Chaves do actualMessage:', Object.keys(actualMessage || {}));
+            console.warn('[Webhook Debug] Chaves do raw:', Object.keys(raw || {}));
         }
+
+        console.log(`[Webhook Debug] Tipo identificado: ${finalType}, text: ${text ? text.substring(0, 50) : 'null'}, mediaUrl: ${mediaUrl ? 'sim' : 'nao'}`);
 
         messages.push({
             externalMessageId,
@@ -5489,6 +5543,7 @@ function normalizeUazapiWebhookPayload(payload) {
 app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const { connectionId, secret } = req.params;
     const body = req.body;
+    console.log('[Webhook Debug] Body cru recebido:', JSON.stringify(body, null, 2).substring(0, 3000));
     let webhookEventId = null;
     
     console.log(`[Webhook Uazapi] Recebido evento para a conexão ID: ${connectionId}`);

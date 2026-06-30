@@ -469,33 +469,15 @@ const Sales: React.FC = () => {
     if (!selectedConversationId) return;
     setIsClearingChat(true);
     try {
-      // 1. Deletar os anexos das mensagens dessa conversa
-      const { error: attachmentsError } = await supabase
-        .from('crm_message_attachments')
-        .delete()
-        .eq('conversation_id', selectedConversationId);
-      
-      if (attachmentsError) throw attachmentsError;
+      // Chamar o endpoint seguro do backend que deleta usando supabaseAdmin e limpa os dados
+      const response = await apiFetch(`/api/crm/conversations/${selectedConversationId}/clear-chat`, {
+        method: 'POST'
+      });
 
-      // 2. Deletar as mensagens da conversa
-      const { error: messagesError } = await supabase
-        .from('crm_messages')
-        .delete()
-        .eq('conversation_id', selectedConversationId);
-      
-      if (messagesError) throw messagesError;
-
-      // 3. Atualizar crm_conversations para limpar os dados da última mensagem
-      const { error: convError } = await supabase
-        .from('crm_conversations')
-        .update({
-          last_message_text: null,
-          last_message_type: null,
-          last_message_at: null
-        })
-        .eq('id', selectedConversationId);
-
-      if (convError) throw convError;
+      const result = await safeJsonResponse(response);
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Falha desconhecida no servidor");
+      }
 
       // 4. Limpar o estado local de mensagens
       setChatMessages([]);
