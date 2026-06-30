@@ -807,9 +807,6 @@ const Integration: React.FC = () => {
       if (!code) return;
       if (!state.startsWith('google-ads') && !state.startsWith('meta-ads-oauth')) return;
       
-      // Marcar como processado IMEDIATAMENTE
-      oauthProcessedRef.current = true;
-      
       // Disparar evento pro handler existente (que tem toda a lógica de exchange)
       window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
           detail: { 
