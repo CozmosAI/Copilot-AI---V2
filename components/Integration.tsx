@@ -794,7 +794,7 @@ const Integration: React.FC = () => {
 
       window.addEventListener('oauth-callback-received', handleOAuthCallback as any);
       return () => window.removeEventListener('oauth-callback-received', handleOAuthCallback as any);
-  }, []);
+  }, [user]);
 
   // FALLBACK: Detectar code diretamente da URL e processar imediatamente
   useEffect(() => {
@@ -815,12 +815,10 @@ const Integration: React.FC = () => {
           detail: { 
               provider: state.startsWith('meta-ads-oauth') ? 'meta' : 'google', 
               code, 
-              errorParam: params.get('error'), 
+              errorParam: params.get('error') || '', 
               state 
           } 
       }));
-      
-      window.history.replaceState({}, document.title, window.location.pathname);
   }, [user]);
 
   // Handle Account Selection

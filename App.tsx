@@ -164,21 +164,15 @@ const App: React.FC = () => {
           
           setActiveSection(AppSection.INTEGRACAO);
           setPendingOAuth({ provider, code: code || '', state, errorParam: errorParam || '' });
-          
-          // Limpar URL DEPOIS de armazenar no state
-          window.history.replaceState({}, document.title, window.location.pathname);
       }
   }, []);
 
   // Quando o Integration.tsx montar, disparar evento com os dados do state
   useEffect(() => {
       if (pendingOAuth) {
-          const timer = setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
-                  detail: pendingOAuth 
-              }));
-          }, 500);
-          return () => clearTimeout(timer);
+          window.dispatchEvent(new CustomEvent('oauth-callback-received', { 
+              detail: pendingOAuth 
+          }));
       }
   }, [pendingOAuth]);
 
