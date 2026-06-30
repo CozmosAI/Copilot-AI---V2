@@ -88,14 +88,20 @@ const Integration: React.FC = () => {
       };
   }, []);
 
+  // Keep refs of current selector states to check on unmount without triggering on state changes
+  const selectorsRef = useRef({ showAccountSelector, showMetaAccountSelector });
+  useEffect(() => {
+      selectorsRef.current = { showAccountSelector, showMetaAccountSelector };
+  }, [showAccountSelector, showMetaAccountSelector]);
+
   // Warn on unmount if pending selection
   useEffect(() => {
       return () => {
-          if (showMetaAccountSelector || showAccountSelector) {
+          if (selectorsRef.current.showMetaAccountSelector || selectorsRef.current.showAccountSelector) {
               alert("Você tem uma seleção de conta pendente. Selecione uma conta ou cancele a conexão.");
           }
       };
-  }, [showMetaAccountSelector, showAccountSelector]);
+  }, []);
 
   // Toast notifications state
   interface Toast {
