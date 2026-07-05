@@ -1572,7 +1572,7 @@ const Marketing: React.FC = () => {
                                                                             campaignId: c.id.toString(), 
                                                                             campaignName: c.name, 
                                                                             action: 'enable', 
-                                                                            customerId: selectedAccountId || '' 
+                                                                            customerId: selectedAccountId || 'default' 
                                                                         });
                                                                     }}
                                                                     className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
@@ -1588,7 +1588,7 @@ const Marketing: React.FC = () => {
                                                                             campaignId: c.id.toString(), 
                                                                             campaignName: c.name, 
                                                                             action: 'pause', 
-                                                                            customerId: selectedAccountId || '' 
+                                                                            customerId: selectedAccountId || 'default' 
                                                                         });
                                                                     }}
                                                                     className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
@@ -1640,7 +1640,7 @@ const Marketing: React.FC = () => {
                                                                         budgetId: c.budgetId?.toString() || '', 
                                                                         campaignName: c.name, 
                                                                         currentBudget: c.budget, 
-                                                                        customerId: selectedAccountId || '' 
+                                                                        customerId: selectedAccountId || 'default' 
                                                                     });
                                                                 }}
                                                                 className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors"
@@ -1668,7 +1668,7 @@ const Marketing: React.FC = () => {
                                                                     budgetId: c.budgetId?.toString() || '', 
                                                                     campaignName: c.name, 
                                                                     currentBudget: c.budget, 
-                                                                    customerId: selectedAccountId || '' 
+                                                                    customerId: selectedAccountId || 'default' 
                                                                 });
                                                             }}
                                                             className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 rounded transition-opacity"

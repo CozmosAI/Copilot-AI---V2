@@ -150,7 +150,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
         if (dbError) throw new Error("Erro ao salvar tokens: " + dbError.message);
 
         // 3. Listar Contas Acessíveis
-        const listUrl = 'https://googleads.googleapis.com/v23/customers:listAccessibleCustomers';
+        const listUrl = 'https://googleads.googleapis.com/v24/customers:listAccessibleCustomers';
         const listResp = await fetch(listUrl, {
             method: 'GET',
             headers: {
@@ -180,7 +180,7 @@ app.post('/api/auth/google-ads/exchange', async (req, res) => {
             const customerId = resourceName.replace('customers/', '');
             try {
                 const query = `SELECT customer.descriptive_name, customer.id, customer.manager FROM customer LIMIT 1`;
-                const searchResp = await fetch(`https://googleads.googleapis.com/v23/customers/${customerId}/googleAds:search`, {
+                const searchResp = await fetch(`https://googleads.googleapis.com/v24/customers/${customerId}/googleAds:search`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${access_token}`,
@@ -292,7 +292,7 @@ app.post('/api/google-ads/mcc-children', async (req, res) => {
             AND customer_client.manager = false
         `;
 
-        const searchResp = await fetch(`https://googleads.googleapis.com/v23/customers/${manager_id}/googleAds:search`, {
+        const searchResp = await fetch(`https://googleads.googleapis.com/v24/customers/${manager_id}/googleAds:search`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${integration.access_token}`,
@@ -1288,7 +1288,7 @@ async function getValidAccessToken(user_id, overrideCustomerId = null) {
 async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerId = null) {
     const { cleanId, headers, managerId } = await getValidAccessToken(user_id, customerId);
 
-    const adsResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
+    const adsResp = await fetch(`https://googleads.googleapis.com/v24/customers/${cleanId}/googleAds:search`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({ query })
@@ -1317,7 +1317,7 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerI
     if (checkMcc && results.length === 0 && !managerId && !customerId) {
          try {
             const mccQuery = `SELECT customer.manager FROM customer LIMIT 1`;
-            const mccResp = await fetch(`https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:search`, {
+            const mccResp = await fetch(`https://googleads.googleapis.com/v24/customers/${cleanId}/googleAds:search`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify({ query: mccQuery })
@@ -1340,7 +1340,7 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerI
 async function executeGoogleAdsMutation(user_id, customerId, operations, typeName) {
     const { cleanId, headers } = await getValidAccessToken(user_id, customerId);
     
-    const mutateUrl = `https://googleads.googleapis.com/v23/customers/${cleanId}/googleAds:mutate`;
+    const mutateUrl = `https://googleads.googleapis.com/v24/customers/${cleanId}/googleAds:mutate`;
     const body = JSON.stringify({
         mutate_operations: operations
     });
@@ -1353,8 +1353,13 @@ async function executeGoogleAdsMutation(user_id, customerId, operations, typeNam
     
     const data = await resp.json();
     if (data.error) {
-        console.error('[Google Ads Mutation] Error:', JSON.stringify(data.error));
-        throw new Error(data.error.message || 'Erro na mutação Google Ads');
+        console.error('[Google Ads Mutation] Error Completo:', JSON.stringify(data.error, null, 2));
+        let errorMsg = data.error.message || 'Erro na mutação Google Ads';
+        if (data.error.details && Array.isArray(data.error.details)) {
+            const detailsStr = JSON.stringify(data.error.details);
+            errorMsg += ` - Detalhes: ${detailsStr}`;
+        }
+        throw new Error(errorMsg);
     }
     return data;
 }
@@ -1445,17 +1450,21 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
         await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign');
 
         // Log audit
-        await supabase
-            .from('google_ads_audit_logs')
-            .insert([{
-                user_id,
-                customer_id,
-                campaign_id,
-                campaign_name: campaignName,
-                action: action,
-                old_value: oldStatus,
-                new_value: newStatus
-            }]);
+        try {
+            await supabase
+                .from('google_ads_audit_logs')
+                .insert([{
+                    user_id,
+                    customer_id,
+                    campaign_id,
+                    campaign_name: campaignName,
+                    action: action,
+                    old_value: oldStatus,
+                    new_value: newStatus
+                }]);
+        } catch (auditError) {
+            console.warn('[Google Ads Audit Log] Erro tolerado ao inserir log de auditoria para toggle status:', auditError.message);
+        }
 
         res.json({ ok: true, message: `Campanha ${action === 'pause' ? 'pausada' : 'ativada'} com sucesso` });
     } catch (error) {
@@ -1497,17 +1506,21 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
         await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign_budget');
 
         // Log audit
-        await supabase
-            .from('google_ads_audit_logs')
-            .insert([{
-                user_id,
-                customer_id,
-                campaign_id: currentCampaign?.id || null,
-                campaign_name: currentCampaign?.name || 'Unknown',
-                action: 'update_budget',
-                old_value: oldAmount,
-                new_value: new_amount.toString()
-            }]);
+        try {
+            await supabase
+                .from('google_ads_audit_logs')
+                .insert([{
+                    user_id,
+                    customer_id,
+                    campaign_id: currentCampaign?.id || null,
+                    campaign_name: currentCampaign?.name || 'Unknown',
+                    action: 'update_budget',
+                    old_value: oldAmount,
+                    new_value: new_amount.toString()
+                }]);
+        } catch (auditError) {
+            console.warn('[Google Ads Audit Log] Erro tolerado ao inserir log de auditoria para update budget:', auditError.message);
+        }
 
         res.json({ ok: true, message: 'Orçamento atualizado com sucesso', new_amount: new_amount });
     } catch (error) {
