@@ -140,8 +140,8 @@ const Marketing: React.FC = () => {
 
   // Mutation states (Google Ads)
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-  const [statusConfirmModal, setStatusConfirmModal] = useState<{ open: boolean, campaignId: string, campaignName: string, action: 'pause' | 'enable', customerId: string } | null>(null);
-  const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: string, budgetId: string, campaignName: string, currentBudget: number, customerId: string } | null>(null);
+  const [statusConfirmModal, setStatusConfirmModal] = useState<{ open: boolean, campaignId: string, campaignName: string, action: 'pause' | 'enable', customerId: string | null } | null>(null);
+  const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: string, budgetId: string, campaignName: string, currentBudget: number, customerId: string | null } | null>(null);
   const [newBudgetAmount, setNewBudgetAmount] = useState<string>('');
   const [activeStatusMenuCampaignId, setActiveStatusMenuCampaignId] = useState<string | null>(null);
   const [activeStatusMenuAdGroupId, setActiveStatusMenuAdGroupId] = useState<string | null>(null);
@@ -500,7 +500,7 @@ const Marketing: React.FC = () => {
       if (!user || !statusConfirmModal) return;
       setActionLoadingId(statusConfirmModal.campaignId);
       try {
-          await toggleGoogleCampaignStatus(user.id, statusConfirmModal.customerId, statusConfirmModal.campaignId, statusConfirmModal.action);
+          await toggleGoogleCampaignStatus(user.id, statusConfirmModal.customerId!, statusConfirmModal.campaignId, statusConfirmModal.action);
           // Toast should be here, but marketing.tsx uses an alert or toast internally. Wait, Marketing.tsx does not have showToast. 
           // I will use alert for simplicity or check if there is a toast.
           alert(`Campanha ${statusConfirmModal.action === 'pause' ? 'pausada' : 'ativada'} com sucesso!`);
@@ -524,7 +524,7 @@ const Marketing: React.FC = () => {
 
       setActionLoadingId(budgetModal.campaignId);
       try {
-          await updateGoogleCampaignBudget(user.id, budgetModal.customerId, budgetModal.budgetId, numAmount);
+          await updateGoogleCampaignBudget(user.id, budgetModal.customerId!, budgetModal.budgetId, numAmount);
           alert(`Orçamento atualizado para R$ ${numAmount.toFixed(2)} com sucesso!`);
           setCampaigns(prev => prev.map(c => c.id === budgetModal.campaignId ? { ...c, budget: numAmount } : c));
       } catch (error: any) {
@@ -1572,7 +1572,7 @@ const Marketing: React.FC = () => {
                                                                             campaignId: c.id.toString(), 
                                                                             campaignName: c.name, 
                                                                             action: 'enable', 
-                                                                            customerId: selectedAccountId || 'default' 
+                                                                            customerId: selectedAccountId || null 
                                                                         });
                                                                     }}
                                                                     className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
@@ -1588,7 +1588,7 @@ const Marketing: React.FC = () => {
                                                                             campaignId: c.id.toString(), 
                                                                             campaignName: c.name, 
                                                                             action: 'pause', 
-                                                                            customerId: selectedAccountId || 'default' 
+                                                                            customerId: selectedAccountId || null 
                                                                         });
                                                                     }}
                                                                     className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
@@ -1640,7 +1640,7 @@ const Marketing: React.FC = () => {
                                                                         budgetId: c.budgetId?.toString() || '', 
                                                                         campaignName: c.name, 
                                                                         currentBudget: c.budget, 
-                                                                        customerId: selectedAccountId || 'default' 
+                                                                        customerId: selectedAccountId || null 
                                                                     });
                                                                 }}
                                                                 className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors"
@@ -1668,7 +1668,7 @@ const Marketing: React.FC = () => {
                                                                     budgetId: c.budgetId?.toString() || '', 
                                                                     campaignName: c.name, 
                                                                     currentBudget: c.budget, 
-                                                                    customerId: selectedAccountId || 'default' 
+                                                                    customerId: selectedAccountId || null 
                                                                 });
                                                             }}
                                                             className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 rounded transition-opacity"
