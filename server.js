@@ -1341,6 +1341,7 @@ async function executeGoogleAdsMutation(user_id, customerId, operations, typeNam
     const { cleanId, headers } = await getValidAccessToken(user_id, customerId);
     
     const mutateUrl = `https://googleads.googleapis.com/v24/customers/${cleanId}/googleAds:mutate`;
+    console.log(`[Google Ads Mutation] Executando mutação para tipo: ${typeName}. CustomerId original: ${customerId}, Resolved cleanId: ${cleanId}, URL: ${mutateUrl}`);
     const body = JSON.stringify({
         mutate_operations: operations
     });
@@ -1417,16 +1418,61 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
     }
 });
 
+function getFriendlyAdsErrorMessage(error) {
+    if (!error) return 'Erro desconhecido na API do Google Ads.';
+    
+    const message = error.message || '';
+    const details = error.stack || '';
+    
+    const errorStr = (message + ' ' + details + ' ' + JSON.stringify(error)).toUpperCase();
+    
+    if (errorStr.includes('BAD_RESOURCE_ID') || errorStr.includes('RESOURCE_NAME_IS_INVALID')) {
+        return 'Identificador inválido: Um ID de campanha ou orçamento fornecido não pôde ser encontrado no Google Ads.';
+    }
+    if (errorStr.includes('NOT_FOUND') || errorStr.includes('REQUESTED ENTITY WAS NOT FOUND')) {
+        return 'Não Encontrado (404): A campanha, orçamento ou conta do Google Ads não foi encontrada.';
+    }
+    if (errorStr.includes('CUSTOMER_NOT_ENABLED') || errorStr.includes('ACCOUNT_NOT_ENABLED')) {
+        return 'Conta Inativa: A conta do Google Ads está desativada, suspensa ou ainda em processo de configuração.';
+    }
+    if (errorStr.includes('USER_PERMISSION_DENIED') || errorStr.includes('NOT_MUTABLE') || errorStr.includes('AUTHORIZATION_ERROR')) {
+        return 'Permissão Negada: O usuário autenticado não possui permissão para modificar recursos nesta conta do Google Ads (verifique o nível de acesso).';
+    }
+    if (errorStr.includes('MUTATE_NOT_ALLOWED')) {
+        return 'Mutação Não Permitida: Esta campanha ou recurso não pode ser modificado através da API no momento.';
+    }
+    if (errorStr.includes('DEVELOPER_TOKEN_PROHIBITED') || errorStr.includes('DEVELOPER_TOKEN_NOT_APPROVED')) {
+        return 'Token de Desenvolvedor: O token de desenvolvedor do Google Ads não tem permissão para acessar esta conta ou ainda está em análise.';
+    }
+    if (errorStr.includes('BUDGET_CANNOT_BE_SHARED') || errorStr.includes('CANNOT_MODIFY_SHARED_BUDGET')) {
+        return 'Orçamento Compartilhado: O orçamento selecionado é compartilhado com outras campanhas e não pode ser editado individualmente por esta via.';
+    }
+    if (errorStr.includes('TEMPORARILY_UNAVAILABLE') || errorStr.includes('INTERNAL_ERROR')) {
+        return 'Serviço Indisponível: O Google Ads está temporariamente instável. Por favor, tente novamente em instantes.';
+    }
+    if (errorStr.includes('RESOURCE_EXHAUSTED')) {
+        return 'Limite de Cota Atingido: Muitas requisições foram feitas ao Google Ads recentemente. Aguarde alguns minutos e tente novamente.';
+    }
+    if (errorStr.includes('AUTHENTICATION_ERROR') || errorStr.includes('INVALID_GRANT') || errorStr.includes('TOKEN')) {
+        return 'Erro de Autenticação: A conexão com a sua conta do Google Ads expirou. Por favor, desconecte e reconecte sua conta nas configurações.';
+    }
+    
+    return message || 'Ocorreu um erro ao processar a solicitação no Google Ads.';
+}
+
 app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
     const { user_id, customer_id, campaign_id, action } = req.body;
-    if (!user_id || !customer_id || !campaign_id || !action) {
+    if (!user_id || !campaign_id || !action) {
         return res.status(400).json({ error: 'Missing params' });
     }
 
     try {
-        // Fetch current status to log
+        // Resolve the real and clean customer_id using getValidAccessToken
+        const { cleanId } = await getValidAccessToken(user_id, customer_id);
+
+        // Fetch current status to log using cleanId
         const query = `SELECT campaign.name, campaign.status FROM campaign WHERE campaign.id = ${campaign_id}`;
-        const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        const queryResults = await executeGoogleAdsQuery(user_id, query, false, cleanId);
         const currentCampaign = queryResults[0]?.campaign;
         
         if (!currentCampaign) {
@@ -1440,14 +1486,14 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
         const operations = [{
             campaign_operation: {
                 update: {
-                    resource_name: `customers/${customer_id}/campaigns/${campaign_id}`,
+                    resource_name: `customers/${cleanId}/campaigns/${campaign_id}`,
                     status: newStatus
                 },
                 update_mask: 'status'
             }
         }];
         
-        await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign');
+        await executeGoogleAdsMutation(user_id, cleanId, operations, 'campaign');
 
         // Log audit
         try {
@@ -1455,7 +1501,7 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
                 .from('google_ads_audit_logs')
                 .insert([{
                     user_id,
-                    customer_id,
+                    customer_id: cleanId,
                     campaign_id,
                     campaign_name: campaignName,
                     action: action,
@@ -1469,25 +1515,29 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
         res.json({ ok: true, message: `Campanha ${action === 'pause' ? 'pausada' : 'ativada'} com sucesso` });
     } catch (error) {
         console.error("Ads Toggle Status Error:", error);
-        res.status(500).json({ error: error.message });
+        const friendlyMessage = getFriendlyAdsErrorMessage(error);
+        res.status(500).json({ error: friendlyMessage });
     }
 });
 
 app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
     const { user_id, customer_id, budget_id, new_amount } = req.body;
-    if (!user_id || !customer_id || !budget_id || new_amount === undefined) {
+    if (!user_id || !budget_id || new_amount === undefined) {
         return res.status(400).json({ error: 'Missing params' });
     }
 
     try {
-        // Fetch current budget to log
+        // Resolve the real and clean customer_id using getValidAccessToken
+        const { cleanId } = await getValidAccessToken(user_id, customer_id);
+
+        // Fetch current budget to log using cleanId
         const query = `
             SELECT campaign.id, campaign.name, campaign_budget.amount_micros 
             FROM campaign 
             WHERE campaign_budget.id = ${budget_id}
             LIMIT 1
         `;
-        const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
+        const queryResults = await executeGoogleAdsQuery(user_id, query, false, cleanId);
         const currentCampaign = queryResults[0]?.campaign;
         const currentBudget = queryResults[0]?.campaign_budget;
 
@@ -1496,14 +1546,14 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
         const operations = [{
             campaign_budget_operation: {
                 update: {
-                    resource_name: `customers/${customer_id}/campaignBudgets/${budget_id}`,
+                    resource_name: `customers/${cleanId}/campaignBudgets/${budget_id}`,
                     amount_micros: Math.round(new_amount * 1000000)
                 },
                 update_mask: 'amount_micros'
             }
         }];
         
-        await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign_budget');
+        await executeGoogleAdsMutation(user_id, cleanId, operations, 'campaign_budget');
 
         // Log audit
         try {
@@ -1511,7 +1561,7 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
                 .from('google_ads_audit_logs')
                 .insert([{
                     user_id,
-                    customer_id,
+                    customer_id: cleanId,
                     campaign_id: currentCampaign?.id || null,
                     campaign_name: currentCampaign?.name || 'Unknown',
                     action: 'update_budget',
@@ -1525,7 +1575,8 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
         res.json({ ok: true, message: 'Orçamento atualizado com sucesso', new_amount: new_amount });
     } catch (error) {
         console.error("Ads Update Budget Error:", error);
-        res.status(500).json({ error: error.message });
+        const friendlyMessage = getFriendlyAdsErrorMessage(error);
+        res.status(500).json({ error: friendlyMessage });
     }
 });
 
