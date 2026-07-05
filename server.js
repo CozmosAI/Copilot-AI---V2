@@ -5203,115 +5203,81 @@ function normalizeUazapiWebhookPayload(payload) {
         let extraInfo = {};
 
         const actualMessage = raw.message || raw.messageContent || raw;
+
+        // Formato Uazapi: messageType em PascalCase, content com detalhes, fileURL no raiz
+        const msgType = raw.messageType || raw.type || '';
+        const content = raw.content || {};
+        const fileURL = raw.fileURL || raw.fileUrl || null;
+
+        // 1. Texto (ExtendedTextMessage ou Conversation)
+        if (msgType === 'ExtendedTextMessage' || msgType === 'Conversation' || msgType === 'text') {
+            text = content.text || raw.text || raw.body || content.conversation || null;
+        }
+
+        // 2. Imagem (ImageMessage)
+        if (msgType === 'ImageMessage' || msgType === 'image') {
+            finalType = 'image';
+            mediaUrl = fileURL || content.URL || content.url || null;
+            mediaMimeType = content.mimetype || content.mimeType || 'image/jpeg';
+            caption = content.caption || raw.text || null;
+            if (content.fileLength) sizeBytes = Number(content.fileLength);
+            if (content.JPEGThumbnail || content.jpegThumbnail) thumbnailUrl = "[THUMBNAIL_BASE64]";
+        }
+
+        // 3. Áudio / Voz (AudioMessage)
+        if (msgType === 'AudioMessage' || msgType === 'audio' || msgType === 'voice') {
+            const isPtt = content.PTT === true || raw.ptt === true;
+            finalType = isPtt ? 'voice' : 'audio';
+            mediaUrl = fileURL || content.URL || content.url || null;
+            mediaMimeType = content.mimetype || content.mimeType || (isPtt ? 'audio/ogg; codecs=opus' : 'audio/mpeg');
+            if (content.seconds) durationSeconds = Number(content.seconds);
+            if (content.duration) durationSeconds = Number(content.duration);
+            if (content.fileLength) sizeBytes = Number(content.fileLength);
+        }
+
+        // 4. Vídeo (VideoMessage)
+        if (msgType === 'VideoMessage' || msgType === 'video') {
+            finalType = 'video';
+            mediaUrl = fileURL || content.URL || content.url || null;
+            mediaMimeType = content.mimetype || content.mimeType || 'video/mp4';
+            caption = content.caption || raw.text || null;
+            if (content.seconds) durationSeconds = Number(content.seconds);
+            if (content.fileLength) sizeBytes = Number(content.fileLength);
+        }
+
+        // 5. Documento (DocumentMessage)
+        if (msgType === 'DocumentMessage' || msgType === 'document') {
+            finalType = 'document';
+            mediaUrl = fileURL || content.URL || content.url || null;
+            mediaMimeType = content.mimetype || content.mimeType || 'application/octet-stream';
+            mediaFilename = content.fileName || content.filename || content.title || `document_${externalMessageId}.${(mediaMimeType.split('/')[1] || 'bin')}`;
+            text = content.caption || content.fileName || '[documento]';
+        }
+
+        // 6. Sticker (StickerMessage)
+        if (msgType === 'StickerMessage' || msgType === 'sticker') {
+            finalType = 'sticker';
+            mediaUrl = fileURL || content.URL || content.url || null;
+            mediaMimeType = content.mimetype || content.mimeType || 'image/webp';
+            mediaFilename = `sticker_${externalMessageId}.webp`;
+        }
+
+        // 7. Contato (ContactMessage)
+        if (msgType === 'ContactMessage' || msgType === 'contact') {
+            finalType = 'contact';
+            text = `Contato: ${content.displayName || content.name || 'VCard'}`;
+            extraInfo.vcard = content.vcard || content.contactVcard || null;
+        }
+
+        // 8. Localização (LocationMessage)
+        if (msgType === 'LocationMessage' || msgType === 'location' || msgType === 'liveLocationMessage') {
+            finalType = 'location';
+            text = `Localização: ${content.degreesLatitude || ''},${content.degreesLongitude || ''}`;
+            extraInfo.latitude = content.degreesLatitude || content.latitude || null;
+            extraInfo.longitude = content.degreesLongitude || content.longitude || null;
+        }
+
         if (actualMessage) {
-            // 1. Texto
-            text = actualMessage.text || actualMessage.body || actualMessage.conversation || 
-                   (actualMessage.extendedTextMessage && (actualMessage.extendedTextMessage.text || actualMessage.extendedTextMessage.conversation)) || null;
-
-            // 2. Imagem
-            const img = actualMessage.imageMessage || actualMessage.image;
-            if (img || raw.messageType === 'image' || raw.type === 'image' || raw.mediaType === 'image') {
-                finalType = 'image';
-                if (img) {
-                    caption = img.caption || null;
-                    mediaUrl = img.url || img.fileUrl || img.directPath || null;
-                    mediaMimeType = img.mimetype || img.mimeType || 'image/jpeg';
-                    if (img.fileLength) sizeBytes = Number(img.fileLength);
-                    if (img.jpegThumbnail) {
-                        thumbnailUrl = "[THUMBNAIL_BASE64_OMITTED]";
-                    }
-                }
-            }
-
-            // 3. Áudio / Voz (PTT)
-            const aud = actualMessage.audioMessage || actualMessage.audio || actualMessage.voiceMessage || actualMessage.voice;
-            if (aud || raw.messageType === 'audio' || raw.type === 'audio' || raw.mediaType === 'audio' || raw.messageType === 'voice' || raw.type === 'voice' || raw.mediaType === 'voice' || raw.ptt === true) {
-                const isPtt = (aud && (aud.ptt === true || aud.ptt === 'true')) || raw.ptt === true || String(raw.messageType).toLowerCase().includes('voice') || String(raw.type).toLowerCase().includes('voice');
-                finalType = isPtt ? 'voice' : 'audio';
-                if (aud) {
-                    mediaUrl = aud.url || aud.fileUrl || aud.directPath || null;
-                    mediaMimeType = aud.mimetype || aud.mimeType || (isPtt ? 'audio/ogg; codecs=opus' : 'audio/mp3');
-                    if (aud.seconds) durationSeconds = Number(aud.seconds);
-                    if (aud.duration) durationSeconds = Number(aud.duration);
-                    if (aud.durationSeconds) durationSeconds = Number(aud.durationSeconds);
-                    if (aud.fileLength) sizeBytes = Number(aud.fileLength);
-                }
-            }
-
-            // 4. Vídeo
-            const vid = actualMessage.videoMessage || actualMessage.video;
-            if (vid || raw.messageType === 'video' || raw.type === 'video' || raw.mediaType === 'video') {
-                finalType = 'video';
-                if (vid) {
-                    caption = vid.caption || null;
-                    mediaUrl = vid.url || vid.fileUrl || vid.directPath || null;
-                    mediaMimeType = vid.mimetype || vid.mimeType || 'video/mp4';
-                    if (vid.seconds) durationSeconds = Number(vid.seconds);
-                    if (vid.duration) durationSeconds = Number(vid.duration);
-                    if (vid.durationSeconds) durationSeconds = Number(vid.durationSeconds);
-                    if (vid.fileLength) sizeBytes = Number(vid.fileLength);
-                    if (vid.gifPlayback) extraInfo.gifPlayback = vid.gifPlayback;
-                }
-            }
-
-            // 5. Documento
-            const doc = actualMessage.documentMessage || actualMessage.document || raw.documentMessage || raw.document;
-            if (doc) {
-                finalType = 'document';
-                mediaUrl = doc.url || doc.directPath || null;
-                mediaMimeType = doc.mimetype || doc.mimeType || 'application/octet-stream';
-                // Tentar vários campos de filename
-                mediaFilename = doc.fileName || doc.filename || doc.title || raw.fileName || raw.filename || `document_${externalMessageId}.${(mediaMimeType.split('/')[1] || 'bin')}`;
-                text = doc.caption || doc.fileName || '[documento]';
-            }
-
-            // 6. Sticker
-            const stk = actualMessage.stickerMessage || actualMessage.sticker || raw.stickerMessage || raw.sticker;
-            if (stk) {
-                finalType = 'sticker';
-                mediaUrl = stk.url || stk.directPath || null;
-                mediaMimeType = stk.mimetype || stk.mimeType || 'image/webp';
-                mediaFilename = `sticker_${externalMessageId}.webp`;
-                text = '[sticker]';
-            }
-
-            // 7. Localização
-            const loc = actualMessage.locationMessage || actualMessage.location || actualMessage.liveLocationMessage;
-            if (loc || raw.messageType === 'location' || raw.type === 'location' || raw.latitude !== undefined) {
-                finalType = 'location';
-                if (loc) {
-                    extraInfo.latitude = loc.degreesLatitude || loc.latitude;
-                    extraInfo.longitude = loc.degreesLongitude || loc.longitude;
-                    extraInfo.address = loc.address || null;
-                    extraInfo.name = loc.name || null;
-                    text = `Localização: ${loc.name || loc.address || `${extraInfo.latitude}, ${extraInfo.longitude}`}`;
-                } else if (raw.latitude) {
-                    extraInfo.latitude = raw.latitude;
-                    extraInfo.longitude = raw.longitude;
-                    extraInfo.address = raw.address || null;
-                    extraInfo.name = raw.name || null;
-                    text = `Localização: ${raw.name || raw.address || `${raw.latitude}, ${raw.longitude}`}`;
-                }
-            }
-
-            // 8. Contato / VCard
-            const conCheck = actualMessage.contactMessage || actualMessage.contactsArrayMessage || raw.contactMessage || raw.contactsArrayMessage;
-            if (conCheck || raw.messageType === 'contact' || raw.type === 'contact' || raw.vcard !== undefined) {
-                finalType = 'contact';
-                if (actualMessage.contactMessage) {
-                    extraInfo.displayName = actualMessage.contactMessage.displayName || null;
-                    extraInfo.vcard = actualMessage.contactMessage.vcard || null;
-                    text = `Contato: ${actualMessage.contactMessage.displayName || 'VCard'}`;
-                } else if (actualMessage.contactsArrayMessage) {
-                    const cnts = actualMessage.contactsArrayMessage.contacts || [];
-                    extraInfo.contacts = cnts;
-                    text = `Contatos: ${cnts.map(c => c.displayName).join(', ') || 'VCard list'}`;
-                } else {
-                    extraInfo.displayName = raw.displayName || null;
-                    extraInfo.vcard = raw.vcard || null;
-                    text = `Contato: ${raw.displayName || 'VCard'}`;
-                }
-            }
 
             // Poll (Enquete)
             const poll = actualMessage.pollCreationMessage || actualMessage.pollCreationV2Message || actualMessage.pollMessage || raw.pollCreationMessage;
@@ -5507,7 +5473,7 @@ function normalizeUazapiWebhookPayload(payload) {
             console.warn('[Webhook Debug] Chaves do raw:', Object.keys(raw || {}));
         }
 
-        console.log(`[Webhook Debug] Tipo identificado: ${finalType}, text: ${text ? text.substring(0, 50) : 'null'}, mediaUrl: ${mediaUrl ? 'sim' : 'nao'}`);
+        console.log(`[Webhook Debug] Tipo identificado: ${finalType}, text: ${text ? text.substring(0, 50) : 'null'}, mediaUrl: ${mediaUrl ? 'sim' : 'nao'}, mediaMimeType: ${mediaMimeType || 'null'}`);
 
         messages.push({
             externalMessageId,
