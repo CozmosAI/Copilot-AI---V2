@@ -470,8 +470,10 @@ const Sales: React.FC = () => {
     setIsClearingChat(true);
     try {
       // Chamar o endpoint seguro do backend que deleta usando supabaseAdmin e limpa os dados
+      const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
       const response = await apiFetch(`/api/crm/conversations/${selectedConversationId}/clear-chat`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       const result = await safeJsonResponse(response);
@@ -516,6 +518,30 @@ const Sales: React.FC = () => {
       alert("Falha ao apagar histórico de mensagens: " + (err.message || err));
     } finally {
       setIsClearingChat(false);
+    }
+  };
+
+  const handleDeleteLead = async (leadId: string) => {
+    if (!window.confirm("Tem certeza? Esta ação vai apagar o lead, todas as conversas e mensagens. Não pode ser desfeito.")) {
+        return;
+    }
+    try {
+        const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
+        const response = await apiFetch(`/api/crm/leads/${leadId}/delete`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await safeJsonResponse(response);
+        if (!response.ok || !result.ok) {
+            throw new Error(result.error || "Falha desconhecida ao deletar lead");
+        }
+
+        alert("Lead apagado com sucesso");
+        setActiveLead(null);
+    } catch (err: any) {
+        console.error("Erro ao deletar lead:", err);
+        alert(err.message || "Erro ao deletar lead.");
     }
   };
 
@@ -1376,6 +1402,13 @@ const Sales: React.FC = () => {
                             <div className="flex items-center gap-2">
                                 <button onClick={() => handleOpenEditModal(activeLead)} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all flex items-center justify-center" title="Editar Dados do Lead">
                                     <Edit2 size={14} />
+                                </button>
+                                <button 
+                                    onClick={() => handleDeleteLead(activeLead.id)} 
+                                    className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-500 hover:text-rose-700 hover:border-rose-300 transition-all flex items-center justify-center" 
+                                    title="Deletar Lead"
+                                >
+                                    <Trash2 size={14} />
                                 </button>
                                 <button onClick={handleAnalyzeLead} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-blue-600 hover:border-blue-200 flex items-center gap-2 transition-all">
                                     {isAnalyzing ? <span className="animate-spin">⌛</span> : <span className="text-lg">✨</span>} AI Insight

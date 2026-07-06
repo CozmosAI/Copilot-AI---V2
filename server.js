@@ -1338,7 +1338,7 @@ async function executeGoogleAdsQuery(user_id, query, checkMcc = false, customerI
 }
 
 async function executeGoogleAdsMutation(user_id, customerId, operations, typeName) {
-    const { cleanId, headers } = await getValidAccessToken(user_id, customerId);
+    const { cleanId, headers, managerId } = await getValidAccessToken(user_id, customerId);
     
     const mutateUrl = `https://googleads.googleapis.com/v24/customers/${cleanId}/googleAds:mutate`;
     console.log(`[Google Ads Mutation] Executando mutação para tipo: ${typeName}. CustomerId original: ${customerId}, Resolved cleanId: ${cleanId}, URL: ${mutateUrl}`);
@@ -1346,9 +1346,14 @@ async function executeGoogleAdsMutation(user_id, customerId, operations, typeNam
         mutate_operations: operations
     });
     
+    const requestHeaders = { ...headers, 'Content-Type': 'application/json' };
+    if (managerId) {
+        requestHeaders['login-customer-id'] = managerId.replace(/-/g, '');
+    }
+    
     const resp = await fetch(mutateUrl, {
         method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: requestHeaders,
         body
     });
     
@@ -1470,9 +1475,9 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
         // Resolve the real and clean customer_id using getValidAccessToken
         const { cleanId } = await getValidAccessToken(user_id, customer_id);
 
-        // Fetch current status to log using cleanId
+        // Fetch current status to log using customer_id
         const query = `SELECT campaign.name, campaign.status FROM campaign WHERE campaign.id = ${campaign_id}`;
-        const queryResults = await executeGoogleAdsQuery(user_id, query, false, cleanId);
+        const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         const currentCampaign = queryResults[0]?.campaign;
         
         if (!currentCampaign) {
@@ -1493,7 +1498,7 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
             }
         }];
         
-        await executeGoogleAdsMutation(user_id, cleanId, operations, 'campaign');
+        await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign');
 
         // Log audit
         try {
@@ -1530,14 +1535,14 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
         // Resolve the real and clean customer_id using getValidAccessToken
         const { cleanId } = await getValidAccessToken(user_id, customer_id);
 
-        // Fetch current budget to log using cleanId
+        // Fetch current budget to log using customer_id
         const query = `
             SELECT campaign.id, campaign.name, campaign_budget.amount_micros 
             FROM campaign 
             WHERE campaign_budget.id = ${budget_id}
             LIMIT 1
         `;
-        const queryResults = await executeGoogleAdsQuery(user_id, query, false, cleanId);
+        const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         const currentCampaign = queryResults[0]?.campaign;
         const currentBudget = queryResults[0]?.campaign_budget;
 
@@ -1553,7 +1558,7 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
             }
         }];
         
-        await executeGoogleAdsMutation(user_id, cleanId, operations, 'campaign_budget');
+        await executeGoogleAdsMutation(user_id, customer_id, operations, 'campaign_budget');
 
         // Log audit
         try {
@@ -3397,6 +3402,181 @@ app.post('/api/crm/conversations/:conversationId/clear-chat', async (req, res) =
     }
 });
 
+// POST /api/crm/leads/:leadId/delete - Deletar lead e dados relacionados
+app.post('/api/crm/leads/:leadId/delete', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { leadId } = req.params;
+        const client = supabaseAdmin || supabase;
+
+        // 1. Verificar se o lead pertence ao usuário (usando supabaseAdmin que bypassa RLS)
+        const { data: lead, error: leadErr } = await client
+            .from('leads')
+            .select('id, user_id')
+            .eq('id', leadId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (leadErr) throw leadErr;
+        if (!lead) {
+            return res.status(404).json({ ok: false, error: "Lead não encontrado." });
+        }
+
+        // 2. Buscar conversas do lead
+        const { data: conversations, error: convErr } = await client
+            .from('crm_conversations')
+            .select('id')
+            .eq('lead_id', leadId);
+
+        if (convErr) throw convErr;
+
+        // 3. Deletar anexos e mensagens das conversas (se existirem)
+        if (conversations && conversations.length > 0) {
+            const convIds = conversations.map(c => c.id);
+            
+            // Deletar anexos primeiro
+            const { error: attachErr } = await client
+                .from('crm_message_attachments')
+                .delete()
+                .in('conversation_id', convIds);
+            if (attachErr) console.warn('[Delete Lead] Erro ao deletar anexos:', attachErr.message);
+
+            // Deletar mensagens
+            const { error: msgErr } = await client
+                .from('crm_messages')
+                .delete()
+                .in('conversation_id', convIds);
+            if (msgErr) console.warn('[Delete Lead] Erro ao deletar mensagens:', msgErr.message);
+
+            // Deletar conversas
+            const { error: convDelErr } = await client
+                .from('crm_conversations')
+                .delete()
+                .in('id', convIds);
+            if (convDelErr) console.warn('[Delete Lead] Erro ao deletar conversas:', convDelErr.message);
+        }
+
+        // 4. Deletar o lead
+        const { error: deleteLeadErr } = await client
+            .from('leads')
+            .delete()
+            .eq('id', leadId);
+
+        if (deleteLeadErr) throw deleteLeadErr;
+
+        return res.json({ ok: true, message: "Lead e dados relacionados apagados com sucesso." });
+    } catch (err) {
+        console.error("Erro ao deletar lead:", err);
+        return res.status(500).json({ ok: false, error: err.message || "Erro interno ao deletar lead." });
+    }
+});
+
+// POST /api/crm/leads - Criar lead com normalização
+app.post('/api/crm/leads', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const client = supabaseAdmin || supabase;
+        const leadData = req.body;
+
+        if (!leadData.name) {
+            return res.status(400).json({ ok: false, error: "Nome do lead é obrigatório." });
+        }
+
+        if (leadData.phone) {
+            leadData.phone = normalizePhoneE164(leadData.phone);
+        }
+
+        const payload = {
+            user_id: user.id,
+            name: leadData.name,
+            phone: leadData.phone || '',
+            email: leadData.email || null,
+            status: leadData.status || 'Novo',
+            temperature: leadData.temperature || 'Cold',
+            last_message: leadData.lastMessage || leadData.last_message || 'Adicionado manualmente',
+            potential_value: leadData.potentialValue || leadData.potential_value || 0,
+            source: leadData.source || 'Manual',
+            procedure: leadData.procedure || null,
+            objective: leadData.objective || 'Consulta',
+            ad_name: leadData.adName || leadData.ad_name || null,
+            notes: leadData.notes || null,
+            created_at: leadData.created_at || new Date().toISOString(),
+            last_sender: 'me'
+        };
+
+        const { data, error } = await client
+            .from('leads')
+            .insert([payload])
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return res.json({ ok: true, lead: data });
+    } catch (err) {
+        console.error("Erro ao criar lead no backend:", err);
+        return res.status(500).json({ ok: false, error: err.message || "Erro interno ao criar lead." });
+    }
+});
+
+// PUT /api/crm/leads/:leadId - Editar lead com normalização
+app.put('/api/crm/leads/:leadId', async (req, res) => {
+    try {
+        const user = await getAuthUser(req);
+        const { leadId } = req.params;
+        const client = supabaseAdmin || supabase;
+        const leadData = req.body;
+
+        // Verificar se pertence ao usuário
+        const { data: existingLead, error: fetchErr } = await client
+            .from('leads')
+            .select('id, user_id')
+            .eq('id', leadId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (fetchErr) throw fetchErr;
+        if (!existingLead) {
+            return res.status(404).json({ ok: false, error: "Lead não encontrado." });
+        }
+
+        if (leadData.phone) {
+            leadData.phone = normalizePhoneE164(leadData.phone);
+        }
+
+        const updatePayload = {};
+        if (leadData.name !== undefined) updatePayload.name = leadData.name;
+        if (leadData.phone !== undefined) updatePayload.phone = leadData.phone;
+        if (leadData.status !== undefined) updatePayload.status = leadData.status;
+        if (leadData.temperature !== undefined) updatePayload.temperature = leadData.temperature;
+        if (leadData.last_message !== undefined) updatePayload.last_message = leadData.last_message;
+        if (leadData.lastMessage !== undefined) updatePayload.last_message = leadData.lastMessage;
+        if (leadData.potential_value !== undefined) updatePayload.potential_value = leadData.potential_value;
+        if (leadData.potentialValue !== undefined) updatePayload.potential_value = leadData.potentialValue;
+        if (leadData.email !== undefined) updatePayload.email = leadData.email;
+        if (leadData.notes !== undefined) updatePayload.notes = leadData.notes;
+        if (leadData.source !== undefined) updatePayload.source = leadData.source;
+        if (leadData.procedure !== undefined) updatePayload.procedure = leadData.procedure;
+        if (leadData.objective !== undefined) updatePayload.objective = leadData.objective;
+        if (leadData.ad_name !== undefined) updatePayload.ad_name = leadData.ad_name;
+        if (leadData.adName !== undefined) updatePayload.ad_name = leadData.adName;
+
+        const { data, error } = await client
+            .from('leads')
+            .update(updatePayload)
+            .eq('id', leadId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return res.json({ ok: true, lead: data });
+    } catch (err) {
+        console.error("Erro ao editar lead no backend:", err);
+        return res.status(500).json({ ok: false, error: err.message || "Erro interno ao editar lead." });
+    }
+});
+
 // GET /api/crm/debug/phone-normalize
 app.get('/api/crm/debug/phone-normalize', async (req, res) => {
     try {
@@ -4689,6 +4869,24 @@ function deepFindMediaAndMime(obj) {
 
     search(obj);
     return { fileUrl, mimeType };
+}
+
+// Normaliza telefone para padrão E.164 (+5511999998888)
+function normalizePhoneE164(phone) {
+    if (!phone) return null;
+    // Remove tudo que não for dígito
+    let cleaned = String(phone).replace(/\D/g, '');
+    // Remove zeros à esquerda
+    cleaned = cleaned.replace(/^0+/, '');
+    // Se não tem DDI, adiciona 55 (Brasil)
+    if (!cleaned.startsWith('55')) {
+        cleaned = '55' + cleaned;
+    }
+    // Validação: deve ter entre 12 e 13 dígitos (55 + DDD + número)
+    if (cleaned.length < 12 || cleaned.length > 13) {
+        return null; // Inválido
+    }
+    return '+' + cleaned;
 }
 
 function normalizeLeadPhoneForBrazil(value) {
@@ -6260,13 +6458,15 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 let leadId = null;
                 let existingLead = null;
                 
+                const normalizedWebhookPhone = phone ? (normalizePhoneE164(phone) || phone) : phone;
+                
                 try {
-                    if (phone) {
+                    if (normalizedWebhookPhone) {
                         const { data, error } = await client
                             .from('leads')
                             .select('*')
                             .eq('user_id', connection.user_id)
-                            .eq('phone', phone)
+                            .eq('phone', normalizedWebhookPhone)
                             .maybeSingle();
                         if (!error && data) {
                             existingLead = data;
@@ -6295,8 +6495,8 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     leadId = existingLead.id;
                     try {
                         const updateLeadData = {
-                            name: existingLead.name || pushName || phone || externalChatId || 'Lead WhatsApp',
-                            phone: phone || existingLead.phone,
+                            name: existingLead.name || pushName || normalizedWebhookPhone || externalChatId || 'Lead WhatsApp',
+                            phone: normalizedWebhookPhone || existingLead.phone,
                             channel: 'whatsapp',
                             external_chat_id: externalChatId || existingLead.external_chat_id,
                             last_message: messageSummary,
@@ -6331,8 +6531,8 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     try {
                         const insertLeadData = {
                             user_id: connection.user_id,
-                            name: pushName || phone || externalChatId || 'Lead WhatsApp',
-                            phone: phone || '',
+                            name: pushName || normalizedWebhookPhone || externalChatId || 'Lead WhatsApp',
+                            phone: normalizedWebhookPhone || '',
                             status: 'Novo',
                             temperature: 'Cold',
                             source: 'WhatsApp',
@@ -6353,8 +6553,8 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             console.warn(`[Webhook Uazapi] Erro ao criar lead com colunas novas, tentando fallback corporativo basico...`, insertLeadErr);
                             const insertBaseData = {
                                 user_id: connection.user_id,
-                                name: pushName || phone || externalChatId || 'Lead WhatsApp',
-                                phone: phone || '',
+                                name: pushName || normalizedWebhookPhone || externalChatId || 'Lead WhatsApp',
+                                phone: normalizedWebhookPhone || '',
                                 status: 'Novo',
                                 temperature: 'Cold',
                                 source: 'WhatsApp',
