@@ -501,18 +501,30 @@ const Sales: React.FC = () => {
       // 5. Atualizar o conversationsMap local do React para limpar a última mensagem mostrada na esquerda
       setConversationsMap(prev => {
         const existing = prev[selectedConversationId];
-        if (!existing) return prev;
-        const updated = {
+        const leadId = activeLead?.id || existing?.lead_id;
+        const updated = existing ? {
           ...existing,
           last_message_text: null,
           last_message_type: null,
-          last_message_at: null
+          last_message_at: null,
+          unread_count: 0
+        } : {
+          id: selectedConversationId,
+          lead_id: leadId,
+          last_message_text: null,
+          last_message_type: null,
+          last_message_at: null,
+          unread_count: 0
         };
-        return {
+        
+        const nextMap = {
           ...prev,
-          [selectedConversationId]: updated,
-          ...(updated.lead_id ? { [`lead_${updated.lead_id}`]: updated } : {})
+          [selectedConversationId]: updated
         };
+        if (leadId) {
+          nextMap[`lead_${leadId}`] = updated;
+        }
+        return nextMap;
       });
 
       if (selectedConversation) {
@@ -520,8 +532,20 @@ const Sales: React.FC = () => {
           ...prev,
           last_message_text: null,
           last_message_type: null,
-          last_message_at: null
+          last_message_at: null,
+          unread_count: 0
         } : null);
+      }
+
+      // 6. Limpar lastMessage e lastInteraction do lead ativo no estado local
+      if (activeLead) {
+        const updatedLead = {
+          ...activeLead,
+          lastMessage: undefined,
+          lastInteraction: undefined
+        };
+        setActiveLead(updatedLead);
+        await updateLead(updatedLead);
       }
 
       // Fechar modal e avisar sucesso
