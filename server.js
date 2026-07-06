@@ -3356,7 +3356,7 @@ app.post('/api/crm/conversations/:conversationId/clear-chat', async (req, res) =
         // 1. Verificar se a conversa pertence ao usuário logado
         const { data: conv, error: convFetchError } = await client
             .from('crm_conversations')
-            .select('id')
+            .select('id, lead_id')
             .eq('id', conversationId)
             .eq('user_id', user.id)
             .maybeSingle();
@@ -3393,6 +3393,17 @@ app.post('/api/crm/conversations/:conversationId/clear-chat', async (req, res) =
             .eq('id', conversationId);
 
         if (updateConvError) throw updateConvError;
+
+        // 5. Limpar last_message e last_interaction do lead vinculado
+        if (conv.lead_id) {
+            await client
+                .from('leads')
+                .update({
+                    last_message: null,
+                    last_interaction: null
+                })
+                .eq('id', conv.lead_id);
+        }
 
         return res.status(200).json({ ok: true, message: "Histórico de mensagens apagado com sucesso." });
 
@@ -4642,7 +4653,16 @@ async function backfillLeadForConversation(connection, contact, conversation, me
             }
         }
 
-        const messageSummary = message?.text || message?.caption || (message?.mediaUrl ? "[mídia]" : "[mensagem]") || "[mensagem]";
+        const messageSummary = message?.text || message?.caption || (() => {
+            const t = String(message?.messageType || message?.type || '').toLowerCase();
+            if (t.includes('image')) return '[imagem]';
+            if (t.includes('audio') || t.includes('voice')) return '[áudio]';
+            if (t.includes('video')) return '[vídeo]';
+            if (t.includes('document')) return '[documento]';
+            if (t.includes('sticker')) return '[figurinha]';
+            if (message?.mediaUrl) return '[mídia]';
+            return '[mensagem]';
+        })();
         const senderTypeStr = message?.fromMe ? "me" : "contact";
         const interactionTime = message?.timestamp || message?.sentAt || new Date();
 
@@ -6488,7 +6508,18 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     console.error(`[Webhook Uazapi] Erro ao buscar lead existente (continuando fluxo):`, leadFindErr);
                 }
                 
-                const messageSummary = text || caption || (mediaUrl ? "[mídia]" : "[mensagem]");
+                const msgTypeStr = messageType || 'text';
+                let messageSummary = text || caption || '';
+                if (!messageSummary) {
+                    const msgTypeLower = String(msgTypeStr || messageType || '').toLowerCase();
+                    if (msgTypeLower.includes('image')) messageSummary = '[imagem]';
+                    else if (msgTypeLower.includes('audio') || msgTypeLower.includes('voice')) messageSummary = '[áudio]';
+                    else if (msgTypeLower.includes('video')) messageSummary = '[vídeo]';
+                    else if (msgTypeLower.includes('document')) messageSummary = '[documento]';
+                    else if (msgTypeLower.includes('sticker')) messageSummary = '[figurinha]';
+                    else if (mediaUrl) messageSummary = '[mídia]';
+                    else messageSummary = '[mensagem]';
+                }
                 const interactionTime = timestamp || new Date();
                 
                 if (existingLead) {

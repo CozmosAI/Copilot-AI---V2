@@ -37,7 +37,21 @@ const formatConversationPreview = (conv: any, leadLastMessage?: string) => {
     if (type === 'document') return isOutbound ? '📄 Documento enviado' : '📄 Documento recebido';
     if (type === 'sticker') return isOutbound ? '✨ Figurinha enviada' : '✨ Figurinha recebida';
     
-    if (text && text.trim().length > 0 && text !== '[mensagem]' && text !== '[documento]') {
+    if (text && text.trim().length > 0) {
+        // Se o text for uma tag crua, converter para amigável
+        const rawTags = ['[midia]', '[mídia]', '[mensagem]', '[documento]', '[imagem]', '[áudio]', '[video]', '[vídeo]', '[sticker]', '[figurinha]'];
+        if (rawTags.includes(text?.trim()?.toLowerCase())) {
+            const tagMap: Record<string, string> = {
+                '[midia]': 'Mídia', '[mídia]': 'Mídia',
+                '[mensagem]': 'Mensagem',
+                '[documento]': 'Documento',
+                '[imagem]': 'Imagem',
+                '[áudio]': 'Áudio', '[audio]': 'Áudio',
+                '[video]': 'Vídeo', '[vídeo]': 'Vídeo',
+                '[sticker]': 'Figurinha', '[figurinha]': 'Figurinha'
+            };
+            return tagMap[text.trim().toLowerCase()] || 'Mídia';
+        }
         return text;
     }
     
