@@ -1479,10 +1479,10 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Meta Campaigns */}
-                            <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredCampaigns).map((c, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="flex items-start gap-2.5 min-w-0">
                                                     <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-4 h-4 mt-0.5 shrink-0" defaultChecked />
@@ -1514,7 +1514,7 @@ const Marketing: React.FC = () => {
                                                 <span>Orçamento:</span>
                                                 <span className="text-slate-800">{formatCurrency(c.budget || 0)}/dia</span>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Alcance</span>
                                                     <span className="text-slate-800 font-semibold">{formatNumber(c.impressions)}</span>
@@ -1925,11 +1925,11 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Google Campaigns */}
-                            <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredCampaigns).map((c, i) => {
                                     const isPMax = c.type?.includes('PERFORMANCE_MAX');
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="flex items-start gap-2.5 min-w-0">
                                                     <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-4 h-4 mt-0.5 shrink-0" />
@@ -1959,7 +1959,7 @@ const Marketing: React.FC = () => {
                                                 <span>Orçamento:</span>
                                                 <span className="text-slate-800">{formatCurrency(c.budget || 0)}/dia</span>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impr.</span>
                                                     <span className="text-slate-800 font-semibold">{formatNumber(c.impressions)}</span>
@@ -2056,9 +2056,9 @@ const Marketing: React.FC = () => {
                     </div>
 
                     {/* Mobile Asset Groups */}
-                    <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                    <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                         {sortData(assetGroups).map((ag, i) => (
-                            <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                            <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                 <div className="flex items-start justify-between gap-2.5">
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2070,7 +2070,7 @@ const Marketing: React.FC = () => {
                                         </h4>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                     <div>
                                         <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impr.</span>
                                         <span className="text-slate-800 font-semibold">{formatNumber(ag.impressions)}</span>
@@ -2250,13 +2250,13 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Meta Ad Groups */}
-                            <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(metaAdGroups).map((ag, i) => {
                                     const agCtr = ag.impressions > 0 ? (ag.clicks / ag.impressions) * 100 : 0;
                                     const agCpc = ag.clicks > 0 ? ag.spend / ag.clicks : 0;
                                     const agCostPerConv = ag.conversions > 0 ? ag.spend / ag.conversions : 0;
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -2279,7 +2279,7 @@ const Marketing: React.FC = () => {
                                                     <span className="text-[11px] text-slate-400 block mt-0.5">Campanha: {ag.campaignName}</span>
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
                                                     <span className="text-slate-800 font-semibold">{formatNumber(ag.impressions)}</span>
@@ -2560,10 +2560,10 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Google Ad Groups */}
-                            <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredAdGroups).map((ag, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -2584,7 +2584,7 @@ const Marketing: React.FC = () => {
                                                     <span className="text-[11px] text-slate-400 block mt-0.5">Campanha: {ag.campaignName}</span>
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
                                                     <span className="text-slate-800 font-semibold">{formatNumber(ag.impressions)}</span>
@@ -2877,10 +2877,10 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Keywords */}
-                            <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredKeywords).map((kw, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -2902,7 +2902,7 @@ const Marketing: React.FC = () => {
                                                     </h4>
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Qualidade</span>
                                                     <span className="text-slate-800 font-semibold">{kw.qualityScore}/10</span>
@@ -3056,13 +3056,13 @@ const Marketing: React.FC = () => {
                                 </div>
 
                                 {/* Mobile Meta Ads */}
-                                <div className="block md:hidden space-y-3 p-3 bg-slate-50 border-t border-slate-200">
+                                <div className="block md:hidden space-y-2 p-2 bg-slate-50 border-t border-slate-200">
                                     {metaAds.map((ad, i) => {
                                         return (
                                             <div 
                                                 key={i} 
-                                                onClick={() => setSelectedMetaAd(ad)}
-                                                className={`bg-white p-4 rounded-xl border transition-all shadow-sm space-y-3 cursor-pointer ${selectedMetaAd?.id === ad.id ? 'border-[#0866ff] ring-2 ring-[#0866ff]/10' : 'border-slate-200 hover:border-slate-300'}`}
+                                                onClick={() => setSelectedMetaAdIdForPreview(ad.id?.toString())}
+                                                className={`bg-white p-2.5 rounded-xl border transition-all shadow-sm space-y-2 cursor-pointer ${selectedMetaAdIdForPreview === ad.id?.toString() ? 'border-[#0866ff] ring-2 ring-[#0866ff]/10' : 'border-slate-200 hover:border-slate-300'}`}
                                             >
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0">
@@ -3078,7 +3078,7 @@ const Marketing: React.FC = () => {
                                                         {ad.status === 'ACTIVE' ? 'Ativo' : ad.status}
                                                     </span>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                     <div>
                                                         <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
                                                         <span className="text-slate-800 font-semibold">{formatNumber(ad.impressions || 0)}</span>
@@ -3598,10 +3598,10 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Google Search Ads (RSA) */}
-                            <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredAds).map((ad, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -3623,7 +3623,7 @@ const Marketing: React.FC = () => {
                                                     {ad.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
                                                 </span>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
                                                     <span className="text-slate-800 font-semibold">{formatNumber(ad.impressions)}</span>
@@ -3962,12 +3962,12 @@ const Marketing: React.FC = () => {
                         </div>
 
                         {/* Mobile Search Terms */}
-                        <div className="block md:hidden space-y-3 p-3 bg-slate-50">
+                        <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                             {currentSearchTerms
                                 .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
                                 .map((term, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -3988,7 +3988,7 @@ const Marketing: React.FC = () => {
                                                     ) : null}
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-lg text-xs font-medium border border-slate-100">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
                                                 <div>
                                                     <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
                                                     <span className="text-slate-800 font-semibold">{formatNumber(term.impressions)}</span>
