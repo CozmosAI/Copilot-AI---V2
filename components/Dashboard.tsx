@@ -149,89 +149,89 @@ const Dashboard: React.FC = () => {
   const attendanceRateStep2 = metrics.vendas.agendamentos > 0 ? ((metrics.vendas.comparecimento / metrics.vendas.agendamentos) * 100).toFixed(1) : '0';
 
   return (
-    <div className="space-y-8 pb-12 animate-in fade-in duration-500 relative">
+    <div className="space-y-6 md:space-y-8 pb-12 animate-in fade-in duration-500 relative">
       {/* HEADER LIMPO */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <h2 className="text-2xl font-bold text-navy tracking-tight">Resumo Executivo</h2>
+          <h2 className="text-xl md:text-2xl font-bold text-navy tracking-tight">Resumo Executivo</h2>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-sm text-slate-500">Dados consolidados de {dateFilter.start} até {dateFilter.end}</p>
+             <p className="text-xs md:text-sm text-slate-500">Dados consolidados de {dateFilter.start} até {dateFilter.end}</p>
           </div>
         </div>
-        <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex gap-1">
+        <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex gap-1 overflow-x-auto scrollbar-none w-full md:w-auto shrink-0">
           {['Hoje', '7 dias', '30 dias', 'Este Ano'].map((t) => (
-            <button key={t} onClick={() => setDateFilter(t)} className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all ${t === dateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}>{t}</button>
+            <button key={t} onClick={() => setDateFilter(t)} className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${t === dateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}>{t}</button>
           ))}
         </div>
       </header>
 
       {/* AI AUDIO PLAYER */}
-      <div className="bg-navy rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group">
-         <div className="absolute right-0 bottom-0 opacity-10 transform translate-x-1/4 translate-y-1/4"><Bot size={180} /></div>
-         <div className="relative z-10 flex items-center gap-6">
-             <button onClick={handlePlayAudio} className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-navy shadow-lg hover:scale-105 transition-transform shrink-0">
-                {loadingAudio ? <div className="animate-spin w-6 h-6 border-2 border-navy border-t-transparent rounded-full"/> : <Play size={24} fill="currentColor" className="ml-1"/>}
+      <div className="bg-navy rounded-2xl p-4 md:p-6 text-white shadow-lg relative overflow-hidden group">
+         <div className="absolute right-0 bottom-0 opacity-10 transform translate-x-1/4 translate-y-1/4 pointer-events-none"><Bot size={180} /></div>
+         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-4 md:gap-6">
+             <button onClick={handlePlayAudio} className="w-12 h-12 md:w-14 md:h-14 bg-white rounded-full flex items-center justify-center text-navy shadow-lg hover:scale-105 transition-transform shrink-0">
+                {loadingAudio ? <div className="animate-spin w-5 h-5 md:w-6 md:h-6 border-2 border-navy border-t-transparent rounded-full"/> : <Play size={20} className="md:w-6 md:h-6 ml-1" fill="currentColor"/>}
              </button>
              <div>
-                 <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1"><Bot size={12}/> Relatório do Copilot AI ({dateFilter.label})</span>
-                 </div>
-                 <p className="text-lg font-medium italic opacity-90 leading-relaxed">"{insight}"</p>
+                  <div className="flex items-center gap-2 mb-1">
+                     <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1"><Bot size={12}/> Relatório do Copilot AI ({dateFilter.label})</span>
+                  </div>
+                  <p className="text-sm md:text-lg font-medium italic opacity-90 leading-relaxed">"{insight}"</p>
              </div>
          </div>
       </div>
 
       {/* GRID EXECUTIVO (3x3) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 md:gap-6">
          {/* LINHA 1 */}
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Investimento (Marketing)</span><div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Megaphone size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">R$ {metrics.marketing.investimento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase">+5% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Investimento (Mkt)</span><div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><Megaphone size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.marketing.investimento.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
          </div>
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-indigo-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Leads no Período</span><div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Users size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">{metrics.marketing.leads}</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase">+8% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-indigo-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Leads no Período</span><div className="p-1.5 md:p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0"><Users size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">{metrics.marketing.leads}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+8% vs anterior</p>
          </div>
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-sky-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consultas Marcadas</span><div className="p-2 bg-sky-50 text-sky-600 rounded-lg"><CalendarCheck size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">{metrics.vendas.agendamentos}</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase">+12% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-sky-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Consultas Marcadas</span><div className="p-1.5 md:p-2 bg-sky-50 text-sky-600 rounded-lg shrink-0"><CalendarCheck size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">{metrics.vendas.agendamentos}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+12% vs anterior</p>
          </div>
 
          {/* LINHA 2 */}
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-emerald-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Comparecimento</span><div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><UserCheck size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">{metrics.vendas.comparecimentoTaxa.toFixed(0)}%</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase">+4% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-emerald-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Comparecimento</span><div className="p-1.5 md:p-2 bg-emerald-50 text-emerald-600 rounded-lg shrink-0"><UserCheck size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">{metrics.vendas.comparecimentoTaxa.toFixed(0)}%</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+4% vs anterior</p>
          </div>
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-rose-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Faltas (No-Show)</span><div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><UserX size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">{Math.round((metrics.vendas.noShows / (metrics.vendas.agendamentos || 1)) * 100)}%</h3>
-            <p className="text-[10px] font-bold text-rose-500 mt-2 uppercase">-5% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-rose-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Faltas (No-Show)</span><div className="p-1.5 md:p-2 bg-rose-50 text-rose-600 rounded-lg shrink-0"><UserX size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">{Math.round((metrics.vendas.noShows / (metrics.vendas.agendamentos || 1)) * 100)}%</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-rose-500 mt-1.5 md:mt-2 uppercase">-5% vs anterior</p>
          </div>
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-purple-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vendas de Tratamento</span><div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Stethoscope size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">{metrics.vendas.vendas}</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase">+15% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-purple-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Vendas Tratamento</span><div className="p-1.5 md:p-2 bg-purple-50 text-purple-600 rounded-lg shrink-0"><Stethoscope size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">{metrics.vendas.vendas}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+15% vs anterior</p>
          </div>
 
          {/* LINHA 3 */}
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-emerald-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Receita Bruta</span><div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><DollarSign size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">R$ {metrics.financeiro.receitaBruta.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase">+12% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-emerald-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Receita Bruta</span><div className="p-1.5 md:p-2 bg-emerald-50 text-emerald-600 rounded-lg shrink-0"><DollarSign size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.receitaBruta.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+12% vs anterior</p>
          </div>
-         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative hover:border-rose-300 transition-colors">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Gastos Totais</span><div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><CreditCard size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">R$ {metrics.financeiro.gastosTotais.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
-            <p className="text-[10px] font-bold text-emerald-500 mt-2 uppercase text-xs">+2% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-rose-300 transition-colors">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Gastos Totais</span><div className="p-1.5 md:p-2 bg-rose-50 text-rose-600 rounded-lg shrink-0"><CreditCard size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.gastosTotais.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+2% vs anterior</p>
          </div>
-         <div className="bg-white p-6 rounded-2xl border-2 border-blue-500 shadow-xl relative overflow-hidden group">
-            <div className="flex justify-between items-start mb-4"><span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Lucro Líquido (Est.)</span><div className="p-2 bg-navy text-white rounded-lg"><Briefcase size={18} /></div></div>
-            <h3 className="text-2xl font-black text-navy">R$ {metrics.financeiro.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
-            <p className="text-[10px] font-bold text-emerald-600 mt-2 uppercase">+10% vs anterior</p>
+         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border-2 border-blue-500 shadow-xl relative overflow-hidden group col-span-2 lg:col-span-1">
+            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-blue-400 uppercase tracking-widest truncate">Lucro Líquido (Est.)</span><div className="p-1.5 md:p-2 bg-navy text-white rounded-lg shrink-0"><Briefcase size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
+            <p className="text-[8px] md:text-[10px] font-bold text-emerald-600 mt-1.5 md:mt-2 uppercase">+10% vs anterior</p>
          </div>
       </div>
 

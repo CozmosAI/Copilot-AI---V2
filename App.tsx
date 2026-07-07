@@ -634,6 +634,12 @@ const App: React.FC = () => {
           <h1 className="font-bold text-lg tracking-tight">AXIS AI</h1>
           <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/10 rounded-lg">{isSidebarOpen ? <X size={24} /> : <Menu size={24} />}</button>
         </div>
+        {isSidebarOpen && (
+          <div 
+            onClick={() => setSidebarOpen(false)} 
+            className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-all duration-300 animate-in fade-in"
+          />
+        )}
         <div className={`fixed inset-y-0 left-0 z-50 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:visible transition-all duration-300 ease-in-out shadow-2xl md:shadow-none`}>
           <Sidebar activeSection={activeSection} onNavigate={(s) => { setActiveSection(s); setSidebarOpen(false); }} />
         </div>

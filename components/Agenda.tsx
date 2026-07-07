@@ -216,16 +216,16 @@ const Agenda: React.FC = () => {
       </header>
 
       {/* KPI GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-4">
         {stats.map((stat, i) => (
-          <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition-all">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{stat.label}</span>
-              <div className="p-2 bg-slate-50 rounded-lg">{stat.icon}</div>
+          <div key={i} className="bg-white p-3 md:p-5 rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition-all">
+            <div className="flex justify-between items-start mb-1 md:mb-2">
+              <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate mr-1">{stat.label}</span>
+              <div className="p-1.5 md:p-2 bg-slate-50 rounded-lg shrink-0">{stat.icon}</div>
             </div>
-            <div className="text-2xl font-bold text-navy">{stat.value}</div>
-            <div className={`text-[10px] mt-2 font-bold uppercase ${stat.trend > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-              {stat.trend > 0 ? '+' : ''}{stat.trend}% em relação à média
+            <div className="text-lg md:text-2xl font-bold text-navy leading-none mt-1">{stat.value}</div>
+            <div className={`text-[8px] md:text-[10px] mt-1.5 md:mt-2 font-bold uppercase truncate ${stat.trend > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {stat.trend > 0 ? '+' : ''}{stat.trend}% vs média
             </div>
           </div>
         ))}

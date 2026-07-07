@@ -854,23 +854,23 @@ const Marketing: React.FC = () => {
   const isPlatformConnected = activePlatform === 'meta' ? !!metaAdsStatus : isConnected;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 pb-20">
       {/* HEADER */}
-      <header className="flex flex-col gap-6">
+      <header className="flex flex-col gap-4 md:gap-6">
         {metaAdsStatus && (
-            <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200/60 shadow-inner">
+            <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-fit border border-slate-200/60 shadow-inner">
                 <button
                     onClick={() => {
                         setActivePlatform('google');
                         setActiveTab('overview');
                     }}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all ${
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold tracking-wide transition-all ${
                         activePlatform === 'google' 
                             ? 'bg-white text-navy shadow-md scale-102 font-bold' 
                             : 'text-slate-500 hover:text-slate-800'
                     }`}
                 >
-                    <Grid size={16} />
+                    <Grid size={14} className="md:w-4 md:h-4" />
                     <span>Google Ads</span>
                 </button>
                 <button
@@ -878,153 +878,163 @@ const Marketing: React.FC = () => {
                         setActivePlatform('meta');
                         setActiveTab('overview');
                     }}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all ${
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold tracking-wide transition-all ${
                         activePlatform === 'meta' 
                             ? 'bg-white text-navy shadow-md scale-102 font-bold' 
                             : 'text-slate-500 hover:text-slate-800'
                     }`}
                 >
-                    <Instagram size={16} />
+                    <Instagram size={14} className="md:w-4 md:h-4" />
                     <span>Meta Ads</span>
                 </button>
             </div>
         )}
 
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-            <h2 className="text-2xl font-semibold text-navy tracking-tight">{activePlatform === 'meta' ? 'Meta Ads' : 'Google Ads'}</h2>
-            <div className="flex items-center gap-2 mt-1">
-                {isPlatformConnected ? (
-                <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-emerald-100 flex items-center gap-1"><Zap size={8} fill="currentColor"/> Conectado</span>
-                ) : (
-                    <span className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-amber-100 flex items-center gap-1"><AlertCircle size={8} /> Desconectado</span>
-                )}
-            </div>
+                <h2 className="text-xl md:text-2xl font-bold text-navy tracking-tight">{activePlatform === 'meta' ? 'Meta Ads' : 'Google Ads'}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                    {isPlatformConnected ? (
+                        <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-emerald-100 flex items-center gap-1"><Zap size={8} fill="currentColor"/> Conectado</span>
+                    ) : (
+                        <span className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-amber-100 flex items-center gap-1"><AlertCircle size={8} /> Desconectado</span>
+                    )}
+                </div>
             </div>
             
-            <div className="flex items-center gap-4">
-                {/* EXPORT REPORT */}
-                <button 
-                    onClick={() => setIsReportModalOpen(true)}
-                    className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-all hover:text-navy shadow-sm"
-                    title="Exportar Relatório PDF"
-                >
-                    <FileUp size={18} />
-                </button>
-
-                {/* ALERTS */}
-                <div className="relative">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+                <div className="flex items-center gap-2 justify-between sm:justify-start">
+                    {/* EXPORT REPORT */}
                     <button 
-                        onClick={() => setIsAlertOpen(!isAlertOpen)}
-                        className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 relative shadow-sm transition-all hover:shadow-md"
+                        onClick={() => setIsReportModalOpen(true)}
+                        className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-all hover:text-navy shadow-sm shrink-0"
+                        title="Exportar Relatório PDF"
                     >
-                        <Bell size={18} className="text-slate-600" />
-                        {alerts.length > 0 && (
-                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full border-2 border-white shadow-sm animate-pulse">
-                                {alerts.length}
-                            </span>
-                        )}
+                        <FileUp size={18} />
                     </button>
 
-                    {isAlertOpen && (
-                        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 backdrop-blur-sm">
-                                <h3 className="text-xs font-bold text-navy uppercase tracking-wider flex items-center gap-2">
-                                    <Bell size={12} /> Notificações
-                                </h3>
-                                <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{alerts.length} novas</span>
-                            </div>
-                            <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                                {alerts.length === 0 ? (
-                                    <div className="p-8 text-center flex flex-col items-center gap-2">
-                                        <div className="w-8 h-8 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
-                                            <Bell size={14} />
-                                        </div>
-                                        <p className="text-slate-400 text-xs font-medium">Tudo tranquilo por aqui.</p>
-                                    </div>
-                                ) : (
-                                    alerts.map(alert => (
-                                        <div key={alert.id} className="p-3 border-b border-slate-50 hover:bg-slate-50 flex gap-3 group relative transition-colors">
-                                            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 shadow-sm ${
-                                                alert.severity === 'high' ? 'bg-rose-500 shadow-rose-200' : 
-                                                alert.severity === 'medium' ? 'bg-amber-500 shadow-amber-200' : 'bg-blue-500 shadow-blue-200'
-                                            }`} />
-                                            <div className="flex-1 pr-4">
-                                                <p className="text-xs text-slate-600 leading-relaxed font-medium">{alert.message}</p>
-                                                <span className="text-[9px] text-slate-400 font-bold mt-1.5 block uppercase tracking-wider flex items-center gap-1">
-                                                    {alert.type === 'budget_warning' && <DollarSign size={8} />}
-                                                    {alert.type === 'cpl_warning' && <TrendingUp size={8} />}
-                                                    {alert.type === 'status_change' && <AlertCircle size={8} />}
-                                                    {alert.type === 'budget_warning' ? 'Orçamento' : 
-                                                     alert.type === 'cpl_warning' ? 'Desempenho' : 'Status'}
-                                                </span>
+                    {/* ALERTS */}
+                    <div className="relative shrink-0">
+                        <button 
+                            onClick={() => setIsAlertOpen(!isAlertOpen)}
+                            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 relative shadow-sm transition-all hover:shadow-md"
+                        >
+                            <Bell size={18} className="text-slate-600" />
+                            {alerts.length > 0 && (
+                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full border-2 border-white shadow-sm animate-pulse">
+                                    {alerts.length}
+                                </span>
+                            )}
+                        </button>
+
+                        {isAlertOpen && (
+                            <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 backdrop-blur-sm">
+                                    <h3 className="text-xs font-bold text-navy uppercase tracking-wider flex items-center gap-2">
+                                        <Bell size={12} /> Notificações
+                                    </h3>
+                                    <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{alerts.length} novas</span>
+                                </div>
+                                <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                                    {alerts.length === 0 ? (
+                                        <div className="p-8 text-center flex flex-col items-center gap-2">
+                                            <div className="w-8 h-8 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
+                                                <Bell size={14} />
                                             </div>
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); dismissAlert(alert.id); }}
-                                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-200 rounded-full text-slate-400 transition-all hover:text-rose-500"
-                                            >
-                                                <X size={12} />
-                                            </button>
+                                            <p className="text-slate-400 text-xs font-medium">Tudo tranquilo por aqui.</p>
                                         </div>
-                                    ))
-                                )}
+                                    ) : (
+                                        alerts.map(alert => (
+                                            <div key={alert.id} className="p-3 border-b border-slate-50 hover:bg-slate-50 flex gap-3 group relative transition-colors">
+                                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 shadow-sm ${
+                                                    alert.severity === 'high' ? 'bg-rose-500 shadow-rose-200' : 
+                                                    alert.severity === 'medium' ? 'bg-amber-500 shadow-amber-200' : 'bg-blue-500 shadow-blue-200'
+                                                }`} />
+                                                <div className="flex-1 pr-4">
+                                                    <p className="text-xs text-slate-600 leading-relaxed font-medium">{alert.message}</p>
+                                                    <span className="text-[9px] text-slate-400 font-bold mt-1.5 block uppercase tracking-wider flex items-center gap-1">
+                                                        {alert.type === 'budget_warning' && <DollarSign size={8} />}
+                                                        {alert.type === 'cpl_warning' && <TrendingUp size={8} />}
+                                                        {alert.type === 'status_change' && <AlertCircle size={8} />}
+                                                        {alert.type === 'budget_warning' ? 'Orçamento' : 
+                                                         alert.type === 'cpl_warning' ? 'Desempenho' : 'Status'}
+                                                    </span>
+                                                </div>
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); dismissAlert(alert.id); }}
+                                                    className="absolute top-2 right-2 p-1 hover:bg-slate-200 rounded-full text-slate-400 transition-all hover:text-rose-500"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* THE RESPONSIVE DATE PICKER */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 w-full sm:w-auto">
+                    <div className="flex items-center gap-2 px-1 justify-between sm:justify-start w-full sm:w-auto">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest sm:inline">Período:</span>
+                        <div className="flex items-center gap-1">
+                            <input 
+                                type="date" 
+                                value={dateFilter.start} 
+                                onChange={(e) => setCustomDateRange(e.target.value, dateFilter.end)}
+                                className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-navy transition-colors cursor-pointer w-[110px]"
+                            />
+                            <span className="text-[10px] text-slate-300 font-bold">-</span>
+                            <input 
+                                type="date" 
+                                value={dateFilter.end} 
+                                onChange={(e) => setCustomDateRange(dateFilter.start, e.target.value)}
+                                className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-navy transition-colors cursor-pointer w-[110px]"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Comparison Toggle */}
+                    <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1" />
+                    <div className="flex items-center justify-between sm:justify-start gap-2 px-1 w-full sm:w-auto border-t sm:border-t-0 border-slate-100 pt-1.5 sm:pt-0">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest sm:inline">Comparar período</span>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <div className="relative">
+                                <input 
+                                    type="checkbox" 
+                                    checked={isCompareEnabled}
+                                    onChange={(e) => setIsCompareEnabled(e.target.checked)}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </div>
+                        </label>
+                    </div>
+
+                    {/* Comparison Date Picker */}
+                    {isCompareEnabled && (
+                        <div className="flex items-center justify-between sm:justify-start gap-2 px-1 w-full sm:w-auto border-t sm:border-l sm:border-t-0 border-slate-100 sm:border-slate-200 pt-1.5 sm:pt-0 sm:pl-2 animate-in fade-in duration-300">
+                            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest sm:hidden">Anterior:</span>
+                            <div className="flex items-center gap-1">
+                                <input 
+                                    type="date" 
+                                    value={compareDateFilter.start} 
+                                    onChange={(e) => setCompareDateFilter({...compareDateFilter, start: e.target.value})}
+                                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer w-[110px]"
+                                />
+                                <span className="text-[10px] text-slate-300 font-bold">-</span>
+                                <input 
+                                    type="date" 
+                                    value={compareDateFilter.end} 
+                                    onChange={(e) => setCompareDateFilter({...compareDateFilter, end: e.target.value})}
+                                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer w-[110px]"
+                                />
                             </div>
                         </div>
                     )}
                 </div>
-
-                <div className="flex items-center space-x-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200">
-                <div className="flex items-center gap-2 px-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">Período:</span>
-                    <input 
-                        type="date" 
-                        value={dateFilter.start} 
-                        onChange={(e) => setCustomDateRange(e.target.value, dateFilter.end)}
-                        className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-navy transition-colors cursor-pointer"
-                    />
-                    <span className="text-[10px] text-slate-300 font-bold">-</span>
-                    <input 
-                        type="date" 
-                        value={dateFilter.end} 
-                        onChange={(e) => setCustomDateRange(dateFilter.start, e.target.value)}
-                        className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-navy transition-colors cursor-pointer"
-                    />
-                </div>
-
-                {/* Comparison Toggle */}
-                <div className="h-4 w-px bg-slate-200 mx-1" />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <div className="relative">
-                        <input 
-                            type="checkbox" 
-                            checked={isCompareEnabled}
-                            onChange={(e) => setIsCompareEnabled(e.target.checked)}
-                            className="sr-only peer"
-                        />
-                        <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">Comparar</span>
-                </label>
-
-                {/* Comparison Date Picker */}
-                {isCompareEnabled && (
-                    <div className="flex items-center gap-2 px-2 border-l border-slate-200 ml-1 animate-in fade-in slide-in-from-right-4 duration-300">
-                        <input 
-                            type="date" 
-                            value={compareDateFilter.start} 
-                            onChange={(e) => setCompareDateFilter({...compareDateFilter, start: e.target.value})}
-                            className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer"
-                        />
-                        <span className="text-[10px] text-slate-300 font-bold">-</span>
-                        <input 
-                            type="date" 
-                            value={compareDateFilter.end} 
-                            onChange={(e) => setCompareDateFilter({...compareDateFilter, end: e.target.value})}
-                            className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer"
-                        />
-                    </div>
-                )}
-            </div>
             </div>
         </div>
 
@@ -1034,7 +1044,7 @@ const Marketing: React.FC = () => {
             <select 
                 value={globalCampaignFilter}
                 onChange={(e) => setGlobalCampaignFilter(e.target.value)}
-                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none w-full md:min-w-[300px] cursor-pointer"
+                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none w-full md:w-auto md:min-w-[300px] cursor-pointer"
             >
                 <option value="">Todas as Campanhas</option>
                 {currentCampaigns.map(c => (
@@ -1050,7 +1060,7 @@ const Marketing: React.FC = () => {
       </header>
 
       {/* TABS */}
-      <div className="flex overflow-x-auto pb-px gap-6 border-b border-slate-200 mb-8">
+      <div className="flex overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100 pb-2 gap-4 md:gap-6 border-b border-slate-200 mb-6 md:mb-8">
           {(activePlatform === 'meta' ? [
               { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
               { id: 'campaigns', label: 'Campanhas', icon: Layers },
@@ -1109,7 +1119,7 @@ const Marketing: React.FC = () => {
             {activeTab === 'overview' && (
                 <>
                     {/* KPIs */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 md:gap-4">
                         {[
                             { label: 'Custo', value: formatCurrency(periodTotals.spend), icon: DollarSign, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.spend, periodTotalsComparison.spend, true) },
                             { label: 'Cliques', value: formatNumber(periodTotals.clicks), icon: MousePointer2, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.clicks, periodTotalsComparison.clicks) },
@@ -1119,13 +1129,13 @@ const Marketing: React.FC = () => {
                             { label: 'Conversões', value: formatNumber(periodTotals.conversions), icon: Zap, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.conversions, periodTotalsComparison.conversions) },
                             { label: 'Custo/Conv.', value: formatCurrency(periodTotals.costPerConv), icon: DollarSign, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.costPerConv, periodTotalsComparison.costPerConv, true) },
                         ].map((kpi, idx) => (
-                            <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between h-28 hover:shadow-md transition-shadow">
+                            <div key={idx} className="bg-white p-3 md:p-5 rounded-xl md:rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between h-[84px] md:h-28 hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{kpi.label}</span>
-                                    <div className={`p-1.5 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon size={14} /></div>
+                                    <span className="text-[8px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate mr-1">{kpi.label}</span>
+                                    <div className={`p-1 md:p-1.5 rounded-lg shrink-0 ${kpi.bg} ${kpi.color}`}><kpi.icon size={12} className="md:w-3.5 md:h-3.5" /></div>
                                 </div>
-                                <div>
-                                    <p className="text-xl font-light tracking-tight text-slate-900">{kpi.value}</p>
+                                <div className="mt-1 md:mt-2">
+                                    <p className="text-sm md:text-xl font-black tracking-tight text-navy leading-none truncate">{kpi.value}</p>
                                     {kpi.variation}
                                 </div>
                             </div>
@@ -1133,29 +1143,29 @@ const Marketing: React.FC = () => {
                     </div>
 
                     {/* BUDGET PANEL */}
-                    <div className={`bg-white p-6 rounded-2xl border shadow-sm mb-6 mt-6 ${budgetMetrics.progress > 95 ? 'border-rose-200 ring-1 ring-rose-100' : budgetMetrics.progress > 80 ? 'border-amber-200 ring-1 ring-amber-100' : 'border-slate-200'}`}>
-                        <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                            <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-xl ${budgetMetrics.progress > 95 ? 'bg-rose-100 text-rose-600' : budgetMetrics.progress > 80 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
-                                    <DollarSign size={24} />
+                    <div className={`bg-white p-4 md:p-6 rounded-xl md:rounded-2xl border shadow-sm mb-6 mt-6 ${budgetMetrics.progress > 95 ? 'border-rose-200 ring-1 ring-rose-100' : budgetMetrics.progress > 80 ? 'border-amber-200 ring-1 ring-amber-100' : 'border-slate-200'}`}>
+                        <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 md:gap-6">
+                            <div className="flex items-center gap-3 md:gap-4">
+                                <div className={`p-2.5 md:p-3 rounded-xl shrink-0 ${budgetMetrics.progress > 95 ? 'bg-rose-100 text-rose-600' : budgetMetrics.progress > 80 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
+                                    <DollarSign size={20} className="md:w-6 md:h-6" />
                                 </div>
                                 <div>
-                                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Orçamento do Período</h3>
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="text-3xl font-light tracking-tight text-slate-900">{formatCurrency(budgetMetrics.totalSpend)}</span>
-                                        <span className="text-xs font-medium text-slate-400">de {formatCurrency(budgetMetrics.totalPeriodBudget)} previstos</span>
+                                    <h3 className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Orçamento do Período</h3>
+                                    <div className="flex items-baseline flex-wrap gap-1.5">
+                                        <span className="text-lg md:text-3xl font-black text-navy leading-none">{formatCurrency(budgetMetrics.totalSpend)}</span>
+                                        <span className="text-[10px] md:text-xs font-medium text-slate-400">de {formatCurrency(budgetMetrics.totalPeriodBudget)}</span>
                                     </div>
                                 </div>
                             </div>
                             
                             <div className="flex-1 w-full max-w-md">
-                                <div className="flex justify-between text-xs font-medium mb-2">
+                                <div className="flex justify-between text-[10px] md:text-xs font-medium mb-1.5">
                                     <span className={budgetMetrics.progress > 95 ? 'text-rose-600 font-bold' : 'text-slate-500'}>
                                         {formatPercent(budgetMetrics.progress)} consumido
                                     </span>
-                                    {budgetMetrics.progress > 95 && <span className="text-rose-600 font-bold flex items-center gap-1"><AlertCircle size={12}/> Orçamento quase esgotado</span>}
+                                    {budgetMetrics.progress > 95 && <span className="text-rose-600 font-bold flex items-center gap-1 text-[9px] md:text-xs"><AlertCircle size={10} className="md:w-3.5 md:h-3.5"/> Limite</span>}
                                 </div>
-                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-1.5 md:h-2 bg-slate-100 rounded-full overflow-hidden">
                                     <div 
                                         className={`h-full rounded-full transition-all duration-500 ${budgetMetrics.progress > 95 ? 'bg-rose-500' : budgetMetrics.progress > 80 ? 'bg-amber-500' : 'bg-blue-500'}`}
                                         style={{ width: `${Math.min(budgetMetrics.progress, 100)}%` }}
@@ -1212,7 +1222,7 @@ const Marketing: React.FC = () => {
                                 </button>
                             </div>
                         </div>
-                        <div className="h-[300px]">
+                        <div className="h-64 md:h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
@@ -1321,316 +1331,406 @@ const Marketing: React.FC = () => {
                             <span className="text-sm font-medium text-slate-500">Carregando campanhas...</span>
                         </div>
                     ) : activePlatform === 'meta' ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-slate-50/80 border-b border-slate-300">
-                                    <tr className="divide-x divide-slate-200 h-10 text-slate-600">
-                                        <th className="w-12 px-3 text-center border-r border-slate-200">
-                                            <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
-                                        </th>
-                                        <th className="w-14 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
-                                        {[
-                                            { k: 'name', l: 'Campanha', align: 'left' },
-                                            { k: 'budget', l: 'Orçamento', align: 'right' },
-                                            { k: 'status', l: 'Status de Veiculação', align: 'left' },
-                                            { k: 'type', l: 'Objetivo', align: 'left' },
-                                            { k: 'impressions', l: 'Alcance', align: 'right' },
-                                            { k: 'clicks', l: 'Cliques no Link', align: 'right' },
-                                            { k: 'ctr', l: 'CTR (todos)', align: 'right' },
-                                            { k: 'averageCpc', l: 'CPC Méd.', align: 'right' },
-                                            { k: 'spend', l: 'Valor Gasto', align: 'right' },
-                                            { k: 'conversions', l: 'Resultados', align: 'right' },
-                                            { k: 'costPerConv', l: 'Custo por Result.', align: 'right' }
-                                        ].map(h => (
-                                            <th 
-                                                key={h.k} 
-                                                onClick={() => handleSort(h.k)} 
-                                                className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
-                                            >
-                                                <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
-                                                    <span>{h.l}</span>
-                                                    {renderSortIcon(h.k)}
-                                                </div>
+                        <>
+                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[720px] md:min-w-[800px] text-left border-collapse">
+                                    <thead className="bg-slate-50/80 border-b border-slate-300">
+                                        <tr className="divide-x divide-slate-200 h-9 md:h-10 text-slate-600">
+                                            <th className="w-10 px-2 text-center border-r border-slate-200">
+                                                <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5" defaultChecked />
                                             </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200 text-slate-700">
-                                    {sortData(filteredCampaigns).map((c, i) => {
-                                        return (
-                                            <tr key={i} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-12 divide-x divide-slate-200">
-                                                <td className="px-3 py-2 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                    <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
-                                                </td>
-                                                {/* Meta Style Toggle Switch */}
-                                                <td className="px-3 py-2 text-center w-14 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center justify-center">
-                                                        <label className="relative inline-flex items-center cursor-pointer">
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
-                                                                onChange={() => {
-                                                                    setMetaCampaigns(prev => prev.map((item, idx) => (item.id === c.id || idx === i) ? { ...item, status: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
-                                                                }}
-                                                                className="sr-only peer" 
-                                                            />
-                                                            <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
-                                                        </label>
+                                            <th className="w-12 px-2 text-center border-r border-slate-200 text-[9px] md:text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
+                                            {[
+                                                { k: 'name', l: 'Campanha', align: 'left' },
+                                                { k: 'budget', l: 'Orçamento', align: 'right' },
+                                                { k: 'status', l: 'Status de Veiculação', align: 'left' },
+                                                { k: 'type', l: 'Objetivo', align: 'left' },
+                                                { k: 'impressions', l: 'Alcance', align: 'right' },
+                                                { k: 'clicks', l: 'Cliques no Link', align: 'right' },
+                                                { k: 'ctr', l: 'CTR (todos)', align: 'right' },
+                                                { k: 'averageCpc', l: 'CPC Méd.', align: 'right' },
+                                                { k: 'spend', l: 'Valor Gasto', align: 'right' },
+                                                { k: 'conversions', l: 'Resultados', align: 'right' },
+                                                { k: 'costPerConv', l: 'Custo por Result.', align: 'right' }
+                                            ].map(h => (
+                                                <th 
+                                                    key={h.k} 
+                                                    onClick={() => handleSort(h.k)} 
+                                                    className={`px-2 md:px-4 py-1.5 md:py-2 text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                                >
+                                                    <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                                        <span>{h.l}</span>
+                                                        {renderSortIcon(h.k)}
                                                     </div>
-                                                </td>
-                                                <td className="px-4 py-2 font-normal">
-                                                    <div className="flex items-center gap-2 overflow-hidden">
-                                                        <div className="w-5 h-5 bg-[#0866ff]/10 border border-[#0866ff]/20 rounded flex items-center justify-center shrink-0">
-                                                            <Instagram size={11} className="text-[#0866ff]" />
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                                        {sortData(filteredCampaigns).map((c, i) => {
+                                            return (
+                                                <tr key={i} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
+                                                    <td className="px-2 py-1.5 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5" defaultChecked />
+                                                    </td>
+                                                    {/* Meta Style Toggle Switch */}
+                                                    <td className="px-2 py-1.5 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-center">
+                                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
+                                                                    onChange={() => {
+                                                                        setMetaCampaigns(prev => prev.map((item, idx) => (item.id === c.id || idx === i) ? { ...item, status: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                    }}
+                                                                    className="sr-only peer" 
+                                                                />
+                                                                <div className="w-7 h-3.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-3 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                            </label>
                                                         </div>
-                                                        <span 
-                                                            onClick={() => setGlobalCampaignFilter(c.id.toString())}
-                                                            className="text-[#0866ff] hover:underline font-medium cursor-pointer truncate text-sm"
-                                                            title={c.name}
-                                                        >
-                                                            {c.name}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
-                                                    <div>
-                                                        <p className="font-semibold">{formatCurrency(c.budget || 0)}</p>
-                                                        <p className="text-[9px] text-slate-400 font-normal">Diário</p>
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-2 text-left font-normal">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className={`w-2 h-2 rounded-full ${(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'bg-[#0f9d58] shadow-sm shadow-emerald-200' : 'bg-slate-400'}`} />
-                                                        <span className="text-xs font-medium text-slate-700">
-                                                            {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'Veiculando' : 'Pausado'}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-2 text-left text-xs font-normal text-slate-500 uppercase tracking-wider">
-                                                    <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-semibold">{c.type?.replace(/_/g, ' ')}</span>
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {formatNumber(c.impressions)}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {formatNumber(c.clicks)}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {formatPercent(c.ctr * 100 || 0)}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {formatCurrency(c.averageCpc || 0)}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-bold text-slate-800">
-                                                    {formatCurrency(c.spend)}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-bold text-indigo-600 bg-indigo-50/20">
-                                                    {formatNumber(c.conversions)}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-xs font-semibold text-slate-800">
-                                                    {formatCurrency(c.conversions > 0 ? c.spend / c.conversions : 0)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                                <tfoot className="bg-slate-50 border-t-2 border-slate-300">
-                                    <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-100/50">
-                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
-                                            Resultados Totais (Meta)
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {formatNumber(calculateTotals(filteredCampaigns).impressions)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {formatNumber(calculateTotals(filteredCampaigns).clicks)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {formatPercent(calculateTotals(filteredCampaigns).ctr)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {formatCurrency(calculateTotals(filteredCampaigns).cpc)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0866ff] bg-[#0866ff]/5">
-                                            {formatCurrency(calculateTotals(filteredCampaigns).spend)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-indigo-600">
-                                            {formatNumber(calculateTotals(filteredCampaigns).conversions)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {formatCurrency(calculateTotals(filteredCampaigns).conversions > 0 ? calculateTotals(filteredCampaigns).spend / calculateTotals(filteredCampaigns).conversions : 0)}
-                                        </td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-[#f8f9fa] border-b border-slate-200">
-                                    <tr className="divide-x divide-slate-200">
-                                        <th className="px-3 py-3 w-10 text-center border-r border-slate-200">
-                                            <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" />
-                                        </th>
-                                        <th className="px-3 py-3 w-10 text-center border-r border-slate-200 text-slate-400 font-bold text-xs">•</th>
-                                        <th onClick={() => handleSort('name')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center gap-1">Campanha {renderSortIcon('name')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('budget')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Orçamento {renderSortIcon('budget')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('status')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center gap-1">Status {renderSortIcon('status')}</div>
-                                        </th>
-                                        <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right border-r border-slate-200 whitespace-nowrap">Optimization score</th>
-                                        <th onClick={() => handleSort('type')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center gap-1">Tipo de campanha {renderSortIcon('type')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('impressions')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Impr. {renderSortIcon('impressions')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('clicks')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">↓ Interações {renderSortIcon('clicks')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('ctr')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Taxa de interação {renderSortIcon('ctr')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('cpc')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Custo médio {renderSortIcon('cpc')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('spend')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Custo {renderSortIcon('spend')}</div>
-                                        </th>
-                                        <th className="px-4 py-3 text-xs font-semibold text-slate-500 border-r border-slate-200 whitespace-nowrap">Bid strategy type</th>
-                                        <th onClick={() => handleSort('convRate')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Taxa de conv. {renderSortIcon('convRate')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('conversions')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Conversões {renderSortIcon('conversions')}</div>
-                                        </th>
-                                        <th onClick={() => handleSort('costPerConv')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1">Custo / conv. {renderSortIcon('costPerConv')}</div>
-                                        </th>
-                                        {customMetrics.map(m => (
-                                            <th key={m.id} onClick={() => handleSort(m.id)} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                                <div className="flex items-center gap-1 justify-end">
-                                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
-                                                    {m.name} {renderSortIcon(m.id)}
-                                                </div>
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200">
-                                    {/* DRAFTS ROW */}
-                                    <tr className="bg-[#e6f4ea]/30 text-xs text-slate-700 h-10 border-b border-slate-200 divide-x divide-slate-200/80">
-                                        <td className="px-3 py-2 text-center w-10">
-                                            <ChevronDown size={14} className="inline text-slate-500 cursor-pointer" />
-                                        </td>
-                                        <td className="px-3 py-2 text-center w-10">
-                                            <Folder size={14} className="inline text-slate-450" />
-                                        </td>
-                                        <td className="px-4 py-2 font-medium" colSpan={14 + customMetrics.length}>
-                                            <span className="text-slate-700 text-xs font-medium">Rascunhos em andamento: 0</span>
-                                        </td>
-                                    </tr>
-
-                                    {/* REAL CAMPAIGN ROWS */}
-                                    {sortData(filteredCampaigns).map((c, i) => {
-                                        const prev = getPrevCampaign(c.id);
-                                        const isPMax = c.type?.includes('PERFORMANCE_MAX');
-                                        return (
-                                            <tr key={i} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
-                                                {/* Checkbox */}
-                                                <td className="px-3 py-2 text-center w-10" onClick={(e) => e.stopPropagation()}>
-                                                    <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" />
-                                                </td>
-
-                                                {/* Interactive Status Dot */}
-                                                <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuCampaignId(activeStatusMenuCampaignId === c.id.toString() ? null : c.id.toString())}>
-                                                        {c.status === 'ENABLED' ? (
-                                                            <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
-                                                        ) : c.status === 'PAUSED' ? (
-                                                            <div className="w-4 h-4 rounded-full bg-slate-350 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
-                                                        ) : (
-                                                            <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Status Selector Dropdown */}
-                                                    {activeStatusMenuCampaignId === c.id.toString() && (
-                                                        <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
-                                                            <div className="p-1">
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        setActiveStatusMenuCampaignId(null);
-                                                                        setStatusConfirmModal({ 
-                                                                            open: true, 
-                                                                            campaignId: c.id.toString(), 
-                                                                            campaignName: c.name, 
-                                                                            action: 'enable', 
-                                                                            customerId: selectedAccountId || null 
-                                                                        });
-                                                                    }}
-                                                                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
-                                                                >
-                                                                    <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
-                                                                    Ativar
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        setActiveStatusMenuCampaignId(null);
-                                                                        setStatusConfirmModal({ 
-                                                                            open: true, 
-                                                                            campaignId: c.id.toString(), 
-                                                                            campaignName: c.name, 
-                                                                            action: 'pause', 
-                                                                            customerId: selectedAccountId || null 
-                                                                        });
-                                                                    }}
-                                                                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
-                                                                >
-                                                                    <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
-                                                                    Pausar
-                                                                </button>
-                                                            </div>
-                                                            <div className="p-1">
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        setActiveStatusMenuCampaignId(null);
-                                                                        alert("A remoção de campanhas deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
-                                                                    }}
-                                                                    className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
-                                                                >
-                                                                    <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
-                                                                    Remover
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </td>
-
-                                                {/* Campaign Name & Network Icon */}
-                                                <td className="px-4 py-2 font-normal">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <div className="flex items-center gap-2 overflow-hidden">
-                                                            <div className="w-6 h-6 bg-slate-100 border border-slate-200 rounded flex items-center justify-center text-slate-500 shrink-0">
-                                                                {isPMax ? <TrendingUp size={13} className="text-blue-500" /> : <Search size={13} className="text-slate-500" />}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 font-normal">
+                                                        <div className="flex items-center gap-1.5 overflow-hidden">
+                                                            <div className="w-4 h-4 md:w-5 md:h-5 bg-[#0866ff]/10 border border-[#0866ff]/20 rounded flex items-center justify-center shrink-0">
+                                                                <Instagram size={10} className="text-[#0866ff]" />
                                                             </div>
                                                             <span 
                                                                 onClick={() => setGlobalCampaignFilter(c.id.toString())}
-                                                                className="text-[#1a73e8] hover:text-[#1557b0] hover:underline font-medium cursor-pointer truncate text-sm"
+                                                                className="text-[#0866ff] hover:underline font-medium cursor-pointer truncate text-xs md:text-sm"
                                                                 title={c.name}
                                                             >
                                                                 {c.name}
                                                             </span>
                                                         </div>
-                                                        
-                                                        {/* Inline Hover Action Tools */}
-                                                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity duration-150 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-medium text-slate-800">
+                                                        <div>
+                                                            <p className="font-semibold">{formatCurrency(c.budget || 0)}</p>
+                                                            <p className="text-[8px] md:text-[9px] text-slate-400 font-normal">Diário</p>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-left font-normal">
+                                                        <div className="flex items-center gap-1 md:gap-1.5">
+                                                            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'bg-[#0f9d58] shadow-sm shadow-emerald-200' : 'bg-slate-400'}`} />
+                                                            <span className="text-[11px] md:text-xs font-medium text-slate-700">
+                                                                {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'Veiculando' : 'Pausado'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-left text-[11px] md:text-xs font-normal text-slate-500 uppercase tracking-wider">
+                                                        <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] font-semibold">{c.type?.replace(/_/g, ' ')}</span>
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                        {formatNumber(c.impressions)}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                        {formatNumber(c.clicks)}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                        {formatPercent(c.ctr * 100 || 0)}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                        {formatCurrency(c.averageCpc || 0)}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-bold text-slate-800">
+                                                        {formatCurrency(c.spend)}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-bold text-indigo-600 bg-indigo-50/20">
+                                                        {formatNumber(c.conversions)}
+                                                    </td>
+                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-semibold text-slate-800">
+                                                        {formatCurrency(c.conversions > 0 ? c.spend / c.conversions : 0)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                    <tfoot className="bg-slate-50 border-t-2 border-slate-300">
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-[11px] md:text-xs h-10 md:h-11 bg-slate-100/50">
+                                            <td className="px-2 py-1.5 text-center border-r border-slate-200"></td>
+                                            <td className="px-2 py-1.5 text-center border-r border-slate-200"></td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-10 md:h-11" colSpan={4}>
+                                                Resultados Totais (Meta)
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredCampaigns).impressions)}
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatNumber(calculateTotals(filteredCampaigns).clicks)}
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatPercent(calculateTotals(filteredCampaigns).ctr)}
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredCampaigns).cpc)}
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold text-[#0866ff] bg-[#0866ff]/5">
+                                                {formatCurrency(calculateTotals(filteredCampaigns).spend)}
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold text-indigo-600">
+                                                {formatNumber(calculateTotals(filteredCampaigns).conversions)}
+                                            </td>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
+                                                {formatCurrency(calculateTotals(filteredCampaigns).conversions > 0 ? calculateTotals(filteredCampaigns).spend / calculateTotals(filteredCampaigns).conversions : 0)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            {/* Mobile Meta Campaigns */}
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                                {sortData(filteredCampaigns).map((c, i) => {
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2.5">
+                                                <div className="flex items-start gap-2.5 min-w-0">
+                                                    <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-4 h-4 mt-0.5 shrink-0" defaultChecked />
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
+                                                                    onChange={() => {
+                                                                        setMetaCampaigns(prev => prev.map((item, idx) => (item.id === c.id || idx === i) ? { ...item, status: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                    }}
+                                                                    className="sr-only peer" 
+                                                                />
+                                                                <div className="w-7 h-3.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-3 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                            </label>
+                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{c.type || 'Meta Campaign'}</span>
+                                                        </div>
+                                                        <h4 
+                                                            onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                            className="font-bold text-[#0866ff] hover:underline text-sm mt-1 cursor-pointer break-words"
+                                                        >
+                                                            {c.name}
+                                                        </h4>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                                                <span>Orçamento:</span>
+                                                <span className="text-slate-800">{formatCurrency(c.budget || 0)}/dia</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Alcance</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(c.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(c.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Gasto</span>
+                                                    <span className="text-[#0866ff] font-bold">{formatCurrency(c.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Resultados</span>
+                                                    <span className="text-[#0f9d58] font-bold">{formatNumber(c.conversions)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[800px] text-left border-collapse">
+                                    <thead className="bg-[#f8f9fa] border-b border-slate-200">
+                                        <tr className="divide-x divide-slate-200">
+                                            <th className="px-3 py-3 w-10 text-center border-r border-slate-200">
+                                                <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" />
+                                            </th>
+                                            <th className="px-3 py-3 w-10 text-center border-r border-slate-200 text-slate-400 font-bold text-xs">•</th>
+                                            <th onClick={() => handleSort('name')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center gap-1">Campanha {renderSortIcon('name')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('budget')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Orçamento {renderSortIcon('budget')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('status')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center gap-1">Status {renderSortIcon('status')}</div>
+                                            </th>
+                                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right border-r border-slate-200 whitespace-nowrap">Optimization score</th>
+                                            <th onClick={() => handleSort('type')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center gap-1">Tipo de campanha {renderSortIcon('type')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('impressions')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Impr. {renderSortIcon('impressions')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('clicks')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">↓ Interações {renderSortIcon('clicks')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('ctr')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Taxa de interação {renderSortIcon('ctr')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('cpc')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Custo médio {renderSortIcon('cpc')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('spend')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Custo {renderSortIcon('spend')}</div>
+                                            </th>
+                                            <th className="px-4 py-3 text-xs font-semibold text-slate-500 border-r border-slate-200 whitespace-nowrap">Bid strategy type</th>
+                                            <th onClick={() => handleSort('convRate')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Taxa de conv. {renderSortIcon('convRate')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('conversions')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Conversões {renderSortIcon('conversions')}</div>
+                                            </th>
+                                            <th onClick={() => handleSort('costPerConv')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1">Custo / conv. {renderSortIcon('costPerConv')}</div>
+                                            </th>
+                                            {customMetrics.map(m => (
+                                                <th key={m.id} onClick={() => handleSort(m.id)} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
+                                                    <div className="flex items-center gap-1 justify-end">
+                                                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
+                                                        {m.name} {renderSortIcon(m.id)}
+                                                    </div>
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200">
+                                        {/* DRAFTS ROW */}
+                                        <tr className="bg-[#e6f4ea]/30 text-xs text-slate-700 h-10 border-b border-slate-200 divide-x divide-slate-200/80">
+                                            <td className="px-3 py-2 text-center w-10">
+                                                <ChevronDown size={14} className="inline text-slate-500 cursor-pointer" />
+                                            </td>
+                                            <td className="px-3 py-2 text-center w-10">
+                                                <Folder size={14} className="inline text-slate-450" />
+                                            </td>
+                                            <td className="px-4 py-2 font-medium" colSpan={14 + customMetrics.length}>
+                                                <span className="text-slate-700 text-xs font-medium">Rascunhos em andamento: 0</span>
+                                            </td>
+                                        </tr>
+
+                                        {/* REAL CAMPAIGN ROWS */}
+                                        {sortData(filteredCampaigns).map((c, i) => {
+                                            const prev = getPrevCampaign(c.id);
+                                            const isPMax = c.type?.includes('PERFORMANCE_MAX');
+                                            return (
+                                                <tr key={i} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
+                                                    {/* Checkbox */}
+                                                    <td className="px-3 py-2 text-center w-10" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" />
+                                                    </td>
+
+                                                    {/* Interactive Status Dot */}
+                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuCampaignId(activeStatusMenuCampaignId === c.id.toString() ? null : c.id.toString())}>
+                                                            {c.status === 'ENABLED' ? (
+                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
+                                                            ) : c.status === 'PAUSED' ? (
+                                                                <div className="w-4 h-4 rounded-full bg-slate-350 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                            ) : (
+                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Status Selector Dropdown */}
+                                                        {activeStatusMenuCampaignId === c.id.toString() && (
+                                                            <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuCampaignId(null);
+                                                                            setStatusConfirmModal({ 
+                                                                                open: true, 
+                                                                                campaignId: c.id.toString(), 
+                                                                                campaignName: c.name, 
+                                                                                action: 'enable', 
+                                                                                customerId: selectedAccountId || null 
+                                                                            });
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
+                                                                        Ativar
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuCampaignId(null);
+                                                                            setStatusConfirmModal({ 
+                                                                                open: true, 
+                                                                                campaignId: c.id.toString(), 
+                                                                                campaignName: c.name, 
+                                                                                action: 'pause', 
+                                                                                customerId: selectedAccountId || null 
+                                                                            });
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                        Pausar
+                                                                    </button>
+                                                                </div>
+                                                                <div className="p-1">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setActiveStatusMenuCampaignId(null);
+                                                                            alert("A remoção de campanhas deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
+                                                                    >
+                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                        Remover
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Campaign Name & Network Icon */}
+                                                    <td className="px-4 py-2 font-normal">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                                <div className="w-6 h-6 bg-slate-100 border border-slate-200 rounded flex items-center justify-center text-slate-500 shrink-0">
+                                                                    {isPMax ? <TrendingUp size={13} className="text-blue-500" /> : <Search size={13} className="text-slate-500" />}
+                                                                </div>
+                                                                <span 
+                                                                    onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                                    className="text-[#1a73e8] hover:text-[#1557b0] hover:underline font-medium cursor-pointer truncate text-sm"
+                                                                    title={c.name}
+                                                                >
+                                                                    {c.name}
+                                                                </span>
+                                                            </div>
+                                                            
+                                                            {/* Inline Hover Action Tools */}
+                                                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity duration-150 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setNewBudgetAmount(c.budget?.toString() || '0');
+                                                                        setBudgetModal({ 
+                                                                            open: true, 
+                                                                            campaignId: c.id.toString(), 
+                                                                            budgetId: c.budgetId?.toString() || '', 
+                                                                            campaignName: c.name, 
+                                                                            currentBudget: c.budget, 
+                                                                            customerId: selectedAccountId || null 
+                                                                        });
+                                                                    }}
+                                                                    className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                                                                    title="Editar"
+                                                                >
+                                                                    <Pencil size={12} />
+                                                                </button>
+                                                                <button className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors" title="Configurações">
+                                                                    <Settings size={12} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Budget Column */}
+                                                    <td className="px-4 py-2 text-right font-normal group/budget" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <span className="text-slate-800 text-xs font-medium">{formatCurrency(c.budget || 0)}/dia</span>
                                                             <button 
                                                                 onClick={() => {
                                                                     setNewBudgetAmount(c.budget?.toString() || '0');
@@ -1643,213 +1743,244 @@ const Marketing: React.FC = () => {
                                                                         customerId: selectedAccountId || null 
                                                                     });
                                                                 }}
-                                                                className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors"
-                                                                title="Editar"
+                                                                className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 rounded transition-opacity"
                                                             >
-                                                                <Pencil size={12} />
-                                                            </button>
-                                                            <button className="p-1 hover:bg-slate-150 rounded text-slate-400 hover:text-slate-600 transition-colors" title="Configurações">
-                                                                <Settings size={12} />
+                                                                <Pencil size={11} />
                                                             </button>
                                                         </div>
-                                                    </div>
-                                                </td>
-
-                                                {/* Budget Column */}
-                                                <td className="px-4 py-2 text-right font-normal group/budget" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center justify-end gap-1">
-                                                        <span className="text-slate-800 text-xs font-medium">{formatCurrency(c.budget || 0)}/dia</span>
-                                                        <button 
-                                                            onClick={() => {
-                                                                setNewBudgetAmount(c.budget?.toString() || '0');
-                                                                setBudgetModal({ 
-                                                                    open: true, 
-                                                                    campaignId: c.id.toString(), 
-                                                                    budgetId: c.budgetId?.toString() || '', 
-                                                                    campaignName: c.name, 
-                                                                    currentBudget: c.budget, 
-                                                                    customerId: selectedAccountId || null 
-                                                                });
-                                                            }}
-                                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 rounded transition-opacity"
-                                                        >
-                                                            <Pencil size={11} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-
-                                                {/* Status Column */}
-                                                <td className="px-4 py-2 text-left font-normal">
-                                                    <div className="flex flex-col">
-                                                        <span className={`text-xs font-semibold ${c.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
-                                                            {c.status === 'ENABLED' ? 'Qualificada' : 'Pausada'}
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
-                                                            {c.status === 'ENABLED' ? 'Ativa' : 'Campanha pausada'}
-                                                        </span>
-                                                    </div>
-                                                </td>
-
-                                                {/* Optimization Score */}
-                                                <td className="px-4 py-2 text-right font-normal text-slate-400">-</td>
-
-                                                {/* Tipo de campanha */}
-                                                <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs whitespace-nowrap">
-                                                    {isPMax ? 'Performance Max' : 'Pesquisa'}
-                                                </td>
-
-                                                {/* Impr. */}
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {renderCellWithVariation(c.impressions, prev?.impressions, 'number')}
-                                                </td>
-
-                                                {/* Interações */}
-                                                <td className="px-4 py-2 text-right font-normal text-slate-800">
-                                                    <div className="flex flex-col items-end">
-                                                        <span className="text-xs">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</span>
-                                                        <span className="text-[9px] text-slate-400 text-right leading-tight mt-0.5">
-                                                            cliques, <br/> engajamentos
-                                                        </span>
-                                                    </div>
-                                                </td>
-
-                                                {/* Taxa de interação */}
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}
-                                                </td>
-
-                                                {/* Custo médio */}
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}
-                                                </td>
-
-                                                {/* Custo */}
-                                                <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
-                                                    {renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}
-                                                </td>
-
-                                                {/* Bid strategy type */}
-                                                <td className="px-4 py-2 text-left font-normal text-xs whitespace-nowrap">
-                                                    <span className="text-[#1a73e8] hover:underline cursor-pointer">Maximizar conversões</span>
-                                                </td>
-
-                                                {/* Taxa de conv. */}
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}
-                                                </td>
-
-                                                {/* Conversões */}
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {c.conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </td>
-
-                                                {/* Custo / conv. */}
-                                                <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
-                                                    {renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}
-                                                </td>
-
-                                                {/* Custom metrics */}
-                                                {customMetrics.map(m => (
-                                                    <td key={m.id} className="px-4 py-2 text-right text-xs font-medium text-slate-800 border-l border-slate-200">
-                                                        {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
                                                     </td>
-                                                ))}
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                                <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
-                                    {/* Total Row 1: All but removed campaigns */}
-                                    <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
-                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11">
-                                            Total: All but removed campaigns in your current view
-                                            <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
-                                        <td className="px-4 py-2 border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
-                                            {calculateTotals(filteredCampaigns).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}
-                                        </td>
-                                        {customMetrics.map(m => (
-                                            <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
-                                                {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
-                                            </td>
-                                        ))}
-                                    </tr>
 
-                                    {/* Total Row 2: Total: conta */}
-                                    <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
-                                        <td className="px-3 py-2 text-center border-r border-slate-200">
-                                            <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
-                                        </td>
-                                        <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11">
-                                            Total: conta
-                                            <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-medium text-slate-600">R$ 0,00/dia</td>
-                                        <td className="px-4 py-2 border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
-                                        <td className="px-4 py-2 border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200"></td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
-                                            {calculateTotals(filteredCampaigns).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </td>
-                                        <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
-                                            {renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}
-                                        </td>
-                                        {customMetrics.map(m => (
-                                            <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
-                                                {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
+                                                    {/* Status Column */}
+                                                    <td className="px-4 py-2 text-left font-normal">
+                                                        <div className="flex flex-col">
+                                                            <span className={`text-xs font-semibold ${c.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                                {c.status === 'ENABLED' ? 'Qualificada' : 'Pausada'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
+                                                                {c.status === 'ENABLED' ? 'Ativa' : 'Campanha pausada'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Optimization Score */}
+                                                    <td className="px-4 py-2 text-right font-normal text-slate-400">-</td>
+
+                                                    {/* Tipo de campanha */}
+                                                    <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs whitespace-nowrap">
+                                                        {isPMax ? 'Performance Max' : 'Pesquisa'}
+                                                    </td>
+
+                                                    {/* Impr. */}
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {renderCellWithVariation(c.impressions, prev?.impressions, 'number')}
+                                                    </td>
+
+                                                    {/* Interações */}
+                                                    <td className="px-4 py-2 text-right font-normal text-slate-800">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-xs">{renderCellWithVariation(c.clicks, prev?.clicks, 'number')}</span>
+                                                            <span className="text-[9px] text-slate-400 text-right leading-tight mt-0.5">
+                                                                cliques, <br/> engajamentos
+                                                            </span>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Taxa de interação */}
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {renderCellWithVariation((c.clicks / c.impressions) * 100 || 0, (prev?.clicks / prev?.impressions) * 100 || 0, 'percent')}
+                                                    </td>
+
+                                                    {/* Custo médio */}
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {renderCellWithVariation(c.spend / c.clicks || 0, prev?.spend / prev?.clicks || 0, 'currency', true)}
+                                                    </td>
+
+                                                    {/* Custo */}
+                                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-800">
+                                                        {renderCellWithVariation(c.spend, prev?.spend, 'currency', true)}
+                                                    </td>
+
+                                                    {/* Bid strategy type */}
+                                                    <td className="px-4 py-2 text-left font-normal text-xs whitespace-nowrap">
+                                                        <span className="text-[#1a73e8] hover:underline cursor-pointer">Maximizar conversões</span>
+                                                    </td>
+
+                                                    {/* Taxa de conv. */}
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {renderCellWithVariation((c.conversions / c.clicks) * 100 || 0, (prev?.conversions / prev?.clicks) * 100 || 0, 'percent')}
+                                                    </td>
+
+                                                    {/* Conversões */}
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {c.conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+
+                                                    {/* Custo / conv. */}
+                                                    <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
+                                                        {renderCellWithVariation(c.conversions > 0 ? c.spend / c.conversions : 0, prev?.conversions > 0 ? prev?.spend / prev?.conversions : 0, 'currency', true)}
+                                                    </td>
+
+                                                    {/* Custom metrics */}
+                                                    {customMetrics.map(m => (
+                                                        <td key={m.id} className="px-4 py-2 text-right text-xs font-medium text-slate-800 border-l border-slate-200">
+                                                            {renderCellWithVariation(calculateMetricValue(m, c), calculateMetricValue(m, prev || {}), m.format)}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                        {/* Total Row 1: All but removed campaigns */}
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11">
+                                                Total: All but removed campaigns in your current view
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
                                             </td>
-                                        ))}
-                                    </tr>
-                                </tfoot>
-                            </table>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
+                                            <td className="px-4 py-2 border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {calculateTotals(filteredCampaigns).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}
+                                            </td>
+                                            {customMetrics.map(m => (
+                                                <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
+                                                    {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
+                                                </td>
+                                            ))}
+                                        </tr>
+
+                                        {/* Total Row 2: Total: conta */}
+                                        <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-[#f1f3f4]">
+                                            <td className="px-3 py-2 text-center border-r border-slate-200">
+                                                <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
+                                            </td>
+                                            <td className="px-3 py-2 text-center border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11">
+                                                Total: conta
+                                                <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-medium text-slate-600">R$ 0,00/dia</td>
+                                            <td className="px-4 py-2 border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
+                                            <td className="px-4 py-2 border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).impressions, calculateTotals(filteredCampaignsComparison).impressions, 'number')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks, calculateTotals(filteredCampaignsComparison).clicks, 'number')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).ctr, calculateTotals(filteredCampaignsComparison).ctr, 'percent')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).cpc, calculateTotals(filteredCampaignsComparison).cpc, 'currency', true)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#1a73e8] bg-[#e8f0fe]/20">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).spend, calculateTotals(filteredCampaignsComparison).spend, 'currency', true)}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200"></td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).clicks > 0 ? (calculateTotals(filteredCampaigns).conversions / calculateTotals(filteredCampaigns).clicks) * 100 : 0, calculateTotals(filteredCampaignsComparison).clicks > 0 ? (calculateTotals(filteredCampaignsComparison).conversions / calculateTotals(filteredCampaignsComparison).clicks) * 100 : 0, 'percent')}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-black text-[#0f9d58] bg-[#e6f4ea]/20">
+                                                {calculateTotals(filteredCampaigns).conversions.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-right font-bold">
+                                                {renderCellWithVariation(calculateTotals(filteredCampaigns).costPerConv, calculateTotals(filteredCampaignsComparison).costPerConv, 'currency', true)}
+                                            </td>
+                                            {customMetrics.map(m => (
+                                                <td key={m.id} className="px-4 py-2 text-right font-bold border-r border-slate-200">
+                                                    {renderCellWithVariation(calculateMetricValue(m, calculateTotals(filteredCampaigns)), calculateMetricValue(m, calculateTotals(filteredCampaignsComparison)), m.format)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            {/* Mobile Google Campaigns */}
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                                {sortData(filteredCampaigns).map((c, i) => {
+                                    const isPMax = c.type?.includes('PERFORMANCE_MAX');
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2.5">
+                                                <div className="flex items-start gap-2.5 min-w-0">
+                                                    <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-4 h-4 mt-0.5 shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuCampaignId(activeStatusMenuCampaignId === c.id.toString() ? null : c.id.toString())}>
+                                                                {c.status === 'ENABLED' ? (
+                                                                    <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" title="Ativo" />
+                                                                ) : c.status === 'PAUSED' ? (
+                                                                    <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                                ) : (
+                                                                    <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{isPMax ? 'Performance Max' : 'Search'}</span>
+                                                        </div>
+                                                        <h4 
+                                                            onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                            className="font-bold text-[#1a73e8] hover:underline text-sm mt-1 cursor-pointer break-words"
+                                                        >
+                                                            {c.name}
+                                                        </h4>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                                                <span>Orçamento:</span>
+                                                <span className="text-slate-800">{formatCurrency(c.budget || 0)}/dia</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impr.</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(c.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Interações</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(c.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                                    <span className="text-[#1a73e8] font-bold">{formatCurrency(c.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Conversões</span>
+                                                    <span className="text-[#0f9d58] font-bold">{formatNumber(c.conversions)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -1858,8 +1989,8 @@ const Marketing: React.FC = () => {
             {/* ASSET GROUPS TAB */}
             {activeTab === 'assetgroups' && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
+                    <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                        <table className="w-full min-w-[800px] text-left">
                             <thead className="bg-slate-50 border-b border-slate-200">
                                 <tr>
                                     {[
@@ -1923,6 +2054,51 @@ const Marketing: React.FC = () => {
                             </tfoot>
                         </table>
                     </div>
+
+                    {/* Mobile Asset Groups */}
+                    <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                        {sortData(assetGroups).map((ag, i) => (
+                            <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                <div className="flex items-start justify-between gap-2.5">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {renderStatusBadge(ag.status)}
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Grupo de Recursos</span>
+                                        </div>
+                                        <h4 className="font-bold text-slate-800 text-sm mt-1 break-words">
+                                            {ag.name}
+                                        </h4>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                    <div>
+                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impr.</span>
+                                        <span className="text-slate-800 font-semibold">{formatNumber(ag.impressions)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                        <span className="text-slate-800 font-semibold">{formatNumber(ag.clicks)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">CTR</span>
+                                        <span className="text-slate-800 font-semibold">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                        <span className="text-[#1a73e8] font-bold">{formatCurrency(ag.spend)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Resultados</span>
+                                        <span className="text-[#0f9d58] font-bold">{formatNumber(ag.conversions)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo/Result.</span>
+                                        <span className="text-slate-800 font-semibold">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -1935,8 +2111,8 @@ const Marketing: React.FC = () => {
                         </div>
                     ) : activePlatform === 'meta' ? (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[800px] text-left border-collapse">
                                     <thead className="bg-[#f8f9fa] border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-10">
                                             <th className="w-12 px-3 text-center border-r border-slate-200">
@@ -2072,11 +2248,72 @@ const Marketing: React.FC = () => {
                                     </tfoot>
                                 </table>
                             </div>
+
+                            {/* Mobile Meta Ad Groups */}
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                                {sortData(metaAdGroups).map((ag, i) => {
+                                    const agCtr = ag.impressions > 0 ? (ag.clicks / ag.impressions) * 100 : 0;
+                                    const agCpc = ag.clicks > 0 ? ag.spend / ag.clicks : 0;
+                                    const agCostPerConv = ag.conversions > 0 ? ag.spend / ag.conversions : 0;
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2.5">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <label className="relative inline-flex items-center cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={ag.status === 'ENABLED' || ag.status === 'ACTIVE'} 
+                                                                onChange={() => {
+                                                                    setMetaAdGroups(prev => prev.map((item, idx) => (item.id === ag.id || idx === i) ? { ...item, status: (ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                }}
+                                                                className="sr-only peer" 
+                                                            />
+                                                            <div className="w-7 h-3.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-3 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                        </label>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Conjunto de Anúncios</span>
+                                                    </div>
+                                                    <h4 className="font-bold text-[#0866ff] hover:underline text-sm mt-1 cursor-pointer break-words">
+                                                        {ag.name}
+                                                    </h4>
+                                                    <span className="text-[11px] text-slate-400 block mt-0.5">Campanha: {ag.campaignName}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(ag.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(ag.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">CTR</span>
+                                                    <span className="text-slate-800 font-semibold">{formatPercent(agCtr)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                                    <span className="text-[#0866ff] font-bold">{formatCurrency(ag.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Resultados</span>
+                                                    <span className="text-[#0f9d58] font-bold">{formatNumber(ag.conversions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo/Result.</span>
+                                                    <span className="text-slate-800 font-semibold">{formatCurrency(agCostPerConv)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[800px] text-left border-collapse">
                                     <thead className="bg-[#f8f9fa] border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-10">
                                             <th className="w-10 px-3 text-center border-r border-slate-200">
@@ -2321,6 +2558,62 @@ const Marketing: React.FC = () => {
                                     </tfoot>
                                 </table>
                             </div>
+
+                            {/* Mobile Google Ad Groups */}
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                                {sortData(filteredAdGroups).map((ag, i) => {
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2.5">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuAdGroupId(activeStatusMenuAdGroupId === (ag.id?.toString() || i.toString()) ? null : (ag.id?.toString() || i.toString()))}>
+                                                            {ag.status === 'ENABLED' ? (
+                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" title="Ativo" />
+                                                            ) : ag.status === 'PAUSED' ? (
+                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                            ) : (
+                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Grupo de Anúncios</span>
+                                                    </div>
+                                                    <h4 className="font-bold text-[#1a73e8] hover:underline text-sm mt-1 cursor-pointer break-words">
+                                                        {ag.name}
+                                                    </h4>
+                                                    <span className="text-[11px] text-slate-400 block mt-0.5">Campanha: {ag.campaignName}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(ag.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(ag.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">CTR</span>
+                                                    <span className="text-slate-800 font-semibold">{formatPercent((ag.clicks / ag.impressions) * 100 || 0)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                                    <span className="text-[#1a73e8] font-bold">{formatCurrency(ag.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Conversões</span>
+                                                    <span className="text-[#0f9d58] font-bold">{formatNumber(ag.conversions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo/Conv.</span>
+                                                    <span className="text-slate-800 font-semibold">{formatCurrency(ag.conversions > 0 ? ag.spend / ag.conversions : 0)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </>
@@ -2339,8 +2632,8 @@ const Marketing: React.FC = () => {
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[800px] text-left border-collapse">
                                     <thead className="bg-[#f8f9fa] border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-10">
                                             <th className="w-10 px-3 text-center border-r border-slate-200">
@@ -2582,6 +2875,63 @@ const Marketing: React.FC = () => {
                                     </tfoot>
                                 </table>
                             </div>
+
+                            {/* Mobile Keywords */}
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                                {sortData(filteredKeywords).map((kw, i) => {
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2.5">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuKeywordId(activeStatusMenuKeywordId === (kw.id?.toString() || i.toString()) ? null : (kw.id?.toString() || i.toString()))}>
+                                                            {kw.status === 'ENABLED' ? (
+                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" title="Ativo" />
+                                                            ) : kw.status === 'PAUSED' ? (
+                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                            ) : (
+                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                                            {kw.matchType === 'EXACT' ? 'Exata' : kw.matchType === 'PHRASE' ? 'Frase' : 'Ampla'}
+                                                        </span>
+                                                    </div>
+                                                    <h4 className="font-bold text-[#1a73e8] hover:underline text-sm mt-1 cursor-pointer break-words">
+                                                        {kw.matchType === 'PHRASE' ? `"${kw.text}"` : kw.matchType === 'EXACT' ? `[${kw.text}]` : kw.text}
+                                                    </h4>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Qualidade</span>
+                                                    <span className="text-slate-800 font-semibold">{kw.qualityScore}/10</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impr.</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(kw.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(kw.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                                    <span className="text-[#1a73e8] font-bold">{formatCurrency(kw.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Conv.</span>
+                                                    <span className="text-[#0f9d58] font-bold">{formatNumber(kw.conversions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo/Conv.</span>
+                                                    <span className="text-slate-800 font-semibold">{formatCurrency(kw.conversions > 0 ? kw.spend / kw.conversions : 0)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </>
@@ -2604,8 +2954,8 @@ const Marketing: React.FC = () => {
                                     </span>
                                 </div>
                                 
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
+                                <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                    <table className="w-full min-w-[800px] text-left border-collapse">
                                         <thead className="bg-[#f8f9fa] border-b border-slate-250">
                                             <tr className="divide-x divide-slate-200 text-slate-500">
                                                 <th className="w-10 px-2 py-3 text-center border-r border-slate-200">
@@ -2703,6 +3053,55 @@ const Marketing: React.FC = () => {
                                             </tr>
                                         </tfoot>
                                     </table>
+                                </div>
+
+                                {/* Mobile Meta Ads */}
+                                <div className="block md:hidden space-y-2 p-2 bg-slate-50 border-t border-slate-200">
+                                    {metaAds.map((ad, i) => {
+                                        return (
+                                            <div 
+                                                key={i} 
+                                                onClick={() => setSelectedMetaAdIdForPreview(ad.id?.toString())}
+                                                className={`bg-white p-2.5 rounded-xl border transition-all shadow-sm space-y-2 cursor-pointer ${selectedMetaAdIdForPreview === ad.id?.toString() ? 'border-[#0866ff] ring-2 ring-[#0866ff]/10' : 'border-slate-200 hover:border-slate-300'}`}
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <Instagram size={14} className="text-[#0866ff]" />
+                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Meta Ad</span>
+                                                        </div>
+                                                        <h4 className="font-bold text-slate-900 text-sm mt-1 truncate" title={ad.name}>
+                                                            {ad.name}
+                                                        </h4>
+                                                    </div>
+                                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${ad.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                                                        {ad.status === 'ACTIVE' ? 'Ativo' : ad.status}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                    <div>
+                                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
+                                                        <span className="text-slate-800 font-semibold">{formatNumber(ad.impressions || 0)}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                        <span className="text-slate-800 font-semibold">{formatNumber(ad.clicks || 0)}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Resultados</span>
+                                                        <span className="text-[#0f9d58] font-bold">{formatNumber(ad.conversions || 0)}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                                        <span className="text-[#0866ff] font-bold">{formatCurrency(ad.spend || 0)}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-[10px] text-slate-450 font-medium text-center bg-slate-50 py-1 rounded-md border border-slate-100">
+                                                    Toque para ver prévia interativa
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 
@@ -3002,8 +3401,8 @@ const Marketing: React.FC = () => {
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[800px] text-left border-collapse">
                                     <thead className="bg-[#f8f9fa] border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-10">
                                             <th className="w-10 px-3 text-center border-r border-slate-200">
@@ -3197,6 +3596,59 @@ const Marketing: React.FC = () => {
                                     </tfoot>
                                 </table>
                             </div>
+
+                            {/* Mobile Google Search Ads (RSA) */}
+                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                                {sortData(filteredAds).map((ad, i) => {
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">RSA</span>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Google Ad</span>
+                                                    </div>
+                                                    <h4 className="font-bold text-[#1a73e8] text-sm mt-1 cursor-pointer hover:underline break-words">
+                                                        {ad.headlines?.split(' | ')[0] || 'Anúncio responsivo de pesquisa'}
+                                                    </h4>
+                                                    {ad.headlines?.split(' | ').length > 1 && (
+                                                        <p className="text-[11px] text-slate-500 font-normal mt-1 break-words">
+                                                            {ad.headlines?.split(' | ').slice(1).join(' • ')}
+                                                        </p>
+                                                    )}
+                                                    <span className="text-[11px] text-slate-400 block mt-1.5">Campanha: {ad.campaignName}</span>
+                                                    <span className="text-[11px] text-slate-400 block mt-0.5">Grupo: {ad.adGroupName}</span>
+                                                </div>
+                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${ad.status === 'ENABLED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                                                    {ad.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(ad.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(ad.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">CTR</span>
+                                                    <span className="text-slate-800 font-semibold">{formatPercent((ad.clicks / ad.impressions) * 100 || 0)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider font-bold">Custo</span>
+                                                    <span className="text-[#1a73e8] font-bold">{formatCurrency(ad.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">CPC Médio</span>
+                                                    <span className="text-slate-800 font-semibold">{formatCurrency(ad.clicks > 0 ? ad.spend / ad.clicks : 0)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </>
@@ -3286,22 +3738,22 @@ const Marketing: React.FC = () => {
             {activeTab === 'accounts' && (
                 <div className="space-y-6">
                     {/* Consolidated KPIs */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Custo</span>
-                            <p className="text-2xl font-black text-slate-900 mt-2">{formatCurrency(mccAccounts.reduce((acc, curr) => acc + curr.cost, 0))}</p>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Custo</span>
+                            <p className="text-base md:text-2xl font-black text-navy mt-1 md:mt-2">{formatCurrency(mccAccounts.reduce((acc, curr) => acc + curr.cost, 0))}</p>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Cliques</span>
-                            <p className="text-2xl font-black text-slate-900 mt-2">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.clicks, 0))}</p>
+                        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Cliques</span>
+                            <p className="text-base md:text-2xl font-black text-navy mt-1 md:mt-2">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.clicks, 0))}</p>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Conversões</span>
-                            <p className="text-2xl font-black text-slate-900 mt-2">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.conversions, 0))}</p>
+                        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Conversões</span>
+                            <p className="text-base md:text-2xl font-black text-navy mt-1 md:mt-2">{formatNumber(mccAccounts.reduce((acc, curr) => acc + curr.conversions, 0))}</p>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Contas Ativas</span>
-                            <p className="text-2xl font-black text-slate-900 mt-2">{mccAccounts.length}</p>
+                        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[9px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Contas Ativas</span>
+                            <p className="text-base md:text-2xl font-black text-navy mt-1 md:mt-2">{mccAccounts.length}</p>
                         </div>
                     </div>
 
@@ -3309,8 +3761,8 @@ const Marketing: React.FC = () => {
                         <div className="p-6 border-b border-slate-200 bg-slate-50">
                              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Contas Gerenciadas</h3>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
+                        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <table className="w-full min-w-[800px] text-left border-collapse">
                                 <thead>
                                     <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                         <th className="p-4 px-6">Conta</th>
@@ -3363,8 +3815,8 @@ const Marketing: React.FC = () => {
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
+                        <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <table className="w-full min-w-[800px] text-left border-collapse">
                                 <thead className="bg-[#f8f9fa] border-b border-slate-300">
                                     <tr className="divide-x divide-slate-200 h-10">
                                         <th className="w-10 px-3 text-center border-r border-slate-200">
@@ -3507,6 +3959,64 @@ const Marketing: React.FC = () => {
                                     })()}
                                 </tfoot>
                             </table>
+                        </div>
+
+                        {/* Mobile Search Terms */}
+                        <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                            {currentSearchTerms
+                                .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
+                                .map((term, i) => {
+                                    return (
+                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                            <div className="flex items-start justify-between gap-2.5">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <Search size={14} className="text-slate-400" />
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Termo de Busca</span>
+                                                    </div>
+                                                    <h4 className="font-bold text-[#1a73e8] hover:underline text-sm mt-1 cursor-pointer break-words">
+                                                        {term.searchTerm}
+                                                    </h4>
+                                                    <span className="text-[11px] text-slate-400 block mt-0.5">Campanha: {term.campaignName}</span>
+                                                    <span className="text-[11px] text-slate-400 block mt-0.5">Grupo: {term.adGroupName}</span>
+                                                </div>
+                                                <div className="shrink-0">
+                                                    {term.conversions > 0 ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-[#e6f4ea] text-[#137333] uppercase tracking-wider">Convertido</span>
+                                                    ) : term.spend > 50 ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-50 text-rose-700 uppercase tracking-wider">Potencial Negativa</span>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Impressões</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(term.impressions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Cliques</span>
+                                                    <span className="text-slate-800 font-semibold">{formatNumber(term.clicks)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">CTR</span>
+                                                    <span className="text-slate-800 font-semibold">{formatPercent(term.ctr)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo</span>
+                                                    <span className="text-[#1a73e8] font-bold">{formatCurrency(term.spend)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Conversões</span>
+                                                    <span className="text-[#0f9d58] font-bold">{formatNumber(term.conversions)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Custo/Conv.</span>
+                                                    <span className="text-slate-800 font-semibold">{formatCurrency(term.conversions > 0 ? term.spend / term.conversions : 0)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                         </div>
                     </div>
                 </div>

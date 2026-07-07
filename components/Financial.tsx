@@ -192,37 +192,37 @@ const Financial: React.FC = () => {
       </header>
 
       {/* DASHBOARD CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-2 mb-4 text-[9px] font-black text-emerald-500 uppercase tracking-widest">
-            <div className="w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center"><ArrowUpCircle size={12} /></div> RECEITA BRUTA
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 md:gap-4">
+        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-4 text-[8px] md:text-[9px] font-black text-emerald-500 uppercase tracking-widest truncate">
+            <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-emerald-50 flex items-center justify-center shrink-0"><ArrowUpCircle size={10} className="md:w-3 md:h-3" /></div> RECEITA BRUTA
           </div>
-          <p className="text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.receitaBruta.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          <span className="text-[9px] font-bold text-emerald-500 mt-2 block italic uppercase tracking-widest">Saldo Efetivado (+Est)</span>
+          <p className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.receitaBruta.toLocaleString('pt-BR', { notation: 'compact' })}</p>
+          <span className="text-[8px] md:text-[9px] font-bold text-emerald-500 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Saldo Efetivado</span>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-2 mb-4 text-[9px] font-black text-rose-500 uppercase tracking-widest">
-            <div className="w-5 h-5 rounded-full bg-rose-50 flex items-center justify-center"><ArrowDownCircle size={12} /></div> GASTOS TOTAIS
+        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-4 text-[8px] md:text-[9px] font-black text-rose-500 uppercase tracking-widest truncate">
+            <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-rose-50 flex items-center justify-center shrink-0"><ArrowDownCircle size={10} className="md:w-3 md:h-3" /></div> GASTOS TOTAIS
           </div>
-          <p className="text-2xl font-black text-rose-500 leading-none">R$ {metrics.financeiro.gastosTotais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          <span className="text-[9px] font-bold text-slate-400 mt-2 block italic uppercase tracking-widest">Saída Efetivada (+Mkt)</span>
+          <p className="text-base md:text-2xl font-black text-rose-500 leading-none">R$ {metrics.financeiro.gastosTotais.toLocaleString('pt-BR', { notation: 'compact' })}</p>
+          <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Saída Efetivada</span>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-2 mb-4 text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-             <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center"><TrendingUp size={12} /></div> ROI GLOBAL
+        <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-4 text-[8px] md:text-[9px] font-black text-indigo-500 uppercase tracking-widest truncate">
+             <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-indigo-50 flex items-center justify-center shrink-0"><TrendingUp size={10} className="md:w-3 md:h-3" /></div> ROI GLOBAL
           </div>
-          <p className={`text-2xl font-black leading-none ${Number(metrics.financeiro.roi) < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{metrics.financeiro.roi.toFixed(1)}%</p>
-          <span className="text-[9px] font-bold text-slate-400 mt-2 block italic uppercase tracking-widest">Performance</span>
+          <p className={`text-base md:text-2xl font-black leading-none ${Number(metrics.financeiro.roi) < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{metrics.financeiro.roi.toFixed(1)}%</p>
+          <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Performance</span>
         </div>
 
-        <div className="bg-navy p-6 rounded-2xl text-white shadow-xl relative overflow-hidden ring-1 ring-white/10">
-          <div className="flex items-center gap-2 mb-4 text-[9px] font-black text-blue-400 uppercase tracking-widest relative z-10">
-            <PiggyBank size={14} /> LUCRO LÍQUIDO
+        <div className="bg-navy p-3 md:p-6 rounded-xl md:rounded-2xl text-white shadow-xl relative overflow-hidden ring-1 ring-white/10">
+          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-4 text-[8px] md:text-[9px] font-black text-blue-400 uppercase tracking-widest relative z-10 truncate">
+            <PiggyBank size={12} className="shrink-0" /> LUCRO LÍQUIDO
           </div>
-          <p className="text-2xl font-black leading-none relative z-10">R$ {metrics.financeiro.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          <span className="text-[9px] font-bold text-emerald-400 mt-2 block italic uppercase tracking-widest relative z-10">Saldo de Caixa</span>
+          <p className="text-base md:text-2xl font-black leading-none relative z-10">R$ {metrics.financeiro.lucroLiquido.toLocaleString('pt-BR', { notation: 'compact' })}</p>
+          <span className="text-[8px] md:text-[9px] font-bold text-emerald-400 mt-1.5 md:mt-2 block italic uppercase tracking-widest relative z-10 truncate">Saldo de Caixa</span>
         </div>
       </div>
 
@@ -364,8 +364,8 @@ const Financial: React.FC = () => {
               <Plus size={18} strokeWidth={3} /> NOVO
             </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+            <table className="min-w-[800px] w-full text-left">
               <thead className="bg-slate-50/50 border-b border-slate-100">
                 <tr>
                   <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">DATA</th>

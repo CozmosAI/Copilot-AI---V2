@@ -1230,38 +1230,38 @@ const Sales: React.FC = () => {
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden">
       {/* HEADER DE ESTATÍSTICAS */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 shrink-0">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 md:gap-4 mb-4 md:mb-6 shrink-0">
+          <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pipeline Total</p>
-                  <p className="text-xl font-black text-navy">R$ {pipelineValue.toLocaleString('pt-BR', { notation: 'compact' })}</p>
+                  <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Pipeline Total</p>
+                  <p className="text-base md:text-xl font-black text-navy leading-none">R$ {pipelineValue.toLocaleString('pt-BR', { notation: 'compact' })}</p>
               </div>
-              <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><DollarSign size={20} /></div>
+              <div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><DollarSign size={16} className="md:w-5 md:h-5" /></div>
           </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Leads Ativos</p>
-                  <p className="text-xl font-black text-navy">{activeLeadsCount}</p>
+                  <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Leads Ativos</p>
+                  <p className="text-base md:text-xl font-black text-navy leading-none">{activeLeadsCount}</p>
               </div>
-              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Users size={20} /></div>
+              <div className="p-1.5 md:p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0"><Users size={16} className="md:w-5 md:h-5" /></div>
           </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Conversão</p>
-                  <p className="text-xl font-black text-emerald-600">{conversionRate.toFixed(1)}%</p>
+                  <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Conversão</p>
+                  <p className="text-base md:text-xl font-black text-emerald-600 leading-none">{conversionRate.toFixed(1)}%</p>
               </div>
-              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><TrendingUp size={20} /></div>
+              <div className="p-1.5 md:p-2 bg-emerald-50 text-emerald-600 rounded-lg shrink-0"><TrendingUp size={16} className="md:w-5 md:h-5" /></div>
           </div>
            {/* VIEW SWITCHER */}
           <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-             {[{id: 'kanban', icon: <LayoutGrid size={16}/>}, {id: 'list', icon: <ListIcon size={16}/>}, {id: 'chat', icon: <MessageCircle size={16}/>}, {id: 'metrics', icon: <BarChart3 size={16}/>}].map((mode) => (
-                <button key={mode.id} onClick={() => setViewMode(mode.id as ViewMode)} className={`flex-1 h-full rounded-lg flex items-center justify-center transition-all ${viewMode === mode.id ? 'bg-navy text-white shadow-md' : 'text-slate-400 hover:text-navy hover:bg-slate-50'}`}>
+             {[{id: 'kanban', icon: <LayoutGrid size={14} className="md:w-4 md:h-4"/>}, {id: 'list', icon: <ListIcon size={14} className="md:w-4 md:h-4"/>}, {id: 'chat', icon: <MessageCircle size={14} className="md:w-4 md:h-4"/>}, {id: 'metrics', icon: <BarChart3 size={14} className="md:w-4 md:h-4"/>}].map((mode) => (
+                <button key={mode.id} onClick={() => setViewMode(mode.id as ViewMode)} className={`flex-1 h-full py-1.5 md:py-2.5 rounded-lg flex items-center justify-center transition-all ${viewMode === mode.id ? 'bg-navy text-white shadow-md' : 'text-slate-400 hover:text-navy hover:bg-slate-50'}`}>
                    {mode.icon}
                 </button>
              ))}
-             <button onClick={() => setShowAddModal(true)} className="ml-2 bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-lg shadow-md transition-all">
-                <Plus size={16} />
-             </button>
+             <button onClick={() => setShowAddModal(true)} className="ml-1.5 bg-blue-600 hover:bg-blue-700 text-white p-2 md:p-2.5 rounded-lg shadow-md transition-all shrink-0">
+                <Plus size={14} className="md:w-4 md:h-4" />
+              </button>
           </div>
       </div>
 
@@ -1306,7 +1306,7 @@ const Sales: React.FC = () => {
 
       {/* KANBAN DENSE */}
       {viewMode === 'kanban' && (
-          <div className="flex-1 overflow-x-auto pb-4">
+          <div className="flex-1 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
               <div className="flex gap-4 h-full min-w-max px-1">
                   {columns.map((col, index) => (
                       <KanbanColumn 
@@ -1871,8 +1871,8 @@ const Sales: React.FC = () => {
       {/* LIST VIEW (TABLE) */}
       {viewMode === 'list' && (
           <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col shadow-sm">
-              <div className="overflow-auto custom-scrollbar flex-1">
-                  <table className="w-full text-left">
+              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100 flex-1">
+                  <table className="min-w-[800px] w-full text-left">
                       <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                           <tr>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nome / Contato</th>
