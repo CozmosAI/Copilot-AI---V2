@@ -1189,7 +1189,7 @@ const Sales: React.FC = () => {
               </div>
               <div className="p-2 flex-1 overflow-y-auto custom-scrollbar space-y-3">
                   {columnLeads.map(lead => (
-                      <div key={lead.id} draggable onDragStart={(e) => handleLeadDragStart(e, lead.id)} onClick={() => { setActiveLead(lead); setViewMode('chat'); }}
+                      <div key={lead.id} draggable onDragStart={(e) => { e.stopPropagation(); handleLeadDragStart(e, lead.id); }} onClick={() => { setActiveLead(lead); setViewMode('chat'); }}
                         className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all group select-none relative overflow-hidden">
                           <div className={`absolute left-0 top-0 bottom-0 w-1 ${lead.temperature === 'Hot' ? 'bg-orange-500' : lead.temperature === 'Warm' ? 'bg-amber-400' : 'bg-slate-300'}`}></div>
                           

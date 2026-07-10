@@ -11,6 +11,8 @@ import {
 import { generateAudioReport, playPCM } from '../services/geminiService';
 import { useApp } from '../App';
 import { AdPerformance, AppSection } from '../types';
+import { getGoogleOverview, getGoogleCampaigns } from '../services/googleAdsService';
+import { getMetaOverview, getMetaCampaigns } from '../services/metaAdsService';
 
 const GoogleIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -28,18 +30,110 @@ const MetaIcon = ({ size = 20 }: { size?: number }) => (
 );
 
 const Dashboard: React.FC = () => {
-  const { dateFilter, setDateFilter, metrics, financialEntries, leads, googleAdsToken, navigateToSection } = useApp();
+  const { dateFilter, setDateFilter, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user } = useApp();
   const [insight, setInsight] = useState<string>('Analisando sua clínica...');
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
-  
+
+  // States para dados reais de Ads
+  const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0 });
+  const [metaStats, setMetaStats] = useState({ spend: 0, clicks: 0, impressions: 0 });
+
+  // Filtrar Leads por Origem e Data no Período
+  const leadsInPeriod = useMemo(() => {
+    return leads.filter(l => {
+       const d = l.created_at ? l.created_at.split('T')[0] : '';
+       return d >= dateFilter.start && d <= dateFilter.end;
+    });
+  }, [leads, dateFilter]);
+
+  const hotLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Hot').length, [leadsInPeriod]);
+  const warmLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Warm').length, [leadsInPeriod]);
+  const coldLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Cold').length, [leadsInPeriod]);
+
+  // Efeito para carregar dados reais das APIs
+  useEffect(() => {
+    const fetchAdsData = async () => {
+      if (!user?.id) return;
+      try {
+        const dateRangeParam = { start: dateFilter.start, end: dateFilter.end };
+        
+        // 1. Google Ads Overview
+        const googleOverviewData = await getGoogleOverview(user.id, dateRangeParam);
+        let gSpend = 0, gClicks = 0, gImpressions = 0;
+        if (googleOverviewData) {
+          const rows = Array.isArray(googleOverviewData) ? googleOverviewData : googleOverviewData.current || [];
+          rows.forEach((row: any) => {
+            gSpend += row.spend || 0;
+            gClicks += row.clicks || 0;
+            gImpressions += row.impressions || 0;
+          });
+        }
+
+        // 2. Google Ads Campaigns (conforme solicitado para somar)
+        const googleCampaignsData = await getGoogleCampaigns(user.id, dateRangeParam);
+        let gCampSpend = 0, gCampClicks = 0, gCampImpressions = 0;
+        if (googleCampaignsData) {
+          const rows = Array.isArray(googleCampaignsData) ? googleCampaignsData : googleCampaignsData.current || [];
+          rows.forEach((row: any) => {
+            gCampSpend += row.spend || 0;
+            gCampClicks += row.clicks || 0;
+            gCampImpressions += row.impressions || 0;
+          });
+        }
+
+        // Priorizar valores maiores ou preenchidos
+        const finalGoogleSpend = gSpend > 0 ? gSpend : gCampSpend;
+        const finalGoogleClicks = gClicks > 0 ? gClicks : gCampClicks;
+        const finalGoogleImpressions = gImpressions > 0 ? gImpressions : gCampImpressions;
+        setGoogleStats({ spend: finalGoogleSpend, clicks: finalGoogleClicks, impressions: finalGoogleImpressions });
+
+        // 3. Meta Ads Overview
+        const metaOverviewData = await getMetaOverview(user.id, dateRangeParam);
+        let mSpend = 0, mClicks = 0, mImpressions = 0;
+        if (metaOverviewData) {
+          const rows = Array.isArray(metaOverviewData) ? metaOverviewData : [];
+          rows.forEach((row: any) => {
+            mSpend += row.spend || 0;
+            mClicks += row.clicks || 0;
+            mImpressions += row.impressions || 0;
+          });
+        }
+
+        // 4. Meta Ads Campaigns (opcional, para garantir robustez)
+        const metaCampaignsData = await getMetaCampaigns(user.id, dateRangeParam);
+        let mCampSpend = 0, mCampClicks = 0, mCampImpressions = 0;
+        if (metaCampaignsData) {
+          const rows = Array.isArray(metaCampaignsData) ? metaCampaignsData : [];
+          rows.forEach((row: any) => {
+            mCampSpend += row.spend || 0;
+            mCampClicks += row.clicks || 0;
+            mCampImpressions += row.impressions || 0;
+          });
+        }
+
+        const finalMetaSpend = mSpend > 0 ? mSpend : mCampSpend;
+        const finalMetaClicks = mClicks > 0 ? mClicks : mCampClicks;
+        const finalMetaImpressions = mImpressions > 0 ? mImpressions : mCampImpressions;
+        setMetaStats({ spend: finalMetaSpend, clicks: finalMetaClicks, impressions: finalMetaImpressions });
+
+      } catch (err) {
+        console.error("Erro ao buscar dados de anúncios do dashboard:", err);
+      }
+    };
+
+    fetchAdsData();
+  }, [user?.id, dateFilter, googleAdsToken]);
+
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
 
   useEffect(() => {
     if (hasData) {
-        setInsight(`Resumo executivo gerado: Receita líquida de R$ ${metrics.financeiro.lucroLiquido.toLocaleString()} com ROI de ${metrics.financeiro.roi.toFixed(0)}%. Atenção às ${metrics.vendas.noShows} faltas registradas no CRM.`);
+        const totalRealSpend = googleStats.spend + metaStats.spend;
+        const displaySpend = totalRealSpend > 0 ? totalRealSpend : metrics.marketing.investimento;
+        setInsight(`Resumo executivo gerado: Receita líquida de R$ ${metrics.financeiro.lucroLiquido.toLocaleString()} com ROI de ${metrics.financeiro.roi.toFixed(0)}%. Investimento de marketing real de R$ ${displaySpend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}. Atenção às ${metrics.vendas.noShows} faltas registradas no CRM.`);
     }
-  }, [metrics, hasData]);
+  }, [metrics, hasData, googleStats, metaStats]);
 
   const handlePlayAudio = async () => {
     if (!hasData) return;
@@ -85,14 +179,8 @@ const Dashboard: React.FC = () => {
 
   // --- DADOS DE ATRIBUIÇÃO DE ANÚNCIOS (Cruzamento Ads x CRM) ---
   const adPerformanceData = useMemo(() => {
-    const googleSpend = metrics.marketing.investimento * (googleAdsToken ? 0.7 : 0); 
-    const metaSpend = metrics.marketing.investimento * (googleAdsToken ? 0.3 : 1); 
-    
-    // 1. Filtrar Leads por Origem e Data
-    const leadsInPeriod = leads.filter(l => {
-       const d = l.created_at ? l.created_at.split('T')[0] : '';
-       return d >= dateFilter.start && d <= dateFilter.end;
-    });
+    const googleSpend = googleStats.spend > 0 ? googleStats.spend : (metrics.marketing.investimento * (googleAdsToken ? 0.7 : 0)); 
+    const metaSpend = metaStats.spend > 0 ? metaStats.spend : (metrics.marketing.investimento * (googleAdsToken ? 0.3 : 1)); 
 
     // 2. Calcular Métricas Google
     const googleLeads = leadsInPeriod.filter(l => l.source === 'Google Ads');
@@ -140,7 +228,7 @@ const Dashboard: React.FC = () => {
         }
       }
     };
-  }, [metrics, googleAdsToken, leads, dateFilter]);
+  }, [metrics, googleAdsToken, leadsInPeriod, googleStats, metaStats]);
 
   // Cálculos Auxiliares do Funil
   const lostLeads = Math.max(0, metrics.marketing.leads - metrics.vendas.agendamentos);
@@ -186,13 +274,29 @@ const Dashboard: React.FC = () => {
          {/* LINHA 1 */}
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
             <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Investimento (Mkt)</span><div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><Megaphone size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
-            <h3 className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.marketing.investimento.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h3>
-            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">
+              R$ {(googleStats.spend + metaStats.spend > 0 ? (googleStats.spend + metaStats.spend) : metrics.marketing.investimento).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </h3>
+            {googleStats.spend + metaStats.spend > 0 ? (
+              <p className="text-[8px] md:text-[9px] font-semibold text-slate-500 mt-1.5 md:mt-2 uppercase truncate">
+                G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} | M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+              </p>
+            ) : (
+              <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
+            )}
          </div>
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-indigo-300 transition-colors">
             <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Leads no Período</span><div className="p-1.5 md:p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0"><Users size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
-            <h3 className="text-base md:text-2xl font-black text-navy leading-none">{metrics.marketing.leads}</h3>
-            <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+8% vs anterior</p>
+            <h3 className="text-base md:text-2xl font-black text-navy leading-none">
+              {leadsInPeriod.length > 0 ? leadsInPeriod.length : metrics.marketing.leads}
+            </h3>
+            {leadsInPeriod.length > 0 ? (
+              <p className="text-[8px] md:text-[9px] font-semibold text-slate-500 mt-1.5 md:mt-2 uppercase truncate">
+                🔥 {hotLeadsCount} Quentes | ⚡ {warmLeadsCount} Mornos
+              </p>
+            ) : (
+              <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+8% vs anterior</p>
+            )}
          </div>
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-sky-300 transition-colors">
             <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Consultas Marcadas</span><div className="p-1.5 md:p-2 bg-sky-50 text-sky-600 rounded-lg shrink-0"><CalendarCheck size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
