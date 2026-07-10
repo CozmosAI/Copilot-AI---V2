@@ -70,7 +70,50 @@ const GOOGLE_ADS_DEV_TOKEN = process.env.VITE_GOOGLE_ADS_DEV_TOKEN;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
-app.use(cors());
+const allowedOrigins = [
+    'https://axis-ai-1s3m.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000'
+];
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
+
+// Rate Limiting simples (100 req por minuto por IP)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minuto
+const RATE_LIMIT_MAX = 100;
+
+app.use('/api/', (req, res, next) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    
+    if (!rateLimitMap.has(ip)) {
+        rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+        return next();
+    }
+    
+    const record = rateLimitMap.get(ip);
+    if (now > record.resetTime) {
+        record.count = 1;
+        record.resetTime = now + RATE_LIMIT_WINDOW;
+        return next();
+    }
+    
+    if (record.count >= RATE_LIMIT_MAX) {
+        return res.status(429).json({ error: 'Muitas requisições. Tente novamente em 1 minuto.' });
+    }
+    
+    record.count++;
+    next();
+});
 app.use(express.json({ limit: '50mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -86,19 +129,24 @@ app.use(express.static(path.join(__dirname, 'dist')));
 // 1. GERAR URL DE LOGIN (Para o Frontend)
 // ==============================================================================
 app.get('/api/auth/google-ads/url', (req, res) => {
-    const { redirect_uri, user_id } = req.query;
-    
-    if (!GOOGLE_CLIENT_ID) return res.status(500).json({ error: 'GOOGLE_CLIENT_ID not set' });
+    try {
+        const { redirect_uri, user_id } = req.query;
+        
+        if (!GOOGLE_CLIENT_ID) return res.status(500).json({ error: 'GOOGLE_CLIENT_ID not set' });
 
-    const scope = [
-        'https://www.googleapis.com/auth/adwords'
-    ].join(' ');
+        const scope = [
+            'https://www.googleapis.com/auth/adwords'
+        ].join(' ');
 
-    const state = `google-ads-oauth-${user_id || 'unknown'}`;
+        const state = `google-ads-oauth-${user_id || 'unknown'}`;
 
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirect_uri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
-    
-    res.json({ url });
+        const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirect_uri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
+        
+        res.json({ url });
+    } catch (error) {
+        console.error('Erro em /api/auth/google-ads/url:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // ==============================================================================
@@ -354,32 +402,7 @@ const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_API_VERSION = process.env.META_API_VERSION || 'v25.0';
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI;
 
-// Helper backend para obter token válido
-async function getValidMetaToken(userId) {
-    const { data, error } = await supabase
-        .from('meta_ads_integrations')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-    if (error || !data) {
-        throw new Error('Integração com Meta Ads não encontrada.');
-    }
-
-    if (!data.access_token) {
-        throw new Error('Token de acesso do Meta Ads não configurado.');
-    }
-
-    if (data.token_expires_at) {
-        const expiresAt = new Date(data.token_expires_at).getTime();
-        if (Date.now() >= expiresAt) {
-            await safeUpdate(supabase, 'meta_ads_integrations', { status: 'expired', updated_at: new Date() }, 'user_id', userId);
-            throw new Error('Token de acesso do Meta Ads expirou. Por favor, conecte novamente.');
-        }
-    }
-
-    return data.access_token;
-}
+// Helper backend para obter token válido - real implementation located below (getValidMetaToken)
 
 // Rota de diagnóstico para debugar o fluxo OAuth do Meta Ads
 app.get('/api/debug/oauth', (req, res) => {
@@ -526,47 +549,52 @@ app.get('/api/debug/oauth', (req, res) => {
 
 // 1. Gerar URL de Auth Meta Ads
 app.get('/api/auth/meta-ads/url', (req, res) => {
-    const { user_id, redirect_uri } = req.query;
-    
-    if (!user_id) {
-        return res.status(400).json({ error: 'Missing user_id' });
+    try {
+        const { user_id, redirect_uri } = req.query;
+        
+        if (!user_id) {
+            return res.status(400).json({ error: 'Missing user_id' });
+        }
+
+        if (!META_APP_ID) {
+            return res.status(500).json({ error: 'META_APP_ID não configurado no backend.' });
+        }
+
+        const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/';
+        const finalRedirectUri = rawRedirectUri.trim().endsWith('/') ? rawRedirectUri.trim() : rawRedirectUri.trim() + '/';
+        const state = `meta-ads-oauth-${user_id}`;
+        
+        const params = new URLSearchParams({
+            client_id: META_APP_ID,
+            redirect_uri: finalRedirectUri,
+            scope: 'ads_read',
+            state: state,
+            response_type: 'code'
+        });
+
+        const url = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`;
+        
+        console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, scope: ads_read, redirect_uri: ${finalRedirectUri}`);
+        res.json({ ok: true, url });
+    } catch (error) {
+        console.error('Erro em /api/auth/meta-ads/url:', error);
+        res.status(500).json({ error: error.message });
     }
-
-    if (!META_APP_ID) {
-        return res.status(500).json({ error: 'META_APP_ID não configurado no backend.' });
-    }
-
-    const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/';
-    const finalRedirectUri = rawRedirectUri.trim().endsWith('/') ? rawRedirectUri.trim() : rawRedirectUri.trim() + '/';
-    const state = `meta-ads-oauth-${user_id}`;
-    
-    const params = new URLSearchParams({
-        client_id: META_APP_ID,
-        redirect_uri: finalRedirectUri,
-        scope: 'ads_read',
-        state: state,
-        response_type: 'code'
-    });
-
-    const url = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`;
-    
-    console.log(`[Meta Ads] Auth URL gerada para user ${user_id}, scope: ads_read, redirect_uri: ${finalRedirectUri}`);
-    res.json({ ok: true, url });
 });
 
 // 2. Trocar Code por Token (Exchange)
 app.post('/api/auth/meta-ads/exchange', async (req, res) => {
-    const { code, redirect_uri, user_id } = req.body;
-
-    if (!code || !user_id) {
-        return res.status(400).json({ error: 'Missing code or user_id' });
-    }
-
-    if (!META_APP_ID || !META_APP_SECRET) {
-        return res.status(500).json({ error: 'Meta App credentials are not configured on the server.' });
-    }
-
     try {
+        const { code, redirect_uri, user_id } = req.body;
+
+        if (!code || !user_id) {
+            return res.status(400).json({ error: 'Missing code or user_id' });
+        }
+
+        if (!META_APP_ID || !META_APP_SECRET) {
+            return res.status(500).json({ error: 'Meta App credentials are not configured on the server.' });
+        }
+
         const rawRedirectUri = redirect_uri || META_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/';
         const finalRedirectUri = rawRedirectUri.trim().endsWith('/') ? rawRedirectUri.trim() : rawRedirectUri.trim() + '/';
 
@@ -885,6 +913,123 @@ async function getMetaCredentials(user_id) {
     };
 }
 
+// Helper para validar e renovar o token do Meta Ads
+const metaAdsRefreshLocks = new Map();
+
+async function getValidMetaToken(user_id) {
+    if (!user_id) {
+        throw new Error('User ID inválido');
+    }
+    const { data: integration, error } = await supabase
+        .from('meta_ads_integrations')
+        .select('*')
+        .eq('user_id', user_id)
+        .single();
+
+    if (error || !integration) {
+        throw new Error('Meta Ads não conectado');
+    }
+
+    if (!integration.access_token || !integration.ad_account_id) {
+        throw new Error('Meta Ads não conectado ou conta não selecionada');
+    }
+
+    let accessToken = integration.access_token;
+    const expiresAt = integration.token_expires_at ? new Date(integration.token_expires_at).getTime() : null;
+
+    // Se estiver próximo de expirar (menos de 1 hora) ou já expirado
+    if (expiresAt && Date.now() > (expiresAt - 3600000)) {
+        console.log(`[Meta Ads Token Refresh] Token próximo de expirar para user ${user_id}. Renovando...`);
+        
+        const lockKey = user_id;
+        if (metaAdsRefreshLocks.has(lockKey)) {
+            await metaAdsRefreshLocks.get(lockKey);
+            // Buscar o token fresco do banco
+            const { data: freshIntegration } = await supabase
+                .from('meta_ads_integrations')
+                .select('access_token, token_expires_at')
+                .eq('user_id', user_id)
+                .single();
+            if (freshIntegration && freshIntegration.access_token) {
+                return { accessToken: freshIntegration.access_token, adAccountId: integration.ad_account_id };
+            }
+        }
+
+        const refreshPromise = (async () => {
+            const refreshUrl = `https://graph.facebook.com/v25.0/oauth/access_token`;
+            const params = new URLSearchParams({
+                grant_type: 'fb_exchange_token',
+                client_id: META_APP_ID,
+                client_secret: META_APP_SECRET,
+                fb_exchange_token: accessToken
+            });
+
+            const refreshResp = await fetch(`${refreshUrl}?${params.toString()}`, { method: 'POST' });
+            const refreshData = await refreshResp.json();
+
+            if (refreshData.error) {
+                console.error('[Meta Ads Token Refresh Error]:', refreshData.error);
+                if (Date.now() > expiresAt) {
+                    throw new Error(`Falha ao renovar token do Meta: ${refreshData.error.message}`);
+                }
+                return accessToken;
+            } else {
+                const newAccessToken = refreshData.access_token;
+                const expires_in = refreshData.expires_in;
+                const tokenExpiresAt = expires_in ? Date.now() + expires_in * 1000 : null;
+
+                await supabase
+                    .from('meta_ads_integrations')
+                    .update({
+                        access_token: newAccessToken,
+                        token_expires_at: tokenExpiresAt,
+                        updated_at: new Date()
+                    })
+                    .eq('user_id', user_id);
+
+                console.log(`[Meta Ads Token Refresh] Token renovado com sucesso para user ${user_id}`);
+                return newAccessToken;
+            }
+        })();
+
+        metaAdsRefreshLocks.set(lockKey, refreshPromise);
+        try {
+            accessToken = await refreshPromise;
+        } catch (refreshErr) {
+            console.error('[Meta Ads Token Refresh Exception]:', refreshErr);
+            if (Date.now() > expiresAt) {
+                throw refreshErr;
+            }
+        } finally {
+            metaAdsRefreshLocks.delete(lockKey);
+        }
+    }
+
+    return {
+        accessToken,
+        adAccountId: integration.ad_account_id
+    };
+}
+
+
+async function executeMetaMutation(url, method, token, body = null) {
+    const options = {
+        method,
+        headers: { 'Authorization': `Bearer ${token}` }
+    };
+    if (body) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+    }
+    const resp = await fetch(url, options);
+    const data = await resp.json();
+    if (data.error) {
+        console.error('[Meta Ads Mutation] Error:', JSON.stringify(data.error));
+        throw new Error(data.error.message || 'Erro na mutação Meta Ads');
+    }
+    return data;
+}
+
 const CONVERSION_TYPES = [
     'offsite_conversion',
     'offsite_conversion.fb_pixel_purchase',
@@ -924,7 +1069,7 @@ function extractConversions(insights) {
 app.post('/api/meta-ads/overview', async (req, res) => {
     const { user_id, date_range } = req.body;
     try {
-        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const { accessToken, adAccountId } = await getValidMetaToken(user_id);
         const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
         const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const end = date_range?.end || new Date().toISOString().split('T')[0];
@@ -944,7 +1089,7 @@ app.post('/api/meta-ads/overview', async (req, res) => {
         const response = await fetch(overviewUrl);
         const overviewData = await response.json();
 
-        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(overviewData, null, 2).substring(0, 500));
+        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(overviewData, null, 2).substring(0, 500));
 
         if (overviewData.error) {
             console.error('[Meta Ads API Error - Overview]:', overviewData.error);
@@ -959,7 +1104,7 @@ app.post('/api/meta-ads/overview', async (req, res) => {
             const parsedImpressions = parseInt(item.impressions || '0');
             const parsedClicks = parseInt(item.clicks || '0');
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Overview Mapping] item spend: ${item.spend} -> parsed: ${parsedSpend}, impressions: ${item.impressions} -> parsed: ${parsedImpressions}, clicks: ${item.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
+            // console.log(`[Meta Ads Dashboard] [DEBUG Overview Mapping] item spend: ${item.spend} -> parsed: ${parsedSpend}, impressions: ${item.impressions} -> parsed: ${parsedImpressions}, clicks: ${item.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             return {
                 date: item.date_start,
@@ -981,7 +1126,7 @@ app.post('/api/meta-ads/overview', async (req, res) => {
 app.post('/api/meta-ads/campaigns', async (req, res) => {
     const { user_id, date_range } = req.body;
     try {
-        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const { accessToken, adAccountId } = await getValidMetaToken(user_id);
         const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
         const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const end = date_range?.end || new Date().toISOString().split('T')[0];
@@ -999,7 +1144,7 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
         const campsResponse = await fetch(campaignsUrl);
         const campaignsData = await campsResponse.json();
 
-        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(campaignsData, null, 2).substring(0, 500));
+        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(campaignsData, null, 2).substring(0, 500));
 
         if (campaignsData.error) {
             console.error('[Meta Ads API Error - Campaigns List]:', campaignsData.error);
@@ -1011,7 +1156,7 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
             const insights = c.insights?.data?.[0] || {};
             
             if (insights?.actions && insights.actions.length > 0) {
-                console.log(`[Meta Ads Debug] Actions encontradas:`, insights.actions.map(a => `${a.action_type}=${a.value}`).join(', '));
+                // console.log(`[Meta Ads Debug] Actions encontradas:`, insights.actions.map(a => `${a.action_type}=${a.value}`).join(', '));
             }
             
             const parsedConversions = extractConversions(insights);
@@ -1021,7 +1166,7 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Campaigns Mapping] Campaign: ${c.name} (${c.id}), budget raw: ${c.daily_budget || c.lifetime_budget} -> parsed: ${parsedBudget}, spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
+            // console.log(`[Meta Ads Dashboard] [DEBUG Campaigns Mapping] Campaign: ${c.name} (${c.id}), budget raw: ${c.daily_budget || c.lifetime_budget} -> parsed: ${parsedBudget}, spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             return {
                 id: c.id,
@@ -1047,7 +1192,7 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
 app.post('/api/meta-ads/ad-groups', async (req, res) => {
     const { user_id, date_range, campaign_id } = req.body;
     try {
-        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const { accessToken, adAccountId } = await getValidMetaToken(user_id);
         const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
         const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const end = date_range?.end || new Date().toISOString().split('T')[0];
@@ -1065,7 +1210,7 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
         const adsetsResponse = await fetch(adsetsUrl);
         const adsetsData = await adsetsResponse.json();
 
-        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsetsData, null, 2).substring(0, 500));
+        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsetsData, null, 2).substring(0, 500));
 
         if (adsetsData.error) {
             console.error('[Meta Ads API Error - Adsets List]:', adsetsData.error);
@@ -1086,12 +1231,13 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Ad-Groups Mapping] AdSet: ${adset.name} (${adset.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
+            // console.log(`[Meta Ads Dashboard] [DEBUG Ad-Groups Mapping] AdSet: ${adset.name} (${adset.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             return {
                 id: adset.id,
                 name: adset.name,
                 status: adset.status,
+                budget: adset.daily_budget ? (parseFloat(adset.daily_budget) / 100) : 0,
                 campaignName: adset.campaign?.name || 'Campanha desconhecida',
                 spend: parsedSpend,
                 impressions: parsedImpressions,
@@ -1111,7 +1257,7 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
 app.post('/api/meta-ads/ads', async (req, res) => {
     const { user_id, date_range } = req.body;
     try {
-        const { accessToken, adAccountId } = await getMetaCredentials(user_id);
+        const { accessToken, adAccountId } = await getValidMetaToken(user_id);
         const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
         const start = date_range?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const end = date_range?.end || new Date().toISOString().split('T')[0];
@@ -1129,7 +1275,7 @@ app.post('/api/meta-ads/ads', async (req, res) => {
         const adsResponse = await fetch(adsUrl);
         const adsData = await adsResponse.json();
 
-        console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsData, null, 2).substring(0, 500));
+        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsData, null, 2).substring(0, 500));
 
         if (adsData.error) {
             console.error('[Meta Ads API Error - Ads List]:', adsData.error);
@@ -1146,7 +1292,7 @@ app.post('/api/meta-ads/ads', async (req, res) => {
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
 
-            console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
+            // console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
 
             const adCreative = ad.adcreatives?.data?.[0] || {};
 
@@ -1175,6 +1321,66 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 });
 
 // ==============================================================================
+
+// ==============================================================================
+// MUTAÇÕES DO META ADS (Fase 3A)
+// ==============================================================================
+
+app.post('/api/meta-ads/campaigns/toggle-status', async (req, res) => {
+    const { campaign_id, action } = req.body;
+    try {
+        const user = await getAuthUser(req);
+        const user_id = user.id;
+        const { accessToken, adAccountId } = await getValidMetaToken(user_id);
+        const url = `https://graph.facebook.com/v25.0/${campaign_id}`;
+        const newStatus = action === 'pause' ? 'PAUSED' : 'ACTIVE';
+        const body = { status: newStatus };
+        
+        await executeMetaMutation(url, 'POST', accessToken, body);
+        
+        // Audit log
+        await supabase.from('meta_ads_audit_logs').insert({
+            user_id,
+            ad_account_id: adAccountId,
+            campaign_id,
+            action: `toggle_campaign_${action}`,
+            new_value: newStatus
+        });
+        
+        res.json({ ok: true, message: `Campanha ${action === 'pause' ? 'pausada' : 'ativada'} com sucesso` });
+    } catch (err) {
+        console.error('[Meta Ads Toggle Campaign Error]:', err);
+        res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
+app.post('/api/meta-ads/campaigns/update-budget', async (req, res) => {
+    const { adset_id, new_amount } = req.body;
+    try {
+        const user = await getAuthUser(req);
+        const user_id = user.id;
+        const { accessToken, adAccountId } = await getValidMetaToken(user_id);
+        const url = `https://graph.facebook.com/v25.0/${adset_id}`;
+        
+        const body = { daily_budget: Math.round(new_amount * 100) };
+        await executeMetaMutation(url, 'POST', accessToken, body);
+        
+        // Audit log
+        await supabase.from('meta_ads_audit_logs').insert({
+            user_id,
+            ad_account_id: adAccountId,
+            campaign_id: adset_id, // saving adset_id here since that's what was changed
+            action: 'update_adset_budget',
+            new_value: new_amount.toString()
+        });
+        
+        res.json({ ok: true, message: 'Orçamento atualizado com sucesso' });
+    } catch (err) {
+        console.error('[Meta Ads Update Budget Error]:', err);
+        res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
 // 3. BUSCAR DADOS (Usando Token do Banco)
 // ==============================================================================
 
@@ -1372,41 +1578,51 @@ async function executeGoogleAdsMutation(user_id, customerId, operations, typeNam
 
 // Rota: Campanhas (Mantida e refatorada)
 app.post('/api/google-ads/campaigns', async (req, res) => {
-    let { user_id, date_range, compare_start, compare_end, customer_id } = req.body;
-
-    if (!date_range || !date_range.start || !date_range.end) {
-        const end = new Date().toISOString().split('T')[0];
-        const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        date_range = { start, end };
-    }
-
-    const buildQuery = (start, end) => `
-        SELECT 
-            campaign.id, 
-            campaign.name, 
-            campaign.status, 
-            campaign.advertising_channel_type,
-            campaign_budget.id,
-            campaign_budget.amount_micros,
-            metrics.clicks, 
-            metrics.impressions, 
-            metrics.cost_micros, 
-            metrics.conversions,
-            metrics.conversions_value,
-            metrics.ctr,
-            metrics.average_cpc
-        FROM campaign 
-        WHERE campaign.status != 'REMOVED' 
-        AND segments.date BETWEEN '${start}' AND '${end}'
-    `;
-
     try {
-        const currentQuery = buildQuery(date_range.start, date_range.end);
+        let { user_id, date_range, compare_start, compare_end, customer_id } = req.body;
+
+        if (!date_range || !date_range.start || !date_range.end) {
+            const end = new Date().toISOString().split('T')[0];
+            const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            date_range = { start, end };
+        }
+
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
+        let sanitizedCompareStart = '';
+        let sanitizedCompareEnd = '';
+        if (compare_start && compare_end) {
+            sanitizedCompareStart = String(compare_start).replace(/[^0-9-]/g, '');
+            sanitizedCompareEnd = String(compare_end).replace(/[^0-9-]/g, '');
+        }
+
+        const buildQuery = (start, end) => `
+            SELECT 
+                campaign.id, 
+                campaign.name, 
+                campaign.status, 
+                campaign.advertising_channel_type,
+                campaign_budget.id,
+                campaign_budget.amount_micros,
+                metrics.clicks, 
+                metrics.impressions, 
+                metrics.cost_micros, 
+                metrics.conversions,
+                metrics.conversions_value,
+                metrics.ctr,
+                metrics.average_cpc
+            FROM campaign 
+            WHERE campaign.status != 'REMOVED' 
+            AND segments.date BETWEEN '${start}' AND '${end}'
+        `;
+
+        const currentQuery = buildQuery(sanitizedStart, sanitizedEnd);
         
         const promises = [executeGoogleAdsQuery(user_id, currentQuery, true, customer_id)];
         
         if (compare_start && compare_end) {
-            const compareQuery = buildQuery(compare_start, compare_end);
+            const compareQuery = buildQuery(sanitizedCompareStart, sanitizedCompareEnd);
             promises.push(executeGoogleAdsQuery(user_id, compareQuery, true, customer_id));
         }
 
@@ -1476,7 +1692,7 @@ app.post('/api/google-ads/campaigns/toggle-status', async (req, res) => {
         const { cleanId } = await getValidAccessToken(user_id, customer_id);
 
         // Fetch current status to log using customer_id
-        const query = `SELECT campaign.name, campaign.status FROM campaign WHERE campaign.id = ${campaign_id}`;
+        const query = `SELECT campaign.name, campaign.status FROM campaign WHERE campaign.id = ${Number(campaign_id)}`;
         const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         const currentCampaign = queryResults[0]?.campaign;
         
@@ -1539,7 +1755,7 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
         const query = `
             SELECT campaign.id, campaign.name, campaign_budget.amount_micros 
             FROM campaign 
-            WHERE campaign_budget.id = ${budget_id}
+            WHERE campaign_budget.id = ${Number(budget_id)}
             LIMIT 1
         `;
         const queryResults = await executeGoogleAdsQuery(user_id, query, false, customer_id);
@@ -1591,7 +1807,17 @@ app.post('/api/google-ads/overview', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const campaignFilter = campaign_id ? `AND campaign.id = ${campaign_id}` : '';
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
+        let sanitizedCompareStart = '';
+        let sanitizedCompareEnd = '';
+        if (compare_start && compare_end) {
+            sanitizedCompareStart = String(compare_start).replace(/[^0-9-]/g, '');
+            sanitizedCompareEnd = String(compare_end).replace(/[^0-9-]/g, '');
+        }
+
+        const campaignFilter = campaign_id ? `AND campaign.id = ${Number(campaign_id)}` : '';
         
         const buildQuery = (start, end) => `
             SELECT 
@@ -1606,11 +1832,11 @@ app.post('/api/google-ads/overview', async (req, res) => {
             ${campaignFilter}
         `;
 
-        const currentQuery = buildQuery(date_range.start, date_range.end);
+        const currentQuery = buildQuery(sanitizedStart, sanitizedEnd);
         const promises = [executeGoogleAdsQuery(user_id, currentQuery, false, customer_id)];
 
         if (compare_start && compare_end) {
-            const compareQuery = buildQuery(compare_start, compare_end);
+            const compareQuery = buildQuery(sanitizedCompareStart, sanitizedCompareEnd);
             promises.push(executeGoogleAdsQuery(user_id, compareQuery, false, customer_id));
         }
 
@@ -1631,6 +1857,9 @@ app.post('/api/google-ads/ad-groups', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
         const query = `
             SELECT 
                 ad_group.id, 
@@ -1642,7 +1871,7 @@ app.post('/api/google-ads/ad-groups', async (req, res) => {
                 metrics.cost_micros, 
                 metrics.conversions 
             FROM ad_group 
-            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
         `;
         const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
@@ -1657,6 +1886,9 @@ app.post('/api/google-ads/keywords', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
         const query = `
             SELECT 
                 ad_group_criterion.keyword.text, 
@@ -1670,7 +1902,7 @@ app.post('/api/google-ads/keywords', async (req, res) => {
                 metrics.cost_micros, 
                 metrics.conversions 
             FROM keyword_view 
-            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
         `;
         const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
@@ -1685,6 +1917,9 @@ app.post('/api/google-ads/ads', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
         const query = `
             SELECT 
                 ad_group_ad.ad.id, 
@@ -1696,7 +1931,7 @@ app.post('/api/google-ads/ads', async (req, res) => {
                 metrics.impressions, 
                 metrics.cost_micros 
             FROM ad_group_ad 
-            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
         `;
         const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
@@ -1714,6 +1949,9 @@ app.post('/api/google-ads/asset-groups', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
         const query = `
             SELECT 
                 asset_group.id, 
@@ -1725,8 +1963,8 @@ app.post('/api/google-ads/asset-groups', async (req, res) => {
                 metrics.conversions,
                 metrics.conversions_value
             FROM asset_group 
-            WHERE campaign.id = ${campaign_id}
-            AND segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE campaign.id = ${Number(campaign_id)}
+            AND segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
         `;
         const results = await executeGoogleAdsQuery(user_id, query, false, customer_id);
         res.json({ results });
@@ -1744,7 +1982,8 @@ app.post('/api/google-ads/pmax-assets', async (req, res) => {
     if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const campaignResourceName = `customers/${customer_id}/campaigns/${campaign_id}`;
+        const sanitizedCustomerId = customer_id ? String(customer_id).replace(/[^0-9-]/g, '') : '';
+        const campaignResourceName = `customers/${sanitizedCustomerId}/campaigns/${Number(campaign_id)}`;
         const query = `
             SELECT 
                 asset.name, 
@@ -1773,6 +2012,9 @@ app.post('/api/google-ads/search-terms', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
         const query = `
             SELECT 
                 search_term_view.search_term, 
@@ -1784,7 +2026,7 @@ app.post('/api/google-ads/search-terms', async (req, res) => {
                 metrics.conversions, 
                 metrics.ctr
             FROM search_term_view
-            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
             AND metrics.impressions > 0
             ORDER BY metrics.cost_micros DESC
             LIMIT 100
@@ -1802,6 +2044,9 @@ app.post('/api/google-ads/mcc-overview', async (req, res) => {
     if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
 
     try {
+        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
+        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+
         // 1. Busca a lista de contas filhas do MCC
         const accountsQuery = `
             SELECT 
@@ -1831,7 +2076,7 @@ app.post('/api/google-ads/mcc-overview', async (req, res) => {
                 metrics.conversions,
                 metrics.conversions_value
             FROM customer
-            WHERE segments.date BETWEEN '${date_range.start}' AND '${date_range.end}'
+            WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
         `;
 
         // Executa as queries em paralelo para todas as contas filhas
@@ -3055,9 +3300,9 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
             webhookUrl: connection.webhook_url,
             enabled: true,
             method: "POST",
-            events: ["history", "connection", "messages", "messages_update"],
-            excludeMessages: ["wasSentByApi", "isGroupYes"],
-            exclude: ["wasSentByApi", "isGroupYes"],
+            events: ["history", "connection", "messages", "messages_update", "contacts", "chats"],
+            excludeMessages: ["wasSentByApi"],
+            exclude: ["wasSentByApi"],
             addUrlEvents: false,
             addUrlTypesMessages: false
         };
@@ -3107,7 +3352,7 @@ app.post('/api/crm/connections/:connectionId/configure-webhook', async (req, res
                 uazapiWebhookId: uazapiWebhookId || undefined,
                 uazapiWebhookSlot: uazapiWebhookSlot || undefined,
                 webhookMode: "new_slot",
-                webhookEvents: ["history", "connection", "messages", "messages_update"]
+                webhookEvents: ["history", "connection", "messages", "messages_update", "contacts", "chats"]
             };
 
             // Remove de dados sensíveis da resposta antes de salvar
@@ -5751,11 +5996,11 @@ function normalizeUazapiWebhookPayload(payload) {
         }
 
         if (finalType === 'unknown') {
-            console.warn('[Webhook Debug] Tipo UNKNOWN. Chaves do actualMessage:', Object.keys(actualMessage || {}));
-            console.warn('[Webhook Debug] Chaves do raw:', Object.keys(raw || {}));
+            // console.warn('[Webhook Debug] Tipo UNKNOWN. Chaves do actualMessage:', Object.keys(actualMessage || {}));
+            // console.warn('[Webhook Debug] Chaves do raw:', Object.keys(raw || {}));
         }
 
-        console.log(`[Webhook Debug] Tipo identificado: ${finalType}, text: ${text ? text.substring(0, 50) : 'null'}, mediaUrl: ${mediaUrl ? 'sim' : 'nao'}, mediaMimeType: ${mediaMimeType || 'null'}`);
+        // console.log(`[Webhook Debug] Tipo identificado: ${finalType}, text: ${text ? text.substring(0, 50) : 'null'}, mediaUrl: ${mediaUrl ? 'sim' : 'nao'}, mediaMimeType: ${mediaMimeType || 'null'}`);
 
         messages.push({
             externalMessageId,
@@ -5791,7 +6036,7 @@ function normalizeUazapiWebhookPayload(payload) {
 app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
     const { connectionId, secret } = req.params;
     const body = req.body;
-    console.log('[Webhook Debug] Body cru recebido:', JSON.stringify(body, null, 2).substring(0, 3000));
+    // console.log('[Webhook Debug] Body cru recebido:', JSON.stringify(body, null, 2).substring(0, 3000));
     let webhookEventId = null;
     
     console.log(`[Webhook Uazapi] Recebido evento para a conexão ID: ${connectionId}`);

@@ -821,8 +821,7 @@ const Sales: React.FC = () => {
       setSendingMsg(true);
 
       try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
+          const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
 
           if (!token) {
               alert("Sessão expirada. Por favor, faça login novamente.");
@@ -1015,8 +1014,7 @@ const Sales: React.FC = () => {
       setChatSendError(null);
 
       try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
+          const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token);
 
           if (!token) {
               setChatSendError("Sessão expirada. Por favor, faça login novamente.");

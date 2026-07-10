@@ -4,7 +4,7 @@ import {
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
   ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save, Bell,
-  FileUp, Download, Image as ImageIcon, Play, Pause, Pencil, Settings, Folder, HelpCircle
+  FileUp, Download, Image as ImageIcon, Play, Pause, Pencil, Settings, Folder, HelpCircle, Edit2
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, Brush, ComposedChart, Bar
@@ -17,7 +17,8 @@ import {
   toggleGoogleCampaignStatus, updateGoogleCampaignBudget
 } from '../services/googleAdsService';
 import {
-  getMetaOverview, getMetaCampaigns, getMetaAdGroups, getMetaAds, getMetaSearchTerms
+  getMetaOverview, getMetaCampaigns, getMetaAdGroups, getMetaAds, getMetaSearchTerms,
+  toggleMetaCampaignStatus, updateMetaCampaignBudget
 } from '../services/metaAdsService';
 
 // --- TYPES ---
@@ -113,6 +114,14 @@ const Marketing: React.FC = () => {
       logoUrl: ''
   });
   const chartRef = useRef<HTMLDivElement>(null);
+  const metaPreviewRef = useRef<HTMLDivElement>(null);
+
+  const handleSelectMetaAd = (id: string) => {
+      setSelectedMetaAdIdForPreview(id);
+      setTimeout(() => {
+          metaPreviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+  };
 
   // Filters & UI State
   const [selectedMetrics, setSelectedMetrics] = useState<MetricType[]>(['clicks', 'spend']);
@@ -141,7 +150,10 @@ const Marketing: React.FC = () => {
   // Mutation states (Google Ads)
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [statusConfirmModal, setStatusConfirmModal] = useState<{ open: boolean, campaignId: string, campaignName: string, action: 'pause' | 'enable', customerId: string | null } | null>(null);
-  const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: string, budgetId: string, campaignName: string, currentBudget: number, customerId: string | null } | null>(null);
+  
+  const [metaStatusConfirmModal, setMetaStatusConfirmModal] = useState<{ open: boolean, campaignId: string, campaignName: string, action: 'pause' | 'enable' } | null>(null);
+  const [metaBudgetModal, setMetaBudgetModal] = useState<{ open: boolean, adsetId: string, adsetName: string, currentBudget: number } | null>(null);
+const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: string, budgetId: string, campaignName: string, currentBudget: number, customerId: string | null } | null>(null);
   const [newBudgetAmount, setNewBudgetAmount] = useState<string>('');
   const [activeStatusMenuCampaignId, setActiveStatusMenuCampaignId] = useState<string | null>(null);
   const [activeStatusMenuAdGroupId, setActiveStatusMenuAdGroupId] = useState<string | null>(null);
@@ -495,6 +507,45 @@ const Marketing: React.FC = () => {
           }).catch(err => console.error("MCC Check Error", err));
       }
   }, [user, dateFilter]);
+
+  
+  const handleToggleMetaCampaign = async () => {
+      if (!user || !metaStatusConfirmModal) return;
+      setActionLoadingId(metaStatusConfirmModal.campaignId);
+      try {
+          await toggleMetaCampaignStatus(user.id, metaStatusConfirmModal.campaignId, metaStatusConfirmModal.action);
+          alert(`Campanha ${metaStatusConfirmModal.action === 'pause' ? 'pausada' : 'ativada'} com sucesso!`);
+          
+          setMetaCampaigns(prev => prev.map(c => c.id === metaStatusConfirmModal.campaignId ? { ...c, status: metaStatusConfirmModal.action === 'pause' ? 'PAUSED' : 'ACTIVE' } : c));
+      } catch (error: any) {
+          alert(`Erro ao alterar status: ${error.message}`);
+      } finally {
+          setActionLoadingId(null);
+          setMetaStatusConfirmModal(null);
+      }
+  };
+
+  const handleUpdateMetaBudget = async () => {
+      if (!user || !metaBudgetModal || !newBudgetAmount) return;
+      const numAmount = parseFloat(newBudgetAmount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+          alert('Insira um valor válido para o orçamento.');
+          return;
+      }
+      setActionLoadingId(metaBudgetModal.adsetId);
+      try {
+          await updateMetaCampaignBudget(user.id, metaBudgetModal.adsetId, numAmount);
+          alert(`Orçamento atualizado com sucesso!`);
+          
+          setMetaAdGroups(prev => prev.map(ag => ag.id === metaBudgetModal.adsetId ? { ...ag, spend: numAmount } : ag));
+      } catch (error: any) {
+          alert(`Erro ao atualizar orçamento: ${error.message}`);
+      } finally {
+          setActionLoadingId(null);
+          setMetaBudgetModal(null);
+          setNewBudgetAmount('');
+      }
+  };
 
   const handleToggleGoogleCampaign = async () => {
       if (!user || !statusConfirmModal) return;
@@ -1332,8 +1383,8 @@ const Marketing: React.FC = () => {
                         </div>
                     ) : activePlatform === 'meta' ? (
                         <>
-                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
-                                <table className="w-full min-w-[720px] md:min-w-[800px] text-left border-collapse">
+                            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <table className="w-full min-w-[800px] text-left border-collapse">
                                     <thead className="bg-slate-50/80 border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-9 md:h-10 text-slate-600">
                                             <th className="w-10 px-2 text-center border-r border-slate-200">
@@ -1376,17 +1427,26 @@ const Marketing: React.FC = () => {
                                                     {/* Meta Style Toggle Switch */}
                                                     <td className="px-2 py-1.5 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center justify-center">
-                                                            <label className="relative inline-flex items-center cursor-pointer">
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
-                                                                    onChange={() => {
-                                                                        setMetaCampaigns(prev => prev.map((item, idx) => (item.id === c.id || idx === i) ? { ...item, status: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
-                                                                    }}
-                                                                    className="sr-only peer" 
-                                                                />
-                                                                <div className="w-7 h-3.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-3 after:transition-all peer-checked:bg-[#0866ff]"></div>
-                                                            </label>
+                                                            
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setMetaStatusConfirmModal({
+                                                            open: true,
+                                                            campaignId: c.id,
+                                                            campaignName: c.name,
+                                                            action: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'pause' : 'enable'
+                                                        });
+                                                    }}
+                                                    className={`p-1.5 rounded-lg transition-colors ${
+                                                        (c.status === 'ENABLED' || c.status === 'ACTIVE') 
+                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                                    }`}
+                                                >
+                                                    {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? <Pause size={14} /> : <Play size={14} />}
+                                                </button>
+
                                                         </div>
                                                     </td>
                                                     <td className="px-2 md:px-4 py-1.5 md:py-2 font-normal">
@@ -1479,7 +1539,7 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Meta Campaigns */}
-                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                            <div className="hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredCampaigns).map((c, i) => {
                                     return (
                                         <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
@@ -1488,17 +1548,26 @@ const Marketing: React.FC = () => {
                                                     <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-4 h-4 mt-0.5 shrink-0" defaultChecked />
                                                     <div className="min-w-0">
                                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <label className="relative inline-flex items-center cursor-pointer">
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
-                                                                    onChange={() => {
-                                                                        setMetaCampaigns(prev => prev.map((item, idx) => (item.id === c.id || idx === i) ? { ...item, status: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
-                                                                    }}
-                                                                    className="sr-only peer" 
-                                                                />
-                                                                <div className="w-7 h-3.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-3 after:transition-all peer-checked:bg-[#0866ff]"></div>
-                                                            </label>
+                                                            
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setMetaStatusConfirmModal({
+                                                            open: true,
+                                                            campaignId: c.id,
+                                                            campaignName: c.name,
+                                                            action: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'pause' : 'enable'
+                                                        });
+                                                    }}
+                                                    className={`p-1.5 rounded-lg transition-colors ${
+                                                        (c.status === 'ENABLED' || c.status === 'ACTIVE') 
+                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                                    }`}
+                                                >
+                                                    {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? <Pause size={14} /> : <Play size={14} />}
+                                                </button>
+
                                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{c.type || 'Meta Campaign'}</span>
                                                         </div>
                                                         <h4 
@@ -2111,7 +2180,7 @@ const Marketing: React.FC = () => {
                         </div>
                     ) : activePlatform === 'meta' ? (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
                                     <thead className="bg-[#f8f9fa] border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-10">
@@ -2122,6 +2191,7 @@ const Marketing: React.FC = () => {
                                             {[
                                                 { k: 'name', l: 'Conjunto de Anúncios', align: 'left' },
                                                 { k: 'campaignName', l: 'Campanha', align: 'left' },
+                                                { k: 'budget', l: 'Orçamento', align: 'right' },
                                                 { k: 'status', l: 'Status', align: 'left' },
                                                 { k: 'impressions', l: 'Impressões', align: 'right' },
                                                 { k: 'clicks', l: 'Cliques no Link', align: 'right' },
@@ -2182,6 +2252,29 @@ const Marketing: React.FC = () => {
                                                     </td>
                                                     <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
                                                         {ag.campaignName}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-normal">
+                                                        <div className="flex items-center justify-end gap-2 group/edit">
+                                                            <div>
+                                                                <p className="font-semibold text-slate-800 text-xs">{formatCurrency(ag.budget || 0)}</p>
+                                                                <p className="text-[9px] text-slate-400 font-normal">Diário</p>
+                                                            </div>
+                                                            <button 
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setMetaBudgetModal({
+                                                                        open: true,
+                                                                        adsetId: ag.id,
+                                                                        adsetName: ag.name,
+                                                                        currentBudget: ag.budget || 0
+                                                                    });
+                                                                }}
+                                                                className="p-1 text-slate-400 hover:text-[#0866ff] hover:bg-[#0866ff]/10 rounded opacity-0 group-hover/edit:opacity-100 transition-all"
+                                                                title="Editar Orçamento"
+                                                            >
+                                                                <Edit2 size={12} />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-2 text-left font-normal">
                                                         <div className="flex items-center gap-1.5">
@@ -2250,7 +2343,7 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* Mobile Meta Ad Groups */}
-                            <div className="block md:hidden space-y-2 p-2 bg-slate-50">
+                            <div className="hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(metaAdGroups).map((ag, i) => {
                                     const agCtr = ag.impressions > 0 ? (ag.clicks / ag.impressions) * 100 : 0;
                                     const agCpc = ag.clicks > 0 ? ag.spend / ag.clicks : 0;
@@ -2277,6 +2370,26 @@ const Marketing: React.FC = () => {
                                                         {ag.name}
                                                     </h4>
                                                     <span className="text-[11px] text-slate-400 block mt-0.5">Campanha: {ag.campaignName}</span>
+                                                    <div className="flex items-center gap-2 mt-1.5 bg-slate-100/50 p-1.5 rounded-lg border border-slate-200/50 w-fit">
+                                                        <div>
+                                                            <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Orçamento</span>
+                                                            <span className="text-slate-800 font-semibold text-xs">{formatCurrency(ag.budget || 0)}</span>
+                                                        </div>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setMetaBudgetModal({
+                                                                    open: true,
+                                                                    adsetId: ag.id,
+                                                                    adsetName: ag.name,
+                                                                    currentBudget: ag.budget || 0
+                                                                });
+                                                            }}
+                                                            className="p-1.5 bg-white text-slate-500 hover:text-[#0866ff] hover:bg-[#0866ff]/10 rounded border border-slate-200 transition-all shadow-sm ml-2"
+                                                        >
+                                                            <Edit2 size={12} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-50 p-2 rounded-lg text-xs font-medium border border-slate-100">
@@ -2431,6 +2544,29 @@ const Marketing: React.FC = () => {
                                                     </td>
                                                     <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
                                                         {ag.campaignName}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-normal">
+                                                        <div className="flex items-center justify-end gap-2 group/edit">
+                                                            <div>
+                                                                <p className="font-semibold text-slate-800 text-xs">{formatCurrency(ag.budget || 0)}</p>
+                                                                <p className="text-[9px] text-slate-400 font-normal">Diário</p>
+                                                            </div>
+                                                            <button 
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setMetaBudgetModal({
+                                                                        open: true,
+                                                                        adsetId: ag.id,
+                                                                        adsetName: ag.name,
+                                                                        currentBudget: ag.budget || 0
+                                                                    });
+                                                                }}
+                                                                className="p-1 text-slate-400 hover:text-[#0866ff] hover:bg-[#0866ff]/10 rounded opacity-0 group-hover/edit:opacity-100 transition-all"
+                                                                title="Editar Orçamento"
+                                                            >
+                                                                <Edit2 size={12} />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-2 text-left font-normal">
                                                         <div className="flex flex-col">
@@ -2943,7 +3079,7 @@ const Marketing: React.FC = () => {
                     {activePlatform === 'meta' ? (
                         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                             {/* LEFT PANEL: TABLE OF META ADS */}
-                            <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                            <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col order-2 xl:order-1">
                                 <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
                                     <div className="flex items-center gap-2">
                                         <Instagram size={18} className="text-[#0866ff]" />
@@ -2954,7 +3090,7 @@ const Marketing: React.FC = () => {
                                     </span>
                                 </div>
                                 
-                                <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                     <table className="w-full min-w-[800px] text-left border-collapse">
                                         <thead className="bg-[#f8f9fa] border-b border-slate-250">
                                             <tr className="divide-x divide-slate-200 text-slate-500">
@@ -2971,12 +3107,11 @@ const Marketing: React.FC = () => {
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 text-slate-700">
                                             {metaAds.map((ad, idx) => {
-                                                const activePreviewAd = metaAds.find(a => a.id?.toString() === selectedMetaAdIdForPreview) || metaAds[0];
-                                                const isSelected = activePreviewAd?.id === ad.id;
+                                                const isSelected = selectedMetaAdIdForPreview !== null && ad.id?.toString() === selectedMetaAdIdForPreview;
                                                 return (
                                                     <tr 
                                                         key={ad.id || idx} 
-                                                        onClick={() => setSelectedMetaAdIdForPreview(ad.id?.toString())}
+                                                        onClick={() => handleSelectMetaAd(ad.id?.toString())}
                                                         className={`group cursor-pointer transition-all h-14 divide-x divide-slate-200 ${isSelected ? 'bg-indigo-50/40 border-l-4 border-l-[#0866ff]' : 'hover:bg-[#f2f4f7]/40'}`}
                                                     >
                                                         <td className="px-2 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
@@ -3056,7 +3191,7 @@ const Marketing: React.FC = () => {
                                 </div>
 
                                 {/* Mobile Meta Ads */}
-                                <div className="block md:hidden space-y-2 p-2 bg-slate-50 border-t border-slate-200">
+                                <div className="hidden space-y-2 p-2 bg-slate-50 border-t border-slate-200">
                                     {metaAds.map((ad, i) => {
                                         return (
                                             <div 
@@ -3106,13 +3241,23 @@ const Marketing: React.FC = () => {
                             </div>
 
                             {/* RIGHT PANEL: INTERACTIVE PREVIEW */}
-                            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5">
+                            <div ref={metaPreviewRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5 order-1 xl:order-2">
                                 <div className="border-b border-slate-100 pb-4 mb-4">
-                                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                                        <Eye size={16} className="text-[#0866ff]" />
-                                        Visualização do Anúncio (Meta Mockup)
-                                    </h4>
-                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5 uppercase tracking-wider">Selecione uma plataforma abaixo para ver a prévia:</p>
+                                    <div className="flex justify-between items-center gap-2">
+                                        <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                                            <Eye size={16} className="text-[#0866ff]" />
+                                            Visualização do Anúncio (Meta Mockup)
+                                        </h4>
+                                        {selectedMetaAdIdForPreview !== null && (
+                                            <button 
+                                                onClick={() => setSelectedMetaAdIdForPreview(null)}
+                                                className="text-[10px] text-red-600 hover:text-red-750 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-lg transition-colors font-bold uppercase tracking-wider"
+                                            >
+                                                Limpar seleção
+                                            </button>
+                                        )}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 font-medium mt-1.5 uppercase tracking-wider">Selecione uma plataforma abaixo para ver a prévia:</p>
                                     
                                     {/* Mockup Platforms Tabs selector */}
                                     <div className="grid grid-cols-3 gap-1.5 mt-3 bg-slate-100 p-1 rounded-xl">
@@ -4149,6 +4294,106 @@ const Marketing: React.FC = () => {
                       >
                           <Save size={16} /> Salvar Métrica
                       </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      
+      {/* META STATUS CONFIRM MODAL */}
+      {metaStatusConfirmModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                          <div className={`p-2 rounded-xl ${metaStatusConfirmModal.action === 'pause' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                              {metaStatusConfirmModal.action === 'pause' ? <Pause size={24} /> : <Play size={24} />}
+                          </div>
+                          <div>
+                              <h3 className="text-lg font-black text-slate-900 tracking-tight">Confirmar Ação</h3>
+                          </div>
+                      </div>
+                      <p className="text-sm text-slate-600 mb-6">
+                          Tem certeza que deseja <strong className="uppercase">{metaStatusConfirmModal.action === 'pause' ? 'pausar' : 'ativar'}</strong> a campanha "{metaStatusConfirmModal.campaignName}" no Meta Ads?
+                          <br/><br/>
+                          Esta ação afeta seus anúncios em produção.
+                      </p>
+                      <div className="flex justify-end gap-3">
+                          <button 
+                              onClick={() => setMetaStatusConfirmModal(null)}
+                              className="px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-100 transition-colors"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={handleToggleMetaCampaign}
+                              disabled={actionLoadingId !== null}
+                              className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg flex items-center gap-2 transition-all disabled:opacity-50 text-white ${metaStatusConfirmModal.action === 'pause' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200'}`}
+                          >
+                              {actionLoadingId !== null ? <Loader2 size={16} className="animate-spin" /> : null}
+                              Confirmar {metaStatusConfirmModal.action === 'pause' ? 'Pausar' : 'Ativar'}
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* META BUDGET MODAL */}
+      {metaBudgetModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6">
+                      <div className="flex items-center gap-3 mb-6">
+                          <div className="p-2 rounded-xl bg-[#0866ff]/10 text-[#0866ff]">
+                              <DollarSign size={24} />
+                          </div>
+                          <div>
+                              <h3 className="text-lg font-black text-slate-900 tracking-tight">Editar Orçamento</h3>
+                              <p className="text-xs text-slate-500">{metaBudgetModal.adsetName}</p>
+                          </div>
+                      </div>
+                      <div className="space-y-4 mb-6">
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Orçamento Diário Atual</label>
+                              <div className="text-sm font-semibold text-slate-600">
+                                  {formatCurrency(metaBudgetModal.currentBudget)}
+                              </div>
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Novo Orçamento Diário (R$)</label>
+                              <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                      <span className="text-slate-500 sm:text-sm">R$</span>
+                                  </div>
+                                  <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={newBudgetAmount}
+                                      onChange={(e) => setNewBudgetAmount(e.target.value)}
+                                      className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:ring-[#0866ff] focus:border-[#0866ff] sm:text-sm transition-colors"
+                                      placeholder="0.00"
+                                  />
+                              </div>
+                          </div>
+                      </div>
+                      <div className="flex justify-end gap-3">
+                          <button 
+                              onClick={() => { setMetaBudgetModal(null); setNewBudgetAmount(''); }}
+                              className="px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-100 transition-colors"
+                          >
+                              Cancelar
+                          </button>
+                          <button 
+                              onClick={handleUpdateMetaBudget}
+                              disabled={actionLoadingId !== null || !newBudgetAmount}
+                              className="px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg flex items-center gap-2 transition-all disabled:opacity-50 text-white bg-[#0866ff] hover:bg-[#0756db] shadow-[#0866ff]/20"
+                          >
+                              {actionLoadingId !== null ? <Loader2 size={16} className="animate-spin" /> : null}
+                              Salvar Orçamento
+                          </button>
+                      </div>
                   </div>
               </div>
           </div>

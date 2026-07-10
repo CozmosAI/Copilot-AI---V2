@@ -279,3 +279,19 @@ drop policy if exists "Users can insert own google_ads_audit_logs" on public.goo
 
 create policy "Users can view own google_ads_audit_logs" on public.google_ads_audit_logs for select using (auth.uid() = user_id);
 create policy "Users can insert own google_ads_audit_logs" on public.google_ads_audit_logs for insert with check (auth.uid() = user_id);
+
+-- Audit logs for Meta Ads
+create table if not exists public.meta_ads_audit_logs (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references auth.users(id) on delete cascade,
+  ad_account_id text,
+  campaign_id text,
+  campaign_name text,
+  action text not null,
+  old_value text,
+  new_value text,
+  created_at timestamp with time zone default now()
+);
+create index if not exists idx_meta_ads_audit_user_id on public.meta_ads_audit_logs(user_id);
+create index if not exists idx_meta_ads_audit_created_at on public.meta_ads_audit_logs(created_at desc);
+ALTER TABLE public.meta_ads_audit_logs DISABLE ROW LEVEL SECURITY;
