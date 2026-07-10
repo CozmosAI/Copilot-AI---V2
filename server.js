@@ -123,6 +123,10 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get(['/exclusao-dados', '/exclusao-dados.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'exclusao-dados.html'));
+});
+
 app.get(['/politica', '/politica.html'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'politica.html'));
 });

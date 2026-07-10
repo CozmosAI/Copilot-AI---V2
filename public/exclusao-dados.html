@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="index, follow">
+    <meta name="description" content="Instruções de Exclusão de Dados do aplicativo Axis IA - New (AXIS AI Gestão). Saiba como solicitar a eliminação definitiva de dados de sua conta ou de leads.">
+    <title>Instruções de Exclusão de Dados — AXIS AI Gestão</title>
+    <style>
+        /* Variáveis e Reset */
+        :root {
+            --color-primary: #0f766e; /* Teal */
+            --color-dark: #115e59;    /* Teal escuro */
+            --color-light: #ccfbf1;   /* Teal claro */
+            --color-bg-dark: #0f172a; /* Slate-900 */
+            --color-bg-light: #f8fafc;/* Slate-50 */
+            --color-text: #0f172a;    /* Slate-900 */
+            --color-text-muted: #475569; /* Slate-600 */
+            --color-border: #e2e8f0;  /* Slate-200 */
+            --color-white: #ffffff;
+            
+            --callout-info-bg: #ccfbf1; /* Teal claro */
+            --callout-info-border: #0f766e; /* Teal */
+            --callout-info-text: #115e59; /* Teal escuro */
+            
+            --callout-warn-bg: #fffbeb; /* Amber-50 */
+            --callout-warn-border: #f59e0b; /* Amber-500 */
+            --callout-warn-text: #78350f; /* Amber-900 */
+            
+            --callout-danger-bg: #fef2f2; /* Rose-50 */
+            --callout-danger-border: #ef4444; /* Rose-500 */
+            --callout-danger-text: #7f1d1d; /* Rose-900 */
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--color-text);
+            background-color: var(--color-white);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Topbar com Gradiente */
+        .topbar {
+            background: linear-gradient(135deg, #1e293b 0%, var(--color-bg-dark) 100%);
+            color: var(--color-white);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .topbar-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            text-transform: uppercase;
+        }
+
+        .topbar-nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .topbar-nav a {
+            color: var(--color-white);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            opacity: 0.9;
+            transition: opacity 0.2s ease;
+        }
+
+        .topbar-nav a:hover,
+        .topbar-nav a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+
+        /* Hero Section */
+        .hero {
+            background-color: var(--color-bg-light);
+            border-bottom: 1px solid var(--color-border);
+            padding: 3.5rem 2rem;
+            text-align: center;
+        }
+
+        .hero-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .badge {
+            display: inline-block;
+            background-color: var(--color-light);
+            color: var(--color-dark);
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em;
+        }
+
+        .hero h1 {
+            font-size: 2.25rem;
+            font-weight: 900;
+            color: var(--color-bg-dark);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+            letter-spacing: -0.025em;
+        }
+
+        .hero-lead {
+            font-size: 1.125rem;
+            color: var(--color-text-muted);
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-meta {
+            font-size: 0.8125rem;
+            color: var(--color-text-muted);
+            font-weight: 500;
+        }
+
+        /* Main Grid */
+        .main-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 3rem;
+            align-items: start;
+        }
+
+        /* Sidebar Navigation (TOC) */
+        .toc-sidebar {
+            position: sticky;
+            top: 5.5rem;
+            background-color: var(--color-bg-light);
+            border: 1px solid var(--color-border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            max-height: calc(100vh - 7rem);
+            overflow-y: auto;
+        }
+
+        .toc-title {
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--color-text-muted);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .toc-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toc-item a {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--color-text-muted);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.25rem 0;
+            transition: color 0.2s ease, padding-left 0.2s ease;
+        }
+
+        .toc-item a:hover {
+            color: var(--color-primary);
+            padding-left: 0.25rem;
+        }
+
+        /* Content Area */
+        .content {
+            display: flex;
+            flex-direction: column;
+            gap: 3rem;
+        }
+
+        .content section {
+            scroll-margin-top: 6rem;
+        }
+
+        .content h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--color-bg-dark);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--color-light);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .content h3 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--color-dark);
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .content p {
+            color: var(--color-text-muted);
+            margin-bottom: 1rem;
+            text-align: justify;
+        }
+
+        .content ul, .content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--color-text-muted);
+        }
+
+        .content li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* Callouts */
+        .callout {
+            padding: 1.25rem;
+            border-left: 4px solid;
+            border-radius: 0.375rem;
+            margin: 1.5rem 0;
+        }
+
+        .callout-info {
+            background-color: var(--callout-info-bg);
+            border-color: var(--callout-info-border);
+            color: var(--callout-info-text);
+        }
+
+        .callout-warn {
+            background-color: var(--callout-warn-bg);
+            border-color: var(--callout-warn-border);
+            color: var(--callout-warn-text);
+        }
+
+        .callout-danger {
+            background-color: var(--callout-danger-bg);
+            border-color: var(--callout-danger-border);
+            color: var(--callout-danger-text);
+        }
+
+        .callout-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            font-size: 0.875rem;
+            letter-spacing: 0.05em;
+        }
+
+        .callout p {
+            color: inherit;
+            margin-bottom: 0;
+            font-size: 0.9375rem;
+        }
+
+        /* Grid de Direitos do Titular */
+        .rights-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .right-card {
+            background-color: var(--color-bg-light);
+            border: 1px solid var(--color-border);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .right-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--color-primary);
+        }
+
+        .right-card h4 {
+            font-size: 0.9375rem;
+            font-weight: 700;
+            color: var(--color-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .right-card p {
+            font-size: 0.8125rem;
+            line-height: 1.5;
+            color: var(--color-text-muted);
+            margin-bottom: 0;
+        }
+
+        /* Contact Card */
+        .contact-card {
+            background: linear-gradient(135deg, #1e293b 0%, var(--color-bg-dark) 100%);
+            color: var(--color-white);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            margin: 1.5rem 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .contact-card h3 {
+            color: var(--color-white) !important;
+            margin-top: 0 !important;
+            margin-bottom: 1rem !important;
+            font-size: 1.25rem;
+            font-weight: 800;
+        }
+
+        .contact-card p {
+            color: var(--color-light);
+            font-size: 0.9375rem;
+            margin-bottom: 1rem;
+        }
+
+        .contact-details {
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            padding-top: 1rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .contact-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .contact-line span:first-child {
+            font-weight: 700;
+            color: var(--color-white);
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--color-bg-dark);
+            color: var(--color-text-muted);
+            border-top: 4px solid var(--color-primary);
+            padding: 3rem 2rem;
+            text-align: center;
+            font-size: 0.875rem;
+            margin-top: 4rem;
+        }
+
+        .footer-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-text {
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+        }
+
+        .footer-compliance {
+            font-weight: 600;
+            color: var(--color-light);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        /* Media Queries Responsivos */
+        @media (max-width: 880px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .toc-sidebar {
+                position: relative;
+                top: 0;
+                max-height: none;
+                overflow-y: visible;
+                margin-bottom: 1rem;
+            }
+
+            .hero {
+                padding: 2.5rem 1rem;
+            }
+
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .topbar {
+                padding: 1rem;
+            }
+
+            .topbar-container {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            .topbar-nav {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 1rem;
+            }
+
+            .main-container {
+                padding: 0 1rem;
+            }
+        }
+
+        /* Impressão */
+        @media print {
+            .topbar, .toc-sidebar, footer {
+                display: none !important;
+            }
+
+            body {
+                font-size: 12pt;
+                color: #000000;
+                background: none;
+            }
+
+            .main-container {
+                grid-template-columns: 1fr;
+                margin: 0;
+                padding: 0;
+            }
+
+            .content {
+                gap: 2rem;
+            }
+
+            h2, h3 {
+                page-break-after: avoid;
+            }
+
+            section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="topbar">
+        <div class="topbar-container">
+            <div class="brand">AXIS AI Gestão</div>
+            <nav class="topbar-nav" aria-label="Navegação secundária legal">
+                <a href="/politica">Política de Privacidade</a>
+                <a href="/exclusao-dados" class="active">Exclusão de Dados</a>
+                <a href="/termo">Termos de Serviço</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Header -->
+    <section class="hero">
+        <div class="hero-container">
+            <span class="badge">Direitos do Titular</span>
+            <h1>Como excluir seus dados</h1>
+            <p class="hero-lead">Instruções claras e procedimentos simplificados para a solicitação de eliminação e exclusão de dados pessoais da plataforma AXIS AI Gestão.</p>
+            <div class="hero-meta">
+                Última atualização: 10 de julho de 2026 | Versão 2.0 | Vigência imediata
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content Container -->
+    <main class="main-container">
+        
+        <!-- Table of Contents -->
+        <nav class="toc-sidebar" aria-label="Índice da página">
+            <div class="toc-title">Seções do Documento</div>
+            <ul class="toc-list">
+                <li class="toc-item"><a href="#secao-1">1. Exclusão Direta e Automática</a></li>
+                <li class="toc-item"><a href="#secao-2">2. Solicitação por E-mail</a></li>
+                <li class="toc-item"><a href="#secao-3">3. Exclusão para Contatos de Leads</a></li>
+                <li class="toc-item"><a href="#secao-4">4. Direitos LGPD e Contato DPO</a></li>
+            </ul>
+        </nav>
+
+        <!-- Document Content -->
+        <article class="content">
+
+            <!-- 1. EXCLUSÃO DIRETA NA PLATAFORMA (AUTOMÁTICA) -->
+            <section id="secao-1">
+                <h2>1. Exclusão Direta na Plataforma (automática)</h2>
+                <p>Nossos usuários licenciados possuem total controle sobre as bases de dados e conexões que gerenciam dentro de nosso software. Para garantir agilidade e autonomia, disponibilizamos 4 canais diretos e automáticos de exclusão de dados no painel logado:</p>
+                <p>Estas ações de controle e eliminação são realizadas de forma segura e direta no painel administrativo da plataforma AXIS AI Gestão, disponível no endereço oficial <a href="https://axis-ai-1s3m.onrender.com" target="_blank" rel="noopener noreferrer">https://axis-ai-1s3m.onrender.com</a>, operando sob o App ID da Meta: 1102275776312848.</p>
+                
+                <div class="callout callout-info">
+                    <div class="callout-title">Ações Imediatas e Irreversíveis</div>
+                    <p>Qualquer ação realizada diretamente pelo painel administrativo produz efeitos de remoção imediata em nosso banco de dados ativo (PostgreSQL Supabase), sem possibilidade de recuperação de histórico.</p>
+                </div>
+
+                <ul>
+                    <li><strong>Excluir Lead Individual:</strong> No menu lateral, acesse a aba <strong>"Vendas"</strong>, localize o lead correspondente, clique para expandir seus detalhes e selecione a opção <strong>"Excluir"</strong>. Esta ação remove permanentemente o lead, todas as suas informações de contato e o histórico completo de interações.</li>
+                    <li><strong>Limpar Histórico de Conversa:</strong> Na aba <strong>"Vendas"</strong>, abra a janela de chat do contato e selecione <strong>"Limpar histórico"</strong>. Todas as mensagens trocadas via WhatsApp serão apagadas definitivamente do servidor, mantendo-se apenas o registro do contato de forma limpa.</li>
+                    <li><strong>Desconectar Integrações Publicitárias:</strong> Na aba de <strong>"Integrações"</strong>, clique no botão para desconectar a conta do Google Ads ou do Meta Ads. Os tokens OAuth serão revogados na mesma hora, impedindo qualquer acesso adicional da nossa plataforma aos seus orçamentos e relatórios de anúncios.</li>
+                    <li><strong>Excluir Conta Completa:</strong> No menu de Configurações de Perfil, clique na opção de segurança <strong>"Excluir conta"</strong>. O sistema irá apagar todos os dados associados à sua conta corporativa, limpando os registros de leads, tokens ativos de APIs de terceiros e dados de perfil de forma definitiva.</li>
+                </ul>
+            </section>
+
+            <!-- 2. SOLICITAÇÃO POR E-MAIL -->
+            <section id="secao-2">
+                <h2>2. Solicitação por E-mail (com prazo de 30 dias)</h2>
+                <p>Caso o usuário necessite de suporte assistido ou deseje formalizar uma exclusão integral de todas as réplicas de backups e logs residuais em posse da nossa infraestrutura técnica, poderá encaminhar uma solicitação de exclusão diretamente via correio eletrônico comercial.</p>
+                <p>Para assegurar a validade jurídica da requisição e evitar fraudes ou vazamentos de dados para terceiros não autorizados, a solicitação de exclusão enviada por e-mail deve conter obrigatoriamente:</p>
+                <ul>
+                    <li>Identificação do e-mail de cadastro titular na AXIS AI Gestão.</li>
+                    <li>Definição precisa do escopo da exclusão (se deseja a exclusão completa da conta jurídica, a revogação de uma integração de API específica ou a limpeza de um lead individual).</li>
+                    <li>Uma cópia digital de documento de identidade oficial com foto (ou ato constitutivo da pessoa jurídica) do solicitante, para comprovação e verificação inequívoca de titularidade.</li>
+                </ul>
+
+                <p><strong>Prazo e Processo:</strong> Uma vez validada a titularidade do requisitante, nossa equipe técnica concluirá a eliminação definitiva das informações em até <strong>30 dias corridos</strong>, abrangendo o banco de dados ativo, servidores de cache e arquivos físicos de backup em nuvem estruturados no Render.</p>
+
+                <div class="contact-card">
+                    <h3>Canal Oficial de Atendimento</h3>
+                    <p>Formalize sua solicitação de eliminação de dados enviando um e-mail com as informações exigidas:</p>
+                    
+                    <div class="contact-details">
+                        <div class="contact-line">
+                            <span>E-mail de Contato:</span>
+                            <span>privacidade@iatask.com.br</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>Alternativos:</span>
+                            <span>financeiro.taskia@gmail.com e edson.kaue.alves598@gmail.com</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>Prazo de Resolução:</span>
+                            <span>Até 30 dias corridos</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. EXCLUSÃO PARA CONTATOS DE LEADS -->
+            <section id="secao-3">
+                <h2>3. Exclusão para Contatos de Leads (Pacientes)</h2>
+                <p>Se você é um paciente de uma clínica médica de terceiros ou um contato individual que se comunicou com um usuário cadastrado da AXIS AI Gestão (via WhatsApp) e deseja requerer a remoção imediata dos seus registros armazenados na plataforma:</p>
+                
+                <div class="callout callout-warn">
+                    <div class="callout-title">Atenção — Atuação como Operadora</div>
+                    <p>A AXIS AI Gestão atua estritamente como OPERADORA de dados pessoais neste cenário. O usuário licenciado da nossa plataforma (o consultório ou clínica de saúde) é o CONTROLADOR das suas informações, cabendo a ele a decisão legal de descarte dos registros. Nós iremos processar a solicitação, mas necessitamos formalizar a validação junto ao controlador responsável pela captação.</p>
+                </div>
+
+                <p>Para requerer esta remoção de leads e históricos de chat, basta encaminhar um e-mail para <strong>privacidade@iatask.com.br</strong> (ou alternativamente para <strong>financeiro.taskia@gmail.com</strong> e <strong>edson.kaue.alves598@gmail.com</strong>) informando seu número telefônico celular completo no padrão internacional de numeração E.164 (Exemplo: +5511999998888).</p>
+                <p><strong>Prazo de Resolução:</strong> Entraremos em contato programático com o controlador contratante (titular do painel) para notificar o requerimento e concluiremos a varredura completa das mensagens no sistema em até <strong>15 dias corridos</strong> contados da recepção do pedido.</p>
+            </section>
+
+            <!-- 4. DIREITOS LGPD E CONTATO DO DPO -->
+            <section id="secao-4">
+                <h2>4. Direitos sob a LGPD e Contato do DPO</h2>
+                <p>A AXIS AI Gestão assegura a todos os titulares de dados a livre fruição de seus direitos garantidos pela Lei Geral de Proteção de Dados Pessoais (LGPD — Lei nº 13.709/2018), em seu artigo 18. Abaixo estão descritos os 8 direitos fundamentais que podem ser exercidos mediante requisição direta ao nosso Encarregado de Dados (DPO):</p>
+                
+                <div class="rights-grid">
+                    <div class="right-card">
+                        <h4>1. Confirmação</h4>
+                        <p>Confirmação da existência de tratamento de dados pessoais em nossos servidores.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>2. Acesso</h4>
+                        <p>Acesso integral e transparente aos seus dados processados pelo aplicativo.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>3. Correção</h4>
+                        <p>Retificação de dados pessoais que estejam incorretos, incompletos ou desatualizados.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>4. Otimização</h4>
+                        <p>Anonimização, bloqueio ou eliminação de dados desnecessários ou tratados de forma ilícita.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>5. Portabilidade</h4>
+                        <p>Portabilidade estruturada das informações cadastrais a outro fornecedor de serviços.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>6. Eliminação</h4>
+                        <p>Eliminação definitiva de dados pessoais processados com consentimento revogado.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>7. Compartilhamento</h4>
+                        <p>Informação clara sobre quais entidades públicas e privadas receberam compartilhamentos.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>8. Revogação</h4>
+                        <p>Revogação total do consentimento outorgado e explicação sobre recusas.</p>
+                    </div>
+                </div>
+
+                <h3>Encarregado de Proteção de Dados (DPO)</h3>
+                <p>Para qualquer manifestação jurídica, reclamação ou requerimento legal de direitos previstos no Artigo 18 da LGPD, o titular poderá contactar diretamente o nosso DPO:</p>
+                
+                <ul>
+                    <li><strong>DPO Responsável:</strong> Canal Oficial do DPO AXIS</li>
+                    <li><strong>E-mail de Contato Exclusivo:</strong> privacidade@iatask.com.br (Alternativo para verificação rápida: financeiro.taskia@gmail.com ou edson.kaue.alves598@gmail.com)</li>
+                    <li><strong>Prazo Legal de Resposta:</strong> Até 15 dias úteis, contados do protocolo regular do pedido, nos termos do art. 19 da LGPD.</li>
+                    <li><strong>Órgão Regulatório Nacional:</strong> Caso o titular julgue que seus direitos não foram plenamente sanados, poderá acionar diretamente a Autoridade Nacional de Proteção de Dados (ANPD) via site oficial <code>gov.br/anpd</code>.</li>
+                </ul>
+            </section>
+
+        </article>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-container">
+            <div class="footer-compliance">Em total conformidade com a LGPD (Lei nº 13.709/2018) e as políticas de APIs de terceiros</div>
+            <p class="footer-text">AXIS AI Gestão &copy; 2026 — Todos os direitos reservados.<br>
+            <a href="/politica" style="color: var(--color-light); text-decoration: none;">Política de Privacidade</a> | 
+            <a href="/exclusao-dados" style="color: var(--color-white); text-decoration: underline;">Instruções de Exclusão</a> | 
+            <a href="/termo" style="color: var(--color-light); text-decoration: none;">Termos de Serviço</a><br>
+            Este documento é público, indexável por crawlers e serve como instrução oficial de exclusão de dados para a validação das APIs da Meta Platforms e Google Ads.</p>
+            <p class="footer-meta">"Axis IA - New" (Meta App ID: 1102275776312848) | Versão 2.0 | Atualizado em 10 de Julho de 2026</p>
+        </div>
+    </footer>
+
+</body>
+</html>
