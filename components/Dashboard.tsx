@@ -11,8 +11,8 @@ import {
 import { generateAudioReport, playPCM } from '../services/geminiService';
 import { useApp } from '../App';
 import { AdPerformance, AppSection } from '../types';
-import { getGoogleOverview, getGoogleCampaigns } from '../services/googleAdsService';
-import { getMetaOverview, getMetaCampaigns } from '../services/metaAdsService';
+import { getGoogleOverview } from '../services/googleAdsService';
+import { getMetaOverview } from '../services/metaAdsService';
 
 const GoogleIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -36,8 +36,8 @@ const Dashboard: React.FC = () => {
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
 
   // States para dados reais de Ads
-  const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0 });
-  const [metaStats, setMetaStats] = useState({ spend: 0, clicks: 0, impressions: 0 });
+  const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
+  const [metaStats, setMetaStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
 
   // Filtrar Leads por Origem e Data no Período
   const leadsInPeriod = useMemo(() => {
@@ -51,6 +51,8 @@ const Dashboard: React.FC = () => {
   const warmLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Warm').length, [leadsInPeriod]);
   const coldLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Cold').length, [leadsInPeriod]);
 
+  const dateKey = JSON.stringify(dateFilter);
+
   // Efeito para carregar dados reais das APIs
   useEffect(() => {
     const fetchAdsData = async () => {
@@ -58,64 +60,46 @@ const Dashboard: React.FC = () => {
       try {
         const dateRangeParam = { start: dateFilter.start, end: dateFilter.end };
         
-        // 1. Google Ads Overview
-        const googleOverviewData = await getGoogleOverview(user.id, dateRangeParam);
-        let gSpend = 0, gClicks = 0, gImpressions = 0;
-        if (googleOverviewData) {
-          const rows = Array.isArray(googleOverviewData) ? googleOverviewData : googleOverviewData.current || [];
-          rows.forEach((row: any) => {
-            gSpend += row.spend || 0;
-            gClicks += row.clicks || 0;
-            gImpressions += row.impressions || 0;
-          });
-        }
+        // 1. Google Ads Overview (já é agregado por dia)
+        let gSpend = 0, gClicks = 0, gImpressions = 0, gConversions = 0;
+        try {
+            const googleData = await getGoogleOverview(user.id, dateRangeParam);
+            if (googleData && Array.isArray(googleData)) {
+                googleData.forEach((row: any) => {
+                    gSpend += row.spend || 0;
+                    gClicks += row.clicks || 0;
+                    gImpressions += row.impressions || 0;
+                    gConversions += row.conversions || 0;
+                });
+            }
+        } catch (e) { console.warn("Google Ads falhou no dashboard", e); }
 
-        // 2. Google Ads Campaigns (conforme solicitado para somar)
-        const googleCampaignsData = await getGoogleCampaigns(user.id, dateRangeParam);
-        let gCampSpend = 0, gCampClicks = 0, gCampImpressions = 0;
-        if (googleCampaignsData) {
-          const rows = Array.isArray(googleCampaignsData) ? googleCampaignsData : googleCampaignsData.current || [];
-          rows.forEach((row: any) => {
-            gCampSpend += row.spend || 0;
-            gCampClicks += row.clicks || 0;
-            gCampImpressions += row.impressions || 0;
-          });
-        }
+        // 2. Meta Ads Overview (já é agregado por dia)
+        let mSpend = 0, mClicks = 0, mImpressions = 0, mConversions = 0;
+        try {
+            const metaData = await getMetaOverview(user.id, dateRangeParam);
+            if (metaData && Array.isArray(metaData)) {
+                metaData.forEach((row: any) => {
+                    mSpend += row.spend || 0;
+                    mClicks += row.clicks || 0;
+                    mImpressions += row.impressions || 0;
+                    mConversions += row.conversions || 0;
+                });
+            }
+        } catch (e) { console.warn("Meta Ads falhou no dashboard", e); }
 
-        // Priorizar valores maiores ou preenchidos
-        const finalGoogleSpend = gSpend > 0 ? gSpend : gCampSpend;
-        const finalGoogleClicks = gClicks > 0 ? gClicks : gCampClicks;
-        const finalGoogleImpressions = gImpressions > 0 ? gImpressions : gCampImpressions;
-        setGoogleStats({ spend: finalGoogleSpend, clicks: finalGoogleClicks, impressions: finalGoogleImpressions });
-
-        // 3. Meta Ads Overview
-        const metaOverviewData = await getMetaOverview(user.id, dateRangeParam);
-        let mSpend = 0, mClicks = 0, mImpressions = 0;
-        if (metaOverviewData) {
-          const rows = Array.isArray(metaOverviewData) ? metaOverviewData : [];
-          rows.forEach((row: any) => {
-            mSpend += row.spend || 0;
-            mClicks += row.clicks || 0;
-            mImpressions += row.impressions || 0;
-          });
-        }
-
-        // 4. Meta Ads Campaigns (opcional, para garantir robustez)
-        const metaCampaignsData = await getMetaCampaigns(user.id, dateRangeParam);
-        let mCampSpend = 0, mCampClicks = 0, mCampImpressions = 0;
-        if (metaCampaignsData) {
-          const rows = Array.isArray(metaCampaignsData) ? metaCampaignsData : [];
-          rows.forEach((row: any) => {
-            mCampSpend += row.spend || 0;
-            mCampClicks += row.clicks || 0;
-            mCampImpressions += row.impressions || 0;
-          });
-        }
-
-        const finalMetaSpend = mSpend > 0 ? mSpend : mCampSpend;
-        const finalMetaClicks = mClicks > 0 ? mClicks : mCampClicks;
-        const finalMetaImpressions = mImpressions > 0 ? mImpressions : mCampImpressions;
-        setMetaStats({ spend: finalMetaSpend, clicks: finalMetaClicks, impressions: finalMetaImpressions });
+        setGoogleStats({ 
+            spend: gSpend, 
+            clicks: gClicks, 
+            impressions: gImpressions,
+            conversions: gConversions
+        });
+        setMetaStats({ 
+            spend: mSpend, 
+            clicks: mClicks, 
+            impressions: mImpressions,
+            conversions: mConversions
+        });
 
       } catch (err) {
         console.error("Erro ao buscar dados de anúncios do dashboard:", err);
@@ -123,7 +107,7 @@ const Dashboard: React.FC = () => {
     };
 
     fetchAdsData();
-  }, [user?.id, dateFilter, googleAdsToken]);
+  }, [user?.id, dateKey, googleAdsToken]);
 
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
 
@@ -278,9 +262,24 @@ const Dashboard: React.FC = () => {
               R$ {(googleStats.spend + metaStats.spend > 0 ? (googleStats.spend + metaStats.spend) : metrics.marketing.investimento).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </h3>
             {googleStats.spend + metaStats.spend > 0 ? (
-              <p className="text-[8px] md:text-[9px] font-semibold text-slate-500 mt-1.5 md:mt-2 uppercase truncate">
-                G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} | M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-              </p>
+              <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[8px] md:text-[10px] font-semibold text-slate-500">
+                <p className="flex justify-between">
+                  <span>G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+                  <span>M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+                </p>
+                <p className="flex justify-between text-blue-600 border-t border-slate-50 pt-1 mt-1">
+                  <span>Cliques Totais:</span>
+                  <span className="font-bold">{(googleStats.clicks + metaStats.clicks).toLocaleString('pt-BR')}</span>
+                </p>
+                <p className="flex justify-between text-indigo-600">
+                  <span>Impressões Totais:</span>
+                  <span className="font-bold">{(googleStats.impressions + metaStats.impressions).toLocaleString('pt-BR')}</span>
+                </p>
+                <p className="flex justify-between text-emerald-600">
+                  <span>Conversões Totais:</span>
+                  <span className="font-bold">{(googleStats.conversions + metaStats.conversions).toLocaleString('pt-BR')}</span>
+                </p>
+              </div>
             ) : (
               <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
             )}
