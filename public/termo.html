@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="index, follow">
+    <meta name="description" content="Termos de Serviço e Licenciamento do aplicativo Axis IA - New (AXIS AI Gestão). Regras de uso, responsabilidades operacionais e conformidade regulatória.">
+    <title>Termos de Serviço — AXIS AI Gestão</title>
+    <style>
+        /* Variáveis e Reset */
+        :root {
+            --color-primary: #0f766e;
+            --color-dark: #115e59;
+            --color-light: #ccfbf1;
+            --color-bg-dark: #0f172a;
+            --color-bg-light: #f8fafc;
+            --color-text: #0f172a;
+            --color-text-muted: #475569;
+            --color-border: #e2e8f0;
+            --color-white: #ffffff;
+            
+            --callout-info-bg: #ccfbf1;
+            --callout-info-border: #0f766e;
+            --callout-info-text: #115e59;
+            
+            --callout-warn-bg: #fef3c7;
+            --callout-warn-border: #d97706;
+            --callout-warn-text: #78350f;
+            
+            --callout-danger-bg: #fee2e2;
+            --callout-danger-border: #dc2626;
+            --callout-danger-text: #7f1d1d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--color-text);
+            background-color: var(--color-white);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Topbar com Gradiente */
+        .topbar {
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-dark) 100%);
+            color: var(--color-white);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .topbar-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            text-transform: uppercase;
+        }
+
+        .topbar-nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .topbar-nav a {
+            color: var(--color-white);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            opacity: 0.9;
+            transition: opacity 0.2s ease;
+        }
+
+        .topbar-nav a:hover,
+        .topbar-nav a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+
+        /* Hero Section */
+        .hero {
+            background-color: var(--color-bg-light);
+            border-bottom: 1px solid var(--color-border);
+            padding: 3.5rem 2rem;
+            text-align: center;
+        }
+
+        .hero-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .badge {
+            display: inline-block;
+            background-color: var(--color-light);
+            color: var(--color-dark);
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em;
+        }
+
+        .hero h1 {
+            font-size: 2.25rem;
+            font-weight: 900;
+            color: var(--color-bg-dark);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+            letter-spacing: -0.025em;
+        }
+
+        .hero-lead {
+            font-size: 1.125rem;
+            color: var(--color-text-muted);
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-meta {
+            font-size: 0.8125rem;
+            color: var(--color-text-muted);
+            font-weight: 500;
+        }
+
+        /* Main Grid */
+        .main-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 3rem;
+            align-items: start;
+        }
+
+        /* Sidebar Navigation (TOC) */
+        .toc-sidebar {
+            position: sticky;
+            top: 5.5rem;
+            background-color: var(--color-bg-light);
+            border: 1px solid var(--color-border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            max-height: calc(100vh - 7rem);
+            overflow-y: auto;
+        }
+
+        .toc-title {
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--color-text-muted);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .toc-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toc-item a {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--color-text-muted);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.25rem 0;
+            transition: color 0.2s ease, padding-left 0.2s ease;
+        }
+
+        .toc-item a:hover {
+            color: var(--color-primary);
+            padding-left: 0.25rem;
+        }
+
+        /* Content Area */
+        .content {
+            display: flex;
+            flex-direction: column;
+            gap: 3rem;
+        }
+
+        .content section {
+            scroll-margin-top: 6rem;
+        }
+
+        .content h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--color-bg-dark);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--color-light);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .content h3 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--color-dark);
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .content p {
+            color: var(--color-text-muted);
+            margin-bottom: 1rem;
+            text-align: justify;
+        }
+
+        .content ul, .content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--color-text-muted);
+        }
+
+        .content li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* Tabelas */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            border: 1px solid var(--color-border);
+            border-radius: 0.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.875rem;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        th {
+            background-color: var(--color-bg-light);
+            color: var(--color-bg-dark);
+            font-weight: 700;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Callouts */
+        .callout {
+            padding: 1.25rem;
+            border-left: 4px solid;
+            border-radius: 0.375rem;
+            margin: 1.5rem 0;
+        }
+
+        .callout-info {
+            background-color: var(--callout-info-bg);
+            border-color: var(--callout-info-border);
+            color: var(--callout-info-text);
+        }
+
+        .callout-warn {
+            background-color: var(--callout-warn-bg);
+            border-color: var(--callout-warn-border);
+            color: var(--callout-warn-text);
+        }
+
+        .callout-danger {
+            background-color: var(--callout-danger-bg);
+            border-color: var(--callout-danger-border);
+            color: var(--callout-danger-text);
+        }
+
+        .callout-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            font-size: 0.875rem;
+            letter-spacing: 0.05em;
+        }
+
+        .callout p {
+            color: inherit;
+            margin-bottom: 0;
+            font-size: 0.9375rem;
+        }
+
+        /* Contact Card */
+        .contact-card {
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-dark) 100%);
+            color: var(--color-white);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            margin: 1.5rem 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .contact-card h3 {
+            color: var(--color-white) !important;
+            margin-top: 0 !important;
+            margin-bottom: 1rem !important;
+            font-size: 1.25rem;
+            font-weight: 800;
+        }
+
+        .contact-card p {
+            color: var(--color-light);
+            font-size: 0.9375rem;
+            margin-bottom: 1rem;
+        }
+
+        .contact-details {
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            padding-top: 1rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .contact-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .contact-line span:first-child {
+            font-weight: 700;
+            color: var(--color-white);
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--color-bg-dark);
+            color: var(--color-text-muted);
+            border-top: 4px solid var(--color-primary);
+            padding: 3rem 2rem;
+            text-align: center;
+            font-size: 0.875rem;
+            margin-top: 4rem;
+        }
+
+        .footer-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-text {
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+        }
+
+        .footer-compliance {
+            font-weight: 600;
+            color: var(--color-light);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        /* Media Queries Responsivos */
+        @media (max-width: 880px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .toc-sidebar {
+                position: relative;
+                top: 0;
+                max-height: none;
+                overflow-y: visible;
+                margin-bottom: 1rem;
+            }
+
+            .hero {
+                padding: 2.5rem 1rem;
+            }
+
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .topbar {
+                padding: 1rem;
+            }
+
+            .topbar-container {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            .topbar-nav {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 1rem;
+            }
+
+            .main-container {
+                padding: 0 1rem;
+            }
+        }
+
+        /* Impressão */
+        @media print {
+            .topbar, .toc-sidebar, footer {
+                display: none !important;
+            }
+
+            body {
+                font-size: 12pt;
+                color: #000000;
+                background: none;
+            }
+
+            .main-container {
+                grid-template-columns: 1fr;
+                margin: 0;
+                padding: 0;
+            }
+
+            .content {
+                gap: 2rem;
+            }
+
+            h2, h3 {
+                page-break-after: avoid;
+            }
+
+            section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="topbar">
+        <div class="topbar-container">
+            <div class="brand">AXIS AI Gestão</div>
+            <nav class="topbar-nav" aria-label="Navegação secundária legal">
+                <a href="/politica">Política de Privacidade</a>
+                <a href="/termo" class="active">Termos de Serviço</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Header -->
+    <section class="hero">
+        <div class="hero-container">
+            <span class="badge">Uso e Licenciamento</span>
+            <h1>Termos de Serviço e Condições de Uso</h1>
+            <p class="hero-lead">Regras, responsabilidades e parâmetros operacionais para a utilização do ecossistema AXIS AI Gestão de marketing e atendimento.</p>
+            <div class="hero-meta">
+                Última atualização: 10 de julho de 2026 | Versão 2.0 | Vigência imediata
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content Container -->
+    <main class="main-container">
+        
+        <!-- Table of Contents -->
+        <nav class="toc-sidebar" aria-label="Índice da página">
+            <div class="toc-title">Seções do Documento</div>
+            <ul class="toc-list">
+                <li class="toc-item"><a href="#secao-1">1. Aceitação dos Termos</a></li>
+                <li class="toc-item"><a href="#secao-2">2. Definições Técnicas</a></li>
+                <li class="toc-item"><a href="#secao-3">3. Descrição das Integrações</a></li>
+                <li class="toc-item"><a href="#secao-4">4. Cadastro, Licença e Segurança</a></li>
+                <li class="toc-item"><a href="#secao-5">5. Responsabilidades (Controlador vs Operadora)</a></li>
+                <li class="toc-item"><a href="#secao-6">6. Regras de Uso Aceitável</a></li>
+                <li class="toc-item"><a href="#secao-7">7. Ecossistema e APIs de Terceiros</a></li>
+                <li class="toc-item"><a href="#secao-8">8. Direitos de Propriedade Intelectual</a></li>
+                <li class="toc-item"><a href="#secao-9">9. Modelos de Cobrança e Planos</a></li>
+                <li class="toc-item"><a href="#secao-10">10. Rescisão e Suspensão de Serviço</a></li>
+                <li class="toc-item"><a href="#secao-11">11. Isenções de Garantias</a></li>
+                <li class="toc-item"><a href="#secao-12">12. Limitações Rígidas de Responsabilidade</a></li>
+                <li class="toc-item"><a href="#secao-13">13. Cláusulas de Indenização</a></li>
+                <li class="toc-item"><a href="#secao-14">14. Legislação Aplicável e Foro</a></li>
+                <li class="toc-item"><a href="#secao-15">15. Alterações Contratuais e Suporte</a></li>
+            </ul>
+        </nav>
+
+        <!-- Document Content -->
+        <article class="content">
+
+            <!-- 1. ACEITAÇÃO DOS TERMOS -->
+            <section id="secao-1">
+                <h2>1. Aceitação de Termos e Condições</h2>
+                <p>Estes Termos de Serviço constituem um contrato legal vinculante entre a empresa AXIS AI Gestão (operadora proprietária dos direitos da marca) e o usuário físico ou pessoa jurídica licenciada que opta por se cadastrar e operar o aplicativo "Axis IA - New" (Meta App ID: 1102275776312848), operando de forma online por meio do endereço https://axis-ai-1s3m.onrender.com e vinculando-se contratualmente por intermédio das páginas institucionais de sua marca https://iatask.com.br.</p>
+                <p>A criação, ativação de conta ou qualquer nível de interação operacional com os painéis integrados da plataforma pressupõe a leitura integral, compreensão clara e o assentimento pleno e inequívoco de todas as cláusulas presentes neste instrumento legal. Caso discorde de quaisquer diretrizes contratuais estipuladas, o usuário deverá abster-se imediatamente de utilizar os serviços, sistemas ou conectar credenciais OAuth.</p>
+            </section>
+
+            <!-- 2. DEFINIÇÕES TÉCNICAS -->
+            <section id="secao-2">
+                <h2>2. Definições Técnicas e Comerciais</h2>
+                <p>Para fins de perfeita interpretação e aplicação destes Termos de Serviço, adota-se o seguinte glossário técnico específico:</p>
+                <ul>
+                    <li><strong>Plataforma / Aplicativo:</strong> O ecossistema de software estruturado em nuvem denominado comercialmente "AXIS AI Gestão", catalogado tecnicamente nas APIs de parceiros sob o nome de "Axis IA - New" (Meta App ID: 1102275776312848).</li>
+                    <li><strong>Usuário Licenciado (Cliente):</strong> A pessoa jurídica ou profissional autônomo legalmente estabelecido que adquire o licenciamento de uso do software para gestão de suas clínicas, captação e gerenciamento de leads.</li>
+                    <li><strong>Leads / Pacientes:</strong> Os indivíduos que interagem ativamente com os canais de atendimento e cujas informações e registros telefônicos alimentam os painéis de CRM do cliente.</li>
+                    <li><strong>Integrações OAuth:</strong> Mecanismos de autenticação segura e conexão por tokens que ligam a plataforma a provedores de publicidade parceiros de forma direta e programática.</li>
+                </ul>
+            </section>
+
+            <!-- 3. DESCRIÇÃO DAS INTEGRAÇÕES -->
+            <section id="secao-3">
+                <h2>3. Escopo Técnico e Descrição do Serviço</h2>
+                <p>A plataforma AXIS AI Gestão é uma ferramenta avançada SaaS de consolidação estatística de campanhas de publicidade online integrada a um gerenciador de relacionamento de leads (CRM) com recursos de automação de respostas assistidos por Inteligência Artificial. O escopo técnico operacional engloba e limita-se às seguintes integrações ativas:</p>
+                <ul>
+                    <li><strong>Integração Google Ads API v24 (via OAuth 2.0):</strong> Consulta de investimento consolidado, taxas de cliques, impressões e monitoramento programático de performance de grupos de anúncios em contas conectadas.</li>
+                    <li><strong>Integração Meta Graph API v25 e Marketing API:</strong> Consiste na extração de dados e gestão remota de anúncios Meta por meio do uso exclusivo e monitorado das permissões oficiais homologadas: <code>ads_read</code>, <code>ads_management</code>, <code>business_management</code>, <code>pages_show_list</code>, <code>pages_read_engagement</code> e <code>public_profile</code>.</li>
+                    <li><strong>WhatsApp Business via Uazapi:</strong> Sincronização em tempo real de mensagens de chat, registros de contatos sob formato estruturado E.164 (+5511999998888), arquivos de mídia, imagens e áudio de conversação.</li>
+                    <li><strong>CRM com Funil Kanban:</strong> Visualização e manipulação interativa da temperatura dos leads, categorizados programaticamente em Quente, Morno ou Frio para otimizar vendas.</li>
+                    <li><strong>Automação Inteligente via Google Gemini AI:</strong> Geração assistida de relatórios de diagnóstico de atendimento, resumos de humor das conversas e recomendação de roteiros para as secretárias de clínicas.</li>
+                    <li><strong>Infraestrutura e Banco de Dados:</strong> Hospedagem física dos servidores estruturada no Render e persistência de dados em PostgreSQL sob Supabase com criptografia AES-256 e segurança operacional.</li>
+                </ul>
+            </section>
+
+            <!-- 4. CADASTRO E CONTA -->
+            <section id="secao-4">
+                <h2>4. Cadastro, Licenciamento e Segurança de Acesso</h2>
+                <p>O acesso às dependências operacionais do painel exige a realização de cadastro prévio de pessoa jurídica ou profissional de saúde. O usuário compromete-se a prover informações de contato rigorosamente verdadeiras, atuais e completas, mantendo atualizado o e-mail cadastrado no App Dashboard (heloa.kaue598@gmail.com ou o e-mail de correspondência operacional correspondente).</p>
+                <p>A conta criada é pessoal, intransferível e de uso restrito da empresa licenciada. O usuário é o único e exclusivo responsável pela salvaguarda da confidencialidade de suas senhas de acesso (as quais são salvas de forma segura sob hash bcrypt). Qualquer ação, modificação de orçamento de anúncios ou importação de contatos de WhatsApp efetuada sob as credenciais de login do usuário será reputada de sua total autoria, devendo este comunicar imediatamente à plataforma sobre qualquer suspeita de quebra de sigilo ou intrusão externa.</p>
+            </section>
+
+            <!-- 5. RESPONSABILIDADES (CONTROLADOR VS OPERADORA) -->
+            <section id="secao-5">
+                <h2>5. Responsabilidades Perante a LGPD</h2>
+                <div class="callout callout-info">
+                    <div class="callout-title">Atuação Legal sob a Lei nº 13.709/2018 (LGPD)</div>
+                    <p>Fica expressamente consignado que a relação de tratamento de dados pessoais de leads e contatos importados obedece estritamente às definições da legislação brasileira:</p>
+                </div>
+                <ul>
+                    <li><strong>O Usuário Licenciado atua como CONTROLADOR de dados:</strong> Cabendo exclusivamente a ele obter o consentimento regular dos seus contatos de atendimento, definir as regras de abordagem comercial, a duração da manutenção de conversas de WhatsApp e responsabilizar-se juridicamente pela legalidade e legitimidade da captação de seus respectivos leads.</li>
+                    <li><strong>A AXIS AI Gestão atua estritamente como OPERADORA de dados:</strong> Realizando o processamento físico, classificação automática de leads no Kanban e chamadas de API direcionadas conforme ordens explícitas e automatizadas emitidas pelo painel do usuário. A AXIS AI Gestão não possui controle editorial ou ingerência nas bases de dados dos leads importados pelo cliente.</li>
+                </ul>
+            </section>
+
+            <!-- 6. USO ACEITÁVEL -->
+            <section id="secao-6">
+                <h2>6. Políticas de Uso Aceitável da Tecnologia</h2>
+                <p>O usuário concorda em utilizar as dependências de software do aplicativo de boa-fé e em conformidade rigorosa com o ordenamento jurídico vigente no Brasil. Fica terminantemente proibido ao usuário:</p>
+                <ol>
+                    <li>Realizar o envio massivo de mensagens automatizadas não solicitadas (SPAM) utilizando canais integrados de WhatsApp, em violação às diretrizes de uso oficial da Meta Platforms Inc.</li>
+                    <li>Promover ações de engenharia reversa, descompilação, ataques cibernéticos de injeção SQL, ou burlar os mecanismos protetivos de limite de requisições configurados em nosso servidor Render (rate limit ativo de 100 requisições por minuto).</li>
+                    <li>Sublicenciar, vender, revender, alugar, ceder ou explorar comercialmente o painel da plataforma para empresas não autorizadas contratualmente.</li>
+                    <li>Processar, importar ou armazenar dados de leads associados a atividades ilícitas, abusivas, discriminatórias ou em desconformidade com conselhos federais de classe médica (como publicidade antiética ou promessas enganosas de resultados de saúde).</li>
+                </ol>
+            </section>
+
+            <!-- 7. INTEGRAÇÕES DE TERCEIROS -->
+            <section id="secao-7">
+                <h2>7. Dependência e Alinhamento com APIs de Terceiros</h2>
+                <p>O funcionamento adequado do aplicativo "Axis IA - New" depende de forma crítica e direta da integridade e disponibilidade das APIs de publicidade de terceiros (Google Ads API e Meta Graph/Marketing API). O usuário reconhece que instabilidades temporárias nos servidores globais da Meta Platforms ou da Google, alterações drásticas em suas políticas de acesso a dados ou suspensões unilaterais promovidas por tais parceiros em suas contas de anúncios não são de responsabilidade da AXIS AI Gestão.</p>
+                <p>O usuário compromete-se a obedecer integralmente os regulamentos e os Termos de Serviço de cada parceiro, mantendo-se em conformidade durante toda a vigência do licenciamento da nossa plataforma sob pena de exclusão da conta de serviços.</p>
+            </section>
+
+            <!-- 8. PROPRIEDADE INTELECTUAL -->
+            <section id="secao-8">
+                <h2>8. Direitos de Propriedade Intelectual</h2>
+                <p>Todo o material técnico, códigos-fonte estruturados em TypeScript/React, lógica de banco de dados, design de interfaces de usuário do CRM Kanban, layouts de consolidação estatística, marcas comerciais, nomes de domínio, logotipos e scripts contidos no ecossistema "Axis IA - New" são de propriedade exclusiva e integral da AXIS AI Gestão ou de seus licenciadores terceiros autorizados.</p>
+                <p>A concessão da licença de uso temporária da plataforma SaaS aos usuários cadastrados não transfere, sob hipótese alguma, qualquer direito de propriedade intelectual, direitos autorais ou direitos sobre patentes do sistema, limitando-se ao uso estrito da plataforma conforme estabelecido na oferta comercial.</p>
+            </section>
+
+            <!-- 9. MODELOS DE COBRANÇA E PLANOS -->
+            <section id="secao-9">
+                <h2>9. Planos, Faturamento e Parâmetros de Cobrança</h2>
+                <p>A utilização dos serviços avançados de CRM e relatórios unificados de publicidade dá-se mediante a contratação de planos de assinatura de periodicidade mensal, semestral ou anual, de faturamento recorrente automatizado através das nossas adquirentes financeiras de pagamento parceiras.</p>
+                <p><strong>Renovação Automática e Reajustes:</strong> As assinaturas são renovadas de forma automática ao término de cada período, sendo facultada a rescisão antes da renovação pelo painel financeiro. Os preços vigentes poderão sofrer reajustes monetários anuais baseados nos índices oficiais de inflação, com comunicação prévia obrigatória enviada ao e-mail de cadastro em até 30 dias de antecedência.</p>
+                <p><strong>Políticas de Reembolso:</strong> Não oferecemos reembolsos proporcionais ou estornos por períodos de uso parcial contratados em planos ativos, excetuados os direitos de arrependimento legal de 7 dias contados a partir da contratação inicial do primeiro plano.</p>
+            </section>
+
+            <!-- 10. SUSPENSÃO E RESCISÃO -->
+            <section id="secao-10">
+                <h2>10. Suspensão Preventiva e Rescisão de Serviços</h2>
+                <p>A AXIS AI Gestão reserva-se o direito de suspender cautelarmente de forma imediata o acesso do usuário à plataforma, bloquear chamadas de API e interromper a sincronização de campanhas ou fluxo de WhatsApp, sem necessidade de aviso prévio por escrito, na ocorrência das seguintes situações:</p>
+                <ul>
+                    <li>Constatação inequívoca de violação das regras de uso aceitável listadas na Seção 6.</li>
+                    <li>Atraso no pagamento das parcelas de assinatura por período superior a 15 dias corridos.</li>
+                    <li>Recebimento de denúncias consistentes de práticas abusivas de SPAM ou de fraudes publicitárias através de conexões ativas.</li>
+                </ul>
+                <p>A rescisão definitiva decorrente do cancelamento voluntário do usuário acarreta a exclusão lógica das tabelas de leads, tokens de OAuth e canais de WhatsApp em total alinhamento com os prazos de nossa Política de Privacidade.</p>
+            </section>
+
+            <!-- 11. ISENÇÕES DE GARANTIAS -->
+            <section id="secao-11">
+                <h2>11. Isenções de Garantias Operacionais</h2>
+                <p>A AXIS AI Gestão disponibiliza a plataforma tecnológica e os painéis de CRM no modelo de prestação "no estado em que se encontram" (as is) e "conforme disponíveis" (as available), sem qualquer tipo de garantia expressa ou tácita de que as atividades de software ocorrerão de forma ininterrupta, livre de erros residuais, livre de travamentos em momentos de alta carga ou compatível com todas as combinações de navegadores web.</p>
+                <p>Tampouco oferecemos qualquer tipo de garantia sobre os resultados financeiros gerados pelas clínicas licenciadas após o uso das nossas sugestões assistidas por Inteligência Artificial (Google Gemini), sendo a conversão de leads uma atividade mercadológica de responsabilidade do cliente.</p>
+            </section>
+
+            <!-- 12. LIMITAÇÕES RÍGIDAS DE RESPONSABILIDADE -->
+            <section id="secao-12">
+                <h2>12. Limitações Rígidas de Responsabilidade Financeira</h2>
+                <div class="callout callout-danger">
+                    <div class="callout-title">AVISO DE LIMITAÇÃO DE RESPONSABILIDADE (Exclusão de Danos)</div>
+                    <p>Em nenhum caso a AXIS AI Gestão, seus diretores, desenvolvedores ou funcionários serão responsabilizados por lucros cessantes, perdas financeiras em orçamentos de anúncios ativados via API, perda de dados confidenciais de CRM resultantes de exclusões acidentais efetuadas pelo usuário, perdas comerciais resultantes de falhas de rede de operadoras telefônicas, ou por quaisquer danos indiretos e incidentais de qualquer natureza.</p>
+                </div>
+                <p>Fica acordado de forma expressa que, em qualquer circunstância em que seja apurada a responsabilidade civil da plataforma perante a justiça, a soma total de eventuais indenizações civis devidas a título de perdas e danos estará estritamente limitada ao teto correspondente à soma de mensalidades efetivamente pagas pelo usuário nos últimos 6 meses de contrato de assinatura ativo.</p>
+            </section>
+
+            <!-- 13. CLÁUSULAS DE INDENIZAÇÃO -->
+            <section id="secao-13">
+                <h2>13. Obrigações de Indenização por Mau Uso</h2>
+                <p>O usuário licenciado compromete-se a defender, indenizar, ressarcir e isentar a AXIS AI Gestão e seus funcionários contra quaisquer perdas, danos financeiros, custos processuais judiciais, multas aplicadas por órgãos reguladores ou despesas decorrentes de reclamações judiciais ou administrativas promovidas por terceiros (inclusive por leads e pacientes atendidos pelas clínicas) decorrentes diretamente do mau uso da plataforma, descumprimento destes Termos de Serviço ou de violações diretas à Lei Geral de Proteção de Dados (LGPD) decorrentes de suas atividades de tratamento inadequado de leads.</p>
+            </section>
+
+            <!-- 14. LEGISLAÇÃO APLICÁVEL E FORO -->
+            <section id="secao-14">
+                <h2>14. Legislação Aplicável e Foro de Eleição</h2>
+                <p>Estes Termos de Serviço são inteiramente regidos, interpretados e executados sob o império da legislação brasileira, com destaque e conformidade ao Marco Civil da Internet (Lei nº 12.965/2014) e à Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</p>
+                <p>Para a resolução de eventuais litígios contratuais ou controvérsias judiciais decorrentes do uso da plataforma, as partes elegem, com renúncia expressa a qualquer outro foro por mais privilegiado que se apresente, o Foro Central da Comarca da capital do estado de residência ou domicílio fiscal da empresa AXIS AI Gestão, para dirimir quaisquer dúvidas de execução.</p>
+            </section>
+
+            <!-- 15. ALTERAÇÕES CONTRATUAIS E SUPORTE -->
+            <section id="secao-15">
+                <h2>15. Alterações Contratuais, Comunicações e Suporte</h2>
+                <p>Estes Termos de Serviço poderão sofrer revisões e alterações editoriais e técnicas para refletir adaptações de código, mudanças operacionais em nossos parceiros de infraestrutura ou atualizações de leis no Brasil. As novas versões entrarão em vigência de forma imediata à sua publicação nesta URL.</p>
+                <p>Para o esclarecimento de dúvidas operacionais, abertura de solicitações técnicas ou notificações de incidentes cibernéticos relacionados à plataforma AXIS AI Gestão, disponibilizamos nosso canal oficial de suporte administrativo eletrônico:</p>
+                
+                <div class="contact-card">
+                    <h3>Suporte Geral AXIS AI Gestão</h3>
+                    <p>Entre em contato direto com nosso time técnico de desenvolvimento e compliance comercial.</p>
+                    
+                    <div class="contact-details">
+                        <div class="contact-line">
+                            <span>Destinatário:</span>
+                            <span>Suporte e Licenciamento</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>E-mail Geral:</span>
+                            <span>contato@iatask.com.br</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>Canais de Atendimento:</span>
+                            <span>https://iatask.com.br</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>Aplicativo Oficial:</span>
+                            <span>"Axis IA - New" (ID: 1102275776312848)</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </article>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-container">
+            <div class="footer-compliance">Em total conformidade com a LGPD (Lei nº 13.709/2018) e Marco Civil da Internet</div>
+            <p class="footer-text">AXIS AI Gestão &copy; 2026 — Todos os direitos reservados.<br>
+            Este documento é de propriedade intelectual exclusiva da AXIS AI Gestão. É público, indexável por crawlers e serve como termos oficiais de serviço para a validação das APIs da Meta Platforms e Google Ads.</p>
+            <p class="footer-meta">"Axis IA - New" (Meta App ID: 1102275776312848) | Versão 2.0 | Atualizado em 10 de Julho de 2026</p>
+        </div>
+    </footer>
+
+</body>
+</html>

@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
+    publicDir: 'public',
     server: {
       proxy: {
         // Redireciona chamadas /api para o servidor Express localmente ou URL remota configurada

@@ -123,6 +123,14 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get(['/politica', '/politica.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'politica.html'));
+});
+
+app.get(['/termo', '/termo.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'termo.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // ==============================================================================

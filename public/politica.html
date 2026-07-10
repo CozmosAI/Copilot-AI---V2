@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="index, follow">
+    <meta name="description" content="Política de Privacidade e Proteção de Dados do aplicativo Axis IA - New (AXIS AI Gestão). Saiba como coletamos, tratamos, protegemos e excluímos seus dados corporativos e de leads.">
+    <title>Política de Privacidade — AXIS AI Gestão</title>
+    <style>
+        /* Variáveis e Reset */
+        :root {
+            --color-primary: #0f766e;
+            --color-dark: #115e59;
+            --color-light: #ccfbf1;
+            --color-bg-dark: #0f172a;
+            --color-bg-light: #f8fafc;
+            --color-text: #0f172a;
+            --color-text-muted: #475569;
+            --color-border: #e2e8f0;
+            --color-white: #ffffff;
+            
+            --callout-info-bg: #ccfbf1;
+            --callout-info-border: #0f766e;
+            --callout-info-text: #115e59;
+            
+            --callout-warn-bg: #fef3c7;
+            --callout-warn-border: #d97706;
+            --callout-warn-text: #78350f;
+            
+            --callout-danger-bg: #fee2e2;
+            --callout-danger-border: #dc2626;
+            --callout-danger-text: #7f1d1d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--color-text);
+            background-color: var(--color-white);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Topbar com Gradiente */
+        .topbar {
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-dark) 100%);
+            color: var(--color-white);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .topbar-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            text-transform: uppercase;
+        }
+
+        .topbar-nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .topbar-nav a {
+            color: var(--color-white);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            opacity: 0.9;
+            transition: opacity 0.2s ease;
+        }
+
+        .topbar-nav a:hover,
+        .topbar-nav a.active {
+            opacity: 1;
+            text-decoration: underline;
+        }
+
+        /* Hero Section */
+        .hero {
+            background-color: var(--color-bg-light);
+            border-bottom: 1px solid var(--color-border);
+            padding: 3.5rem 2rem;
+            text-align: center;
+        }
+
+        .hero-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .badge {
+            display: inline-block;
+            background-color: var(--color-light);
+            color: var(--color-dark);
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em;
+        }
+
+        .hero h1 {
+            font-size: 2.25rem;
+            font-weight: 900;
+            color: var(--color-bg-dark);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+            letter-spacing: -0.025em;
+        }
+
+        .hero-lead {
+            font-size: 1.125rem;
+            color: var(--color-text-muted);
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-meta {
+            font-size: 0.8125rem;
+            color: var(--color-text-muted);
+            font-weight: 500;
+        }
+
+        /* Main Grid */
+        .main-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 3rem;
+            align-items: start;
+        }
+
+        /* Sidebar Navigation (TOC) */
+        .toc-sidebar {
+            position: sticky;
+            top: 5.5rem;
+            background-color: var(--color-bg-light);
+            border: 1px solid var(--color-border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            max-height: calc(100vh - 7rem);
+            overflow-y: auto;
+        }
+
+        .toc-title {
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--color-text-muted);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .toc-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toc-item a {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--color-text-muted);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.25rem 0;
+            transition: color 0.2s ease, padding-left 0.2s ease;
+        }
+
+        .toc-item a:hover {
+            color: var(--color-primary);
+            padding-left: 0.25rem;
+        }
+
+        /* Content Area */
+        .content {
+            display: flex;
+            flex-direction: column;
+            gap: 3rem;
+        }
+
+        .content section {
+            scroll-margin-top: 6rem;
+        }
+
+        .content h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--color-bg-dark);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--color-light);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .content h3 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--color-dark);
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .content p {
+            color: var(--color-text-muted);
+            margin-bottom: 1rem;
+            text-align: justify;
+        }
+
+        .content ul, .content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--color-text-muted);
+        }
+
+        .content li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* Tabelas */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            border: 1px solid var(--color-border);
+            border-radius: 0.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.875rem;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        th {
+            background-color: var(--color-bg-light);
+            color: var(--color-bg-dark);
+            font-weight: 700;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Callouts */
+        .callout {
+            padding: 1.25rem;
+            border-left: 4px solid;
+            border-radius: 0.375rem;
+            margin: 1.5rem 0;
+        }
+
+        .callout-info {
+            background-color: var(--callout-info-bg);
+            border-color: var(--callout-info-border);
+            color: var(--callout-info-text);
+        }
+
+        .callout-warn {
+            background-color: var(--callout-warn-bg);
+            border-color: var(--callout-warn-border);
+            color: var(--callout-warn-text);
+        }
+
+        .callout-danger {
+            background-color: var(--callout-danger-bg);
+            border-color: var(--callout-danger-border);
+            color: var(--callout-danger-text);
+        }
+
+        .callout-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            font-size: 0.875rem;
+            letter-spacing: 0.05em;
+        }
+
+        .callout p {
+            color: inherit;
+            margin-bottom: 0;
+            font-size: 0.9375rem;
+        }
+
+        /* Grid de Direitos do Titular (Seção 11) */
+        .rights-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .right-card {
+            background-color: var(--color-bg-light);
+            border: 1px solid var(--color-border);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .right-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--color-primary);
+        }
+
+        .right-card h4 {
+            font-size: 0.9375rem;
+            font-weight: 700;
+            color: var(--color-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .right-card p {
+            font-size: 0.8125rem;
+            line-height: 1.5;
+            color: var(--color-text-muted);
+            margin-bottom: 0;
+        }
+
+        /* Contact Card */
+        .contact-card {
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-dark) 100%);
+            color: var(--color-white);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            margin: 1.5rem 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .contact-card h3 {
+            color: var(--color-white) !important;
+            margin-top: 0 !important;
+            margin-bottom: 1rem !important;
+            font-size: 1.25rem;
+            font-weight: 800;
+        }
+
+        .contact-card p {
+            color: var(--color-light);
+            font-size: 0.9375rem;
+            margin-bottom: 1rem;
+        }
+
+        .contact-details {
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            padding-top: 1rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .contact-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .contact-line span:first-child {
+            font-weight: 700;
+            color: var(--color-white);
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--color-bg-dark);
+            color: var(--color-text-muted);
+            border-top: 4px solid var(--color-primary);
+            padding: 3rem 2rem;
+            text-align: center;
+            font-size: 0.875rem;
+            margin-top: 4rem;
+        }
+
+        .footer-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-text {
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+        }
+
+        .footer-compliance {
+            font-weight: 600;
+            color: var(--color-light);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        /* Media Queries Responsivos */
+        @media (max-width: 880px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .toc-sidebar {
+                position: relative;
+                top: 0;
+                max-height: none;
+                overflow-y: visible;
+                margin-bottom: 1rem;
+            }
+
+            .hero {
+                padding: 2.5rem 1rem;
+            }
+
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .topbar {
+                padding: 1rem;
+            }
+
+            .topbar-container {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            .topbar-nav {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 1rem;
+            }
+
+            .main-container {
+                padding: 0 1rem;
+            }
+        }
+
+        /* Impressão */
+        @media print {
+            .topbar, .toc-sidebar, footer {
+                display: none !important;
+            }
+
+            body {
+                font-size: 12pt;
+                color: #000000;
+                background: none;
+            }
+
+            .main-container {
+                grid-template-columns: 1fr;
+                margin: 0;
+                padding: 0;
+            }
+
+            .content {
+                gap: 2rem;
+            }
+
+            h2, h3 {
+                page-break-after: avoid;
+            }
+
+            section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="topbar">
+        <div class="topbar-container">
+            <div class="brand">AXIS AI Gestão</div>
+            <nav class="topbar-nav" aria-label="Navegação secundária legal">
+                <a href="/politica" class="active">Política de Privacidade</a>
+                <a href="/termo">Termos de Serviço</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero Header -->
+    <section class="hero">
+        <div class="hero-container">
+            <span class="badge">Proteção de Dados</span>
+            <h1>Política de Privacidade e Tratamento de Informações</h1>
+            <p class="hero-lead">Transparência, conformidade com a LGPD e regras claras para o processamento de dados integrados de marketing e atendimento.</p>
+            <div class="hero-meta">
+                Última atualização: 10 de julho de 2026 | Versão 2.0 | Vigência imediata
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content Container -->
+    <main class="main-container">
+        
+        <!-- Table of Contents -->
+        <nav class="toc-sidebar" aria-label="Índice da página">
+            <div class="toc-title">Seções do Documento</div>
+            <ul class="toc-list">
+                <li class="toc-item"><a href="#secao-1">1. Quem Somos e Escopo</a></li>
+                <li class="toc-item"><a href="#secao-2">2. Dados Coletados por Integração</a></li>
+                <li class="toc-item"><a href="#secao-3">3. Finalidades do Tratamento</a></li>
+                <li class="toc-item"><a href="#secao-4">4. Bases Legais LGPD</a></li>
+                <li class="toc-item"><a href="#secao-5">5. Integrações de Terceiros</a></li>
+                <li class="toc-item"><a href="#secao-6">6. Compartilhamento de Dados</a></li>
+                <li class="toc-item"><a href="#secao-7">7. Transferência Internacional</a></li>
+                <li class="toc-item"><a href="#secao-8">8. Prazos de Retenção de Dados</a></li>
+                <li class="toc-item"><a href="#secao-9">9. Protocolos de Segurança</a></li>
+                <li class="toc-item"><a href="#secao-10">10. Diretriz de Cookies</a></li>
+                <li class="toc-item"><a href="#secao-11">11. Direitos dos Titulares (Art. 18)</a></li>
+                <li class="toc-item"><a href="#secao-12">12. Como Excluir Seus Dados</a></li>
+                <li class="toc-item"><a href="#secao-13">13. Privacidade de Menores</a></li>
+                <li class="toc-item"><a href="#secao-14">14. Alterações da Política</a></li>
+                <li class="toc-item"><a href="#secao-15">15. Encarregado de Dados (DPO)</a></li>
+            </ul>
+        </nav>
+
+        <!-- Document Content -->
+        <article class="content">
+
+            <!-- 1. QUEM SOMOS -->
+            <section id="secao-1">
+                <h2>1. Quem Somos e Escopo de Atuação</h2>
+                <p>O aplicativo denominado "Axis IA - New", registrado sob o Meta App ID número 1102275776312848, com domínio principal de execução hospedado em https://axis-ai-1s3m.onrender.com e páginas de informações legais hospedadas em https://iatask.com.br, é uma plataforma tecnológica operada sob a marca e direitos comerciais da AXIS AI Gestão.</p>
+                <p>Nossa plataforma atua sob dupla classificação jurídica no âmbito da Lei Geral de Proteção de Dados Pessoais (LGPD - Lei nº 13.709/2018):</p>
+                <ul>
+                    <li><strong>Como Controladora de Dados:</strong> Em relação aos dados cadastrais, financeiros e de autenticação dos nossos clientes devidamente licenciados na plataforma.</li>
+                    <li><strong>Como Operadora de Dados:</strong> Em relação aos dados pessoais de leads, potenciais clientes e contatos provenientes das integrações ativadas pelos nossos clientes (como WhatsApp, CRM, Google Ads e Meta Ads), os quais são importados, consolidados e tratados de acordo com as instruções diretas de cada controlador (nossos clientes).</li>
+                </ul>
+            </section>
+
+            <!-- 2. DADOS COLETADOS POR INTEGRAÇÃO -->
+            <section id="secao-2">
+                <h2>2. Detalhamento Técnico dos Dados Coletados</h2>
+                <p>O aplicativo não realiza coleta genérica ou de fins obscuros. Coletamos estritamente os dados necessários para o fornecimento adequado e eficaz do serviço. A coleta é dividida especificamente por integração ativa:</p>
+                
+                <h3>A. Conta de Acesso e Perfil do Usuário</h3>
+                <p>Coletamos nome completo, endereço de e-mail corporativo (conforme cadastrado no App Dashboard, heloa.kaue598@gmail.com ou o e-mail de acesso individual), senha de acesso criptografada com algoritmo de hash bcrypt, fuso horário para sincronização de agendas, dados da clínica/empresa e dados cadastrais de faturamento.</p>
+
+                <h3>B. Integração Google Ads API v24 (via protocolo seguro OAuth 2.0)</h3>
+                <p>Para ler o investimento em marketing e apresentar dados consolidados de desempenho, coletamos e armazenamos de forma altamente protegida os tokens de autenticação (access token temporário e refresh token de longo prazo). A plataforma utiliza esses tokens exclusivamente para consultar de forma estruturada: investimento diário em anúncios (spend), cliques em links de publicidade (clicks), impressões em redes de pesquisa ou display (impressions) e conversões (conversions) a nível de campanhas e grupos de anúncios (adgroups).</p>
+
+                <h3>C. Integração Meta Graph API v25 e Marketing API (via protocolo seguro OAuth 2.0)</h3>
+                <p>O aplicativo solicita acesso estrito e monitorado aos tokens de acesso do usuário e das páginas conectadas. Processamos informações oriundas das seguintes permissões oficiais expressas no Meta App Dashboard:</p>
+                <ul>
+                    <li><strong>ads_read:</strong> Utilizada para extrair relatórios consolidados de custos, faturamento, alcance de anúncios e métricas agregadas de campanhas no gerenciador de negócios da Meta.</li>
+                    <li><strong>ads_management:</strong> Utilizada para a gestão programática, ativação, pausa e reajustes de orçamento de campanhas de anúncios conforme os comandos emitidos ativamente pelo usuário.</li>
+                    <li><strong>business_management:</strong> Necessária para o reconhecimento das contas comerciais integradas e a validação do vínculo do usuário com os ativos do Gerenciador de Negócios da Meta.</li>
+                    <li><strong>pages_show_list:</strong> Utilizada para obter a lista das páginas do Facebook associadas à conta do usuário para devida seleção de integração no painel administrativo.</li>
+                    <li><strong>pages_read_engagement:</strong> Utilizada para analisar métricas de engajamento em publicações orgânicas e anúncios associados às páginas conectadas.</li>
+                    <li><strong>public_profile:</strong> Acesso estrito a dados básicos como nome do usuário e foto de perfil para autenticação segura e personalização do painel administrativo.</li>
+                </ul>
+
+                <h3>D. Integração WhatsApp Business e CRM de Vendas via Uazapi</h3>
+                <p>O aplicativo recebe e trata contatos telefônicos de leads e potenciais pacientes importados em conformidade rigorosa com o padrão internacional E.164 (por exemplo, +5511999998888), acompanhados por nome do contato e pelo respectivo fluxo de conversação (mensagens em formato de texto, arquivos de áudio, imagens ou documentos compartilhados). Estas informações alimentam o CRM de vendas e o funil Kanban, onde são segmentadas por temperatura do lead (Quente/Hot, Morno/Warm ou Frio/Cold).</p>
+
+                <h3>E. Processamento via Inteligência Artificial (Google Gemini)</h3>
+                <p>Para qualificar e otimizar as taxas de agendamento de consultas, o histórico textual das interações de WhatsApp é transferido de maneira segura para processamento nos modelos oficiais de Inteligência Artificial do Google Gemini. O processamento limita-se à detecção semântica de humor, objeções de venda e à recomendação de roteiros personalizados para conversão.</p>
+
+                <h3>F. Telemetria Técnica e Logs de Infraestrutura</h3>
+                <p>Armazenamos logs de servidor contendo o endereço de IP do dispositivo conectado, dados do agente do navegador (user agent), sistema operacional, timestamps detalhados e rotas acessadas para fins de auditoria de segurança e aplicação de regras ativas contra abusos cibernéticos.</p>
+            </section>
+
+            <!-- 3. FINALIDADES DO TRATAMENTO -->
+            <section id="secao-3">
+                <h2>3. Finalidades Específicas do Tratamento</h2>
+                <p>Todos os dados processados possuem destinação explícita, conforme detalhado na tabela de finalidades técnicas a seguir:</p>
+                
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Categoria de Dados</th>
+                                <th>Finalidade Específica no Aplicativo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Cadastro e Perfil</td>
+                                <td>Identificação de licença ativa, autenticação de login de segurança e faturamento de assinatura do serviço.</td>
+                            </tr>
+                            <tr>
+                                <td>Métricas Google Ads</td>
+                                <td>Consolidação de relatórios de tráfego, cálculo do Retorno sobre Investimento (ROI) e exibição de estatísticas financeiras integradas no Dashboard.</td>
+                            </tr>
+                            <tr>
+                                <td>Dados Meta Ads</td>
+                                <td>Exibição de desempenho de campanhas unificadas de marketing, ajustes remotos de verbas e otimização de criativos publicitários.</td>
+                            </tr>
+                            <tr>
+                                <td>WhatsApp e CRM</td>
+                                <td>Distribuição de conversas em canais de atendimento, classificação e movimentação de contatos de leads na interface em modelo Kanban.</td>
+                            </tr>
+                            <tr>
+                                <td>Histórico & IA (Gemini)</td>
+                                <td>Identificação inteligente de propensão à compra, resumo operacional de conversas e geração de sugestões de texto para agendamentos eficientes.</td>
+                            </tr>
+                            <tr>
+                                <td>Dados Técnicos e Logs</td>
+                                <td>Prevenção de ataques cibernéticos, conformidade com o Marco Civil da Internet e aplicação técnica do rate limit protetivo.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 4. BASES LEGAIS LGPD -->
+            <section id="secao-4">
+                <h2>4. Enquadramento Legal (LGPD - Artigo 7º)</h2>
+                <p>O tratamento de dados pessoais no âmbito da plataforma "Axis IA - New" ocorre estritamente respaldado nas hipóteses legais estabelecidas pelo artigo 7º da Lei Geral de Proteção de Dados (Lei nº 13.709/2018):</p>
+                <ol>
+                    <li><strong>Execução de Contrato ou de Procedimentos Preliminares (Art. 7º, V):</strong> Aplicado ao tratamento de dados cadastrais, financeiros e de autenticação indispensáveis para a entrega da infraestrutura SaaS comercializada aos usuários.</li>
+                    <li><strong>Consentimento Explicito do Titular (Art. 7º, I):</strong> Obtido de forma clara e inequívoca no momento em que o usuário opta por conectar suas respectivas integrações externas (OAuth do Google Ads e Meta Ads) e autoriza a importação das conversas de atendimento.</li>
+                    <li><strong>Legítimo Interesse do Controlador (Art. 7º, IX):</strong> Aplicado para fins de segurança operacional, telemetria analítica de desempenho e detecção precoce de fraudes cibernéticas.</li>
+                    <li><strong>Cumprimento de Obrigação Legal ou Regulatória (Art. 7º, II):</strong> Sendo o armazenamento de registros e endereços de IP de acesso de rede obrigatório nos termos da legislação federal (Marco Civil da Internet, Lei nº 12.965/2014) pelo prazo mínimo estipulado de 6 meses.</li>
+                </ol>
+            </section>
+
+            <!-- 5. INTEGRAÇÕES DE TERCEIROS -->
+            <section id="secao-5">
+                <h2>5. Integrações Ativas com Provedores Externos</h2>
+                <p>Nossos serviços dependem da integração com provedores globais de tecnologia que também adotam altos padrões de privacidade de dados. Recomendamos a leitura cuidadosa de suas respectivas políticas de tratamento de informações:</p>
+                <ul>
+                    <li><strong>Google Ads e Google Cloud:</strong> Processamento de dados de marketing e serviços de API em total conformidade. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Política de Privacidade Google</a>.</li>
+                    <li><strong>Meta Platforms (Facebook/Instagram/WhatsApp):</strong> Processamento de relatórios publicitários e fluxo de WhatsApp Business. <a href="https://www.facebook.com/privacy/policy" target="_blank" rel="noopener noreferrer">Diretrizes de Privacidade Meta</a> e <a href="https://www.whatsapp.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">Termos de Privacidade WhatsApp</a>.</li>
+                    <li><strong>Inteligência Artificial Google Gemini:</strong> Processamento semântico restrito de conversas em ambiente de produção protegida. <a href="https://ai.google.dev/terms" target="_blank" rel="noopener noreferrer">Políticas e Termos de API de IA do Google</a>.</li>
+                    <li><strong>Supabase (Banco de Dados PostgreSQL):</strong> Hospedagem e retenção das bases operacionais criptografadas de forma exclusiva. <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer">Políticas de Privacidade Supabase</a>.</li>
+                    <li><strong>Render (Hospedagem de Infraestrutura):</strong> Provedor responsável pela entrega física estável do servidor da aplicação. <a href="https://render.com/privacy" target="_blank" rel="noopener noreferrer">Políticas de Segurança Render</a>.</li>
+                </ul>
+            </section>
+
+            <!-- 6. COMPARTILHAMENTO DE DADOS -->
+            <section id="secao-6">
+                <h2>6. Políticas de Não Compartilhamento e Não Comercialização</h2>
+                <div class="callout callout-info">
+                    <div class="callout-title">Compromisso Ético e Comercial AXIS</div>
+                    <p>Sob hipótese alguma a AXIS AI Gestão vende, aluga, cede ou compartilha os dados de usuários cadastrados ou informações confidenciais de leads a terceiros para finalidades publicitárias de outras marcas ou enriquecimento de banco de dados externos.</p>
+                </div>
+                <p>O compartilhamento de dados ocorre unicamente com os provedores técnicos de infraestrutura listados na Seção 5, atuando estritamente como suboperadores técnicos de dados, sob cláusulas rígidas de conformidade e segurança que impedem o uso não autorizado dessas informações confidenciais. Adicionalmente, os dados poderão ser compartilhados se exigido por autoridades governamentais judiciais competentes para o devido cumprimento de obrigações civis ou criminais decorrentes de lei.</p>
+            </section>
+
+            <!-- 7. TRANSFERÊNCIA INTERNACIONAL DE DADOS -->
+            <section id="secao-7">
+                <h2>7. Transferência Internacional de Informações</h2>
+                <p>Os servidores de banco de dados e aplicação hospedados no Supabase e Render estão fisicamente situados em data centers de alto padrão nos Estados Unidos da América e na Europa. Ao utilizar a plataforma e aceitar o processamento das integrações, o usuário e os titulares consentem formalmente com o fluxo internacional de dados, resguardado por cláusulas contratuais padrão de segurança da informação (Standard Contractual Clauses) e conformidade técnica no mesmo padrão exigido pelas regras globais de privacidade (como GDPR europeia e LGPD brasileira).</p>
+            </section>
+
+            <!-- 8. RETENÇÃO E APAGAMENTO DE DADOS -->
+            <section id="secao-8">
+                <h2>8. Prazos Estipulados de Retenção de Dados</h2>
+                <p>Mantemos os dados pessoais armazenados de forma segura pelo período estritamente indispensável para o alcance de cada finalidade descrita. Os prazos de armazenamento são detalhados a seguir:</p>
+                
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Categoria de Dados</th>
+                                <th>Prazo de Armazenamento / Retenção Técnica</th>
+                                <th>Ação pós-prazo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Cadastro e Conta</td>
+                                <td>Durante todo o período contratual ativo com o cliente licenciado.</td>
+                                <td>Exclusão definitiva em até 90 dias pós-cancelamento.</td>
+                            </tr>
+                            <tr>
+                                <td>Tokens OAuth de Anúncios</td>
+                                <td>Até a desconexão direta do painel pelo cliente ou revogação direta nas contas.</td>
+                                <td>Expurgação imediata do banco de dados do servidor.</td>
+                            </tr>
+                            <tr>
+                                <td>Mensagens WhatsApp</td>
+                                <td>Enquanto durar a integração ativa do canal de atendimento WhatsApp.</td>
+                                <td>Apagamento completo e backups limpos em até 30 dias.</td>
+                            </tr>
+                            <tr>
+                                <td>Contatos e Leads CRM</td>
+                                <td>Até o apagamento manual realizado pelo usuário ou exclusão formal requerida.</td>
+                                <td>Exclusão lógica imediata das tabelas relacionadas.</td>
+                            </tr>
+                            <tr>
+                                <td>Logs de Conexão (IPs)</td>
+                                <td>Retenção mínima e obrigatória pelo prazo rígido de 12 meses.</td>
+                                <td>Sobrescrita automatizada dos logs de auditoria técnica.</td>
+                            </tr>
+                            <tr>
+                                <td>Dados de Telemetria</td>
+                                <td>Até 90 dias após o registro técnico operacional.</td>
+                                <td>Anonimização irreversível dos dados estruturados.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 9. MEDIDAS DE SEGURANÇA DA INFORMAÇÃO -->
+            <section id="secao-9">
+                <h2>9. Protocolos de Segurança Física e Lógica</h2>
+                <p>A AXIS AI Gestão empenha-se em manter controles de segurança físicos e lógicos rígidos para garantir a máxima confidencialidade das informações tratadas no ecossistema "Axis IA - New":</p>
+                <ul>
+                    <li><strong>Segurança em Trânsito:</strong> Uso compulsório do protocolo HTTPS criptografado com chaves de segurança TLS 1.3 para todas as comunicações entre o navegador do usuário e nossos servidores.</li>
+                    <li><strong>Segurança em Repouso:</strong> Bancos de dados gerenciados em ambiente Supabase com proteção avançada de criptografia AES-256 bits ao nível de disco rígido.</li>
+                    <li><strong>Proteção de Credenciais:</strong> Senhas e informações sensíveis de autenticação de usuários gravadas após passagem por algoritmo criptográfico bcrypt de múltiplas iterações.</li>
+                    <li><strong>Resiliência da Infraestrutura:</strong> Mecanismos de rate limiting configurados ativamente no Render para bloquear requisições acima do limite de 100 requisições por minuto por IP de origem, evitando ataques automatizados de força bruta e indisponibilidade de serviços.</li>
+                    <li><strong>Políticas de CORS e Sanitização:</strong> Controle rígido de origens de requisições web (CORS) e uso de rotinas estritas de sanitização em todas as interações para neutralização completa de injeções GAQL (Google Ads Query Language) ou SQL invasivo.</li>
+                </ul>
+            </section>
+
+            <!-- 10. DIRETRIZ DE COOKIES -->
+            <section id="secao-10">
+                <h2>10. Diretriz sobre o Uso de Cookies</h2>
+                <p>A nossa aplicação faz uso estritamente técnico e operacional de cookies primários (first-party cookies). Esses cookies são fundamentais para assegurar a autenticação do login do usuário na sessão atual, reter as preferências do layout do painel administrativo de controle de anúncios e preservar a integridade das transações digitais do dashboard do CRM.</p>
+                <p><strong>Rastreamento Publicitário:</strong> Declaramos expressamente que não fazemos uso de cookies de terceiros (third-party cookies) voltados ao rastreamento comportamental de usuários na internet ou direcionamento de anúncios com base no perfil de navegação individual.</p>
+            </section>
+
+            <!-- 11. DIREITOS DOS TITULARES (ART. 18) -->
+            <section id="secao-11">
+                <h2>11. Direitos dos Titulares de Dados Conforme a LGPD</h2>
+                <p>Os titulares dos dados processados pelo aplicativo "Axis IA - New" dispõem de 8 direitos fundamentais estabelecidos pelo artigo 18 da Lei Geral de Proteção de Dados, os quais podem ser exercidos diretamente a qualquer tempo junto à operadora ou ao cliente controlador:</p>
+                
+                <div class="rights-grid">
+                    <div class="right-card">
+                        <h4>1. Confirmação de Tratamento</h4>
+                        <p>O titular tem o direito de certificar-se se realizamos qualquer tipo de processamento com seus dados pessoais.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>2. Acesso Completo</h4>
+                        <p>Obtenção imediata de uma cópia legível de todas as informações pessoais sob posse e guarda dos nossos servidores.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>3. Correção de Erros</h4>
+                        <p>Direito de requerer e corrigir dados cadastrais incompletos, desatualizados, inconsistentes ou imprecisos.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>4. Restrição de Dados</h4>
+                        <p>Anonimização, bloqueio de processamento temporário ou eliminação definitiva de dados desnecessários ou excessivos.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>5. Portabilidade</h4>
+                        <p>Transferência completa dos dados estruturados pessoais para outra operadora de tecnologia sob sua escolha.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>6. Eliminação de Consentimento</h4>
+                        <p>Exclusão definitiva de todos os dados tratados com fundamentação jurídica única baseada em consentimento anterior.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>7. Informação de Partilha</h4>
+                        <p>Acesso à relação de entidades públicas e privadas com as quais realizamos o fluxo legítimo de sub-processamento de dados.</p>
+                    </div>
+                    <div class="right-card">
+                        <h4>8. Revogação de Autorização</h4>
+                        <p>Direito de retirar voluntariamente o consentimento de tratamento para operações futuras sem ônus ou prejuízo legal.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 12. COMO EXCLUIR SEUS DADOS (SESSÃO DESTAQUE) -->
+            <section id="secao-12">
+                <h2>12. Instruções Claras para Exclusão Definitiva de Dados</h2>
+                
+                <div class="callout callout-danger">
+                    <div class="callout-title">SEÇÃO OBRIGATÓRIA DE EXCLUSÃO DE DADOS (Conformidade Meta App Review)</div>
+                    <p>Em total alinhamento com a Meta Platform Terms (Termos da Plataforma Meta - Cláusula 4.a), disponibilizamos 3 canais formais, objetivos e de aplicação imediata para que qualquer usuário ou lead possa exercer o direito de expurgação de seus dados:</p>
+                </div>
+
+                <div class="table-responsive" style="margin-top: 1rem;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Método de Solicitação</th>
+                                <th>Como Proceder Procedimentalmente</th>
+                                <th>Tempo Limite de Execução</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>A. Painel do Aplicativo (Self-Service)</strong></td>
+                                <td>
+                                    O usuário pode excluir leads individuais diretamente nas colunas do Kanban de CRM, limpar históricos de conversas no chat integrado ou desconectar credenciais em <strong>Configurações > Integrações</strong>. 
+                                    Para revogar de vez a permissão de anúncios da Meta, o usuário pode acessar as configurações de segurança do perfil do Facebook (<a href="https://www.facebook.com/settings?tab=applications" target="_blank" rel="noopener noreferrer">Aplicações e Sites</a>) e desconectar o aplicativo <strong>"Axis IA - New"</strong> de forma irreversível.
+                                </td>
+                                <td>Imediato e processado em tempo real pelo sistema de banco de dados.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>B. E-mail de Suporte de Cadastro</strong></td>
+                                <td>
+                                    Encaminhe uma mensagem de correio eletrônico formal do e-mail de cadastro de sua conta para o Encarregado de Proteção de Dados (DPO) através de <strong>privacidade@iatask.com.br</strong> com o assunto "Exclusão de Cadastro Axis IA", detalhando o nome da empresa e requerendo o cancelamento e exclusão completa da conta.
+                                </td>
+                                <td>Execução administrativa em até 30 dias corridos pós-recebimento formal.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>C. Exclusão para Leads de CRM (Pacientes)</strong></td>
+                                <td>
+                                    Qualquer paciente ou lead de atendimento de clínicas que utilizam nossa plataforma pode enviar e-mail diretamente ao DPO (<strong>privacidade@iatask.com.br</strong>) informando seu número de telefone celular completo sob formato padrão E.164 (Ex: +5511999998888) requerendo a eliminação definitiva das conversas armazenadas no sistema operado pela marca.
+                                </td>
+                                <td>Remoção e varredura de dados em até 15 dias corridos.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 13. PRIVACIDADE DE MENORES -->
+            <section id="secao-13">
+                <h2>13. Proteção e Privacidade de Menores de Idade</h2>
+                <p>Nossos serviços de gestão de campanhas e CRM de vendas destinam-se exclusivamente a profissionais e empresas habilitadas maiores de 18 anos de idade. Nós não coletamos, de forma intencional e sistemática, informações pessoais pertencentes a menores de idade.</p>
+                <p>Na hipótese de atendimento de pacientes menores no WhatsApp Business operado pelas clínicas clientes, as clínicas atuam sob exclusiva responsabilidade como controladoras e devem garantir que referidos atendimentos ocorram sob ciência de pais ou representantes legais competentes, recomendando-se que os menores contem com idade igual ou superior a 16 anos completos para interação direta em conformidade regulatória.</p>
+            </section>
+
+            <!-- 14. ALTERAÇÕES DESTA POLÍTICA -->
+            <section id="secao-14">
+                <h2>14. Alterações e Atualizações Periódicas do Documento</h2>
+                <p>Esta Política de Privacidade poderá passar por revisões técnicas regulares de conformidade com as novas exigências estabelecidas pela Autoridade Nacional de Proteção de Dados (ANPD), de atualizações nas APIs e Termos da Meta Platform ou de refinamentos internos de código de segurança de software.</p>
+                <p>Qualquer nova revisão técnica válida será publicada com destaque informativo contendo o número atual da versão e o respectivo carimbo cronológico de publicação no cabeçalho desta página. A utilização continuada da aplicação SaaS implicará automaticamente na ciência inequívoca das novas diretrizes técnicas atualizadas de privacidade.</p>
+            </section>
+
+            <!-- 15. ENCARREGADO DE DADOS (DPO) -->
+            <section id="secao-15">
+                <h2>15. Encarregado de Proteção de Dados (DPO) e Contatos</h2>
+                <p>Para dúvidas técnicas de segurança da informação, requisições de titulares, relatórios de violações de dados ou abertura de processos administrativos de exclusão de dados nos termos do Art. 41 da LGPD, entre em contato direto e seguro com nosso Encarregado de Dados (DPO):</p>
+                
+                <div class="contact-card">
+                    <h3>Canal Oficial do DPO AXIS</h3>
+                    <p>Comunicação oficial e exclusiva para assuntos que envolvam a Lei Geral de Proteção de Dados, políticas de privacidade e solicitações de cancelamento de dados das APIs Meta/Google.</p>
+                    
+                    <div class="contact-details">
+                        <div class="contact-line">
+                            <span>Destinatário:</span>
+                            <span>Encarregado de Dados (DPO)</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>E-mail Direto:</span>
+                            <span>privacidade@iatask.com.br</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>Prazo de Resposta:</span>
+                            <span>Até 15 dias úteis</span>
+                        </div>
+                        <div class="contact-line">
+                            <span>Canal Administrativo:</span>
+                            <span>AXIS AI Gestão</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </article>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-container">
+            <div class="footer-compliance">Em total conformidade com a LGPD (Lei nº 13.709/2018) e Meta Platform Terms 2026</div>
+            <p class="footer-text">AXIS AI Gestão &copy; 2026 — Todos os direitos reservados.<br>
+            Este documento é de propriedade intelectual exclusiva. É pública, indexável por motores de busca e serve como URL oficial legal para validação de aplicativos de API da Meta Platforms Inc. e Google LLC.</p>
+            <p class="footer-meta">"Axis IA - New" (Meta App ID: 1102275776312848) | Versão 2.0 | Atualizado em 10 de Julho de 2026</p>
+        </div>
+    </footer>
+
+</body>
+</html>
