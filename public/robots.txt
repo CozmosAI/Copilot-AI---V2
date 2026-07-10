@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+User-agent: facebookcatalog
+Allow: /
+
+User-agent: facebot
+Allow: /
+
+User-agent: ia_archiver
+Allow: /
+
+Sitemap: https://axis-ai-1s3m.onrender.com/sitemap.xml

@@ -123,6 +123,16 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.sendFile(path.join(__dirname, 'public', 'robots.txt'));
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  res.type('application/xml');
+  res.sendFile(path.join(__dirname, 'public', 'sitemap.xml'));
+});
+
 app.get(['/exclusao-dados', '/exclusao-dados.html'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'exclusao-dados.html'));
 });
