@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Play, CalendarCheck, UserCheck, UserX, Stethoscope, DollarSign, CreditCard, 
   Briefcase, Megaphone, Users, Target, Activity, Bot, Filter, ChevronDown, ArrowDown, AlertCircle, BarChart3,
-  ExternalLink, ZoomIn, X, Calendar, ArrowRight, TrendingUp
+  ExternalLink, ZoomIn, X, Calendar, ArrowRight, TrendingUp, RefreshCw, Plus, Check
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine 
@@ -13,6 +13,17 @@ import { useApp } from '../App';
 import { AdPerformance, AppSection } from '../types';
 import { getGoogleOverview } from '../services/googleAdsService';
 import { getMetaOverview } from '../services/metaAdsService';
+import { supabase } from '../lib/supabase';
+
+function timeAgo(dateString: string): string {
+  if (!dateString) return 'nunca';
+  const date = new Date(dateString);
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'agora';
+  if (seconds < 3600) return `há ${Math.floor(seconds/60)}min`;
+  if (seconds < 86400) return `há ${Math.floor(seconds/3600)}h`;
+  return `há ${Math.floor(seconds/86400)} dias`;
+}
 
 const GoogleIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -30,7 +41,7 @@ const MetaIcon = ({ size = 20 }: { size?: number }) => (
 );
 
 const Dashboard: React.FC = () => {
-  const { dateFilter, setDateFilter, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user } = useApp();
+  const { dateFilter, setDateFilter, setCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user } = useApp();
   const [insight, setInsight] = useState<string>('Analisando sua clínica...');
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
@@ -41,11 +52,61 @@ const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [debouncedDate, setDebouncedDate] = useState(dateFilter);
 
-  // Debounce da data
+  // States para contas conectadas
+  const [googleAccount, setGoogleAccount] = useState<{ customer_id: string; customer_name: string; status: string; last_sync_at: string } | null>(null);
+  const [metaAccount, setMetaAccount] = useState<{ ad_account_id: string; ad_account_name: string; status: string; last_sync_at: string; currency: string } | null>(null);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
+
+  // Triggers de atualização
+  const [refreshCount, setRefreshCount] = useState(0);
+
+  // State para popover personalizado
+  const [showCustomRangePopover, setShowCustomRangePopover] = useState(false);
+  const [customStart, setCustomStart] = useState(dateFilter.start);
+  const [customEnd, setCustomEnd] = useState(dateFilter.end);
+
+  // Sincronizar inputs de data personalizados quando a data global mudar
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedDate(dateFilter), 300);
-    return () => clearTimeout(t);
+    setCustomStart(dateFilter.start);
+    setCustomEnd(dateFilter.end);
   }, [dateFilter.start, dateFilter.end]);
+
+  const handleApplyCustomRange = () => {
+    if (customStart && customEnd) {
+      setCustomDateRange(customStart, customEnd);
+      setShowCustomRangePopover(false);
+    }
+  };
+
+  // Buscar contas conectadas do Supabase
+  useEffect(() => {
+    const fetchConnectedAccounts = async () => {
+      if (!user?.id) return;
+      setLoadingAccounts(true);
+      try {
+        const [googleRes, metaRes] = await Promise.allSettled([
+          supabase.from('google_ads_integrations').select('customer_id, customer_name, status, last_sync_at').eq('user_id', user.id).maybeSingle(),
+          supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status, last_sync_at, currency').eq('user_id', user.id).maybeSingle()
+        ]);
+        
+        if (googleRes.status === 'fulfilled' && googleRes.value.data) {
+          setGoogleAccount(googleRes.value.data);
+        } else {
+          setGoogleAccount(null);
+        }
+        if (metaRes.status === 'fulfilled' && metaRes.value.data) {
+          setMetaAccount(metaRes.value.data);
+        } else {
+          setMetaAccount(null);
+        }
+      } catch (err) {
+        console.error('Erro ao buscar contas conectadas:', err);
+      } finally {
+        setLoadingAccounts(false);
+      }
+    };
+    fetchConnectedAccounts();
+  }, [user?.id, refreshCount]);
 
   // Filtrar Leads por Origem e Data no Período
   const leadsInPeriod = useMemo(() => {
@@ -170,7 +231,7 @@ const Dashboard: React.FC = () => {
       stale = true;
       controller.abort();
     };
-  }, [user?.id, debouncedDate.start, debouncedDate.end]);
+  }, [user?.id, debouncedDate.start, debouncedDate.end, refreshCount]);
 
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
 
@@ -226,8 +287,10 @@ const Dashboard: React.FC = () => {
 
   // --- DADOS DE ATRIBUIÇÃO DE ANÚNCIOS (Cruzamento Ads x CRM) ---
   const adPerformanceData = useMemo(() => {
-    const googleSpend = googleStats.spend > 0 ? googleStats.spend : (metrics.marketing.investimento * (googleAdsToken ? 0.7 : 0)); 
-    const metaSpend = metaStats.spend > 0 ? metaStats.spend : (metrics.marketing.investimento * (googleAdsToken ? 0.3 : 1)); 
+    const hasGoogle = googleAccount !== null;
+    const hasMeta = metaAccount !== null;
+    const googleSpend = hasGoogle ? googleStats.spend : 0; 
+    const metaSpend = hasMeta ? metaStats.spend : 0; 
 
     // 2. Calcular Métricas Google
     const googleLeads = leadsInPeriod.filter(l => l.source === 'Google Ads');
@@ -275,7 +338,7 @@ const Dashboard: React.FC = () => {
         }
       }
     };
-  }, [metrics, googleAdsToken, leadsInPeriod, googleStats, metaStats]);
+  }, [metrics, googleAdsToken, leadsInPeriod, googleStats, metaStats, googleAccount, metaAccount]);
 
   // Cálculos Auxiliares do Funil
   const lostLeads = Math.max(0, metrics.marketing.leads - metrics.vendas.agendamentos);
@@ -301,10 +364,78 @@ const Dashboard: React.FC = () => {
              <p className="text-xs md:text-sm text-slate-500">Dados consolidados de {dateFilter.start} até {dateFilter.end}</p>
           </div>
         </div>
-        <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex gap-1 overflow-x-auto scrollbar-none w-full md:w-auto shrink-0">
-          {['Hoje', '7 dias', '30 dias', 'Este Ano'].map((t) => (
-            <button key={t} onClick={() => setDateFilter(t)} className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${t === dateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}>{t}</button>
-          ))}
+        <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto shrink-0">
+          {/* BOTÃO ATUALIZAR */}
+          <button 
+            onClick={() => {
+              setRefreshCount(prev => prev + 1);
+            }}
+            disabled={isLoading || loadingAccounts}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-600 hover:text-navy border border-slate-200 rounded-lg text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0 w-full sm:w-auto justify-center"
+          >
+            <RefreshCw size={13} className={`${(isLoading || loadingAccounts) ? 'animate-spin' : ''}`} />
+            <span>{(isLoading || loadingAccounts) ? 'Atualizando...' : 'Atualizar'}</span>
+          </button>
+
+          {/* FILTRO DE PERÍODO */}
+          <div className="relative bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex gap-1 overflow-x-auto scrollbar-none w-full sm:w-auto shrink-0 items-center">
+            {['Hoje', '7 dias', '30 dias', 'Este Ano'].map((t) => (
+              <button 
+                key={t} 
+                onClick={() => {
+                  setDateFilter(t);
+                  setShowCustomRangePopover(false);
+                }} 
+                className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${t === dateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
+              >
+                {t}
+              </button>
+            ))}
+            
+            <button 
+              onClick={() => setShowCustomRangePopover(!showCustomRangePopover)} 
+              className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${dateFilter.label === 'Custom' ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
+            >
+              Personalizado
+            </button>
+
+            {showCustomRangePopover && (
+              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 shadow-xl p-4 rounded-xl z-[100] w-72 text-slate-700">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-xs font-bold text-navy uppercase tracking-wider">Período Personalizado</span>
+                  <button onClick={() => setShowCustomRangePopover(false)} className="text-slate-400 hover:text-slate-600">
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Data Início</label>
+                    <input 
+                      type="date" 
+                      value={customStart} 
+                      onChange={(e) => setCustomStart(e.target.value)} 
+                      className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Data Fim</label>
+                    <input 
+                      type="date" 
+                      value={customEnd} 
+                      onChange={(e) => setCustomEnd(e.target.value)} 
+                      className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleApplyCustomRange}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider shadow-md transition-colors"
+                  >
+                    Aplicar Período
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -324,50 +455,284 @@ const Dashboard: React.FC = () => {
          </div>
       </div>
 
+      {/* STATUS DE CONTAS CONECTADAS */}
+      {loadingAccounts ? (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm animate-pulse flex flex-col gap-3">
+          <div className="h-5 bg-slate-200 rounded w-1/4 animate-pulse"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-20 bg-slate-100 rounded-xl animate-pulse"></div>
+            <div className="h-20 bg-slate-100 rounded-xl animate-pulse"></div>
+          </div>
+        </div>
+      ) : (
+        (() => {
+          const hasGoogle = googleAccount !== null;
+          const hasMeta = metaAccount !== null;
+
+          // CENÁRIO A: Nenhuma conta conectada
+          if (!hasGoogle && !hasMeta) {
+            return (
+              <div className="bg-amber-50 border-2 border-dashed border-amber-300 p-6 rounded-2xl shadow-sm text-slate-800">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-amber-100 text-amber-600 rounded-full shrink-0">
+                      <AlertCircle size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-navy tracking-tight flex items-center gap-1.5">
+                        Bem-vindo ao AXIS AI! 🚀
+                      </h3>
+                      <p className="text-sm text-slate-600 mt-1">
+                        Para começar a ver seus dados de marketing, conecte suas contas de anúncios:
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-3 w-full md:w-auto">
+                    <button 
+                      onClick={() => navigateToSection(AppSection.INTEGRACAO)}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold text-xs uppercase tracking-wider rounded-xl shadow-sm hover:bg-slate-50 transition-colors w-full sm:w-auto"
+                    >
+                      <GoogleIcon size={16} />
+                      Conectar Google Ads
+                    </button>
+                    <button 
+                      onClick={() => navigateToSection(AppSection.INTEGRACAO)}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#1877F2] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md hover:bg-[#166FE5] transition-colors w-full sm:w-auto"
+                    >
+                      <MetaIcon size={16} />
+                      Conectar Meta Ads
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-amber-200/50">
+                  <p className="text-xs text-slate-500 font-medium">
+                    Não tem contas de anúncios ainda? Você ainda pode usar o CRM e WhatsApp do AXIS.
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
+          // CENÁRIO B: Apenas 1 conta conectada (Google OU Meta)
+          if ((hasGoogle && !hasMeta) || (!hasGoogle && hasMeta)) {
+            return (
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xs font-bold text-navy uppercase tracking-widest flex items-center gap-2">
+                    📊 Status de Contas Conectadas
+                  </h3>
+                  <button 
+                    onClick={() => navigateToSection(AppSection.INTEGRACAO)}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    Gerenciar conexões
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Google Ads Sub-card */}
+                  {hasGoogle ? (
+                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white rounded-xl shadow-sm border border-emerald-100"><GoogleIcon size={24} /></div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Google Ads</p>
+                          <p className="font-bold text-navy text-sm">{googleAccount?.customer_name || 'Desconhecido'}</p>
+                          <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {googleAccount?.customer_id}</p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100/50 px-2.5 py-1 rounded-full border border-emerald-100">
+                          🟢 Conectado
+                        </span>
+                        <p className="text-[9px] text-slate-400 font-medium mt-1">sincronizado {timeAgo(googleAccount?.last_sync_at || '')}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 border border-dashed border-slate-200 p-4 rounded-xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white rounded-xl shadow-sm opacity-50"><GoogleIcon size={24} /></div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Google Ads</p>
+                          <p className="font-bold text-slate-400 text-sm">Não conectado</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => navigateToSection(AppSection.INTEGRACAO)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-navy text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm transition-all"
+                      >
+                        <Plus size={12} /> Conectar agora
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Meta Ads Sub-card */}
+                  {hasMeta ? (
+                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white rounded-xl shadow-sm border border-emerald-100"><MetaIcon size={24} /></div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Meta Ads</p>
+                          <p className="font-bold text-navy text-sm">{metaAccount?.ad_account_name || 'Desconhecido'}</p>
+                          <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {metaAccount?.ad_account_id}</p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100/50 px-2.5 py-1 rounded-full border border-emerald-100">
+                          🟢 Conectado
+                        </span>
+                        <p className="text-[9px] text-slate-400 font-medium mt-1">sincronizado {timeAgo(metaAccount?.last_sync_at || '')}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 border border-dashed border-slate-200 p-4 rounded-xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white rounded-xl shadow-sm opacity-50"><MetaIcon size={24} /></div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Meta Ads</p>
+                          <p className="font-bold text-slate-400 text-sm">Não conectado</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => navigateToSection(AppSection.INTEGRACAO)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-navy text-xs font-bold uppercase tracking-wider rounded-lg shadow-sm transition-all"
+                      >
+                        <Plus size={12} /> Conectar agora
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          // CENÁRIO C: Ambas conectadas
+          return (
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xs font-bold text-navy uppercase tracking-widest flex items-center gap-2">
+                  🟢 Status de Contas Conectadas
+                </h3>
+                <button 
+                  onClick={() => navigateToSection(AppSection.INTEGRACAO)}
+                  className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-navy text-[10px] font-bold uppercase tracking-wider rounded-lg shadow-sm transition-colors shrink-0"
+                >
+                  Gerenciar
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Google Sub-card */}
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white rounded-xl shadow-sm border border-emerald-100"><GoogleIcon size={24} /></div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Google Ads</p>
+                      <p className="font-bold text-navy text-sm">{googleAccount?.customer_name || 'Desconhecido'}</p>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {googleAccount?.customer_id}</p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100/50 px-2.5 py-1 rounded-full border border-emerald-100">
+                      🟢 Conectado
+                    </span>
+                    <p className="text-[9px] text-slate-400 font-medium mt-1">sincronizado {timeAgo(googleAccount?.last_sync_at || '')}</p>
+                  </div>
+                </div>
+
+                {/* Meta Sub-card */}
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white rounded-xl shadow-sm border border-emerald-100"><MetaIcon size={24} /></div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Meta Ads</p>
+                      <p className="font-bold text-navy text-sm">{metaAccount?.ad_account_name || 'Desconhecido'}</p>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {metaAccount?.ad_account_id}</p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100/50 px-2.5 py-1 rounded-full border border-emerald-100">
+                      🟢 Conectado
+                    </span>
+                    <p className="text-[9px] text-slate-400 font-medium mt-1">sincronizado {timeAgo(metaAccount?.last_sync_at || '')}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
+
       {/* GRID EXECUTIVO (3x3) */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 md:gap-6">
          {/* LINHA 1 */}
-         <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
-            <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Investimento (Mkt)</span><div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><Megaphone size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
-            {isLoading ? (
-              <div className="space-y-3 animate-pulse">
-                <div className="h-6 bg-slate-200 rounded w-2/3"></div>
-                <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                  <div className="h-3 bg-slate-100 rounded w-5/6"></div>
-                  <div className="h-3 bg-slate-100 rounded w-4/5"></div>
-                  <div className="h-3 bg-slate-100 rounded w-2/3"></div>
-                </div>
-              </div>
-            ) : (
-              <>
-                <h3 className="text-base md:text-2xl font-black text-navy leading-none">
-                  R$ {(googleStats.spend + metaStats.spend > 0 ? (googleStats.spend + metaStats.spend) : metrics.marketing.investimento).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </h3>
-                {googleStats.spend + metaStats.spend > 0 ? (
-                  <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[8px] md:text-[10px] font-semibold text-slate-500">
-                    <p className="flex justify-between">
-                      <span>G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
-                      <span>M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
-                    </p>
-                    <p className="flex justify-between text-blue-600 border-t border-slate-50 pt-1 mt-1">
-                      <span>Cliques Totais:</span>
-                      <span className="font-bold">{(googleStats.clicks + metaStats.clicks).toLocaleString('pt-BR')}</span>
-                    </p>
-                    <p className="flex justify-between text-indigo-600">
-                      <span>Impressões Totais:</span>
-                      <span className="font-bold">{(googleStats.impressions + metaStats.impressions).toLocaleString('pt-BR')}</span>
-                    </p>
-                    <p className="flex justify-between text-emerald-600">
-                      <span>Conversões Totais:</span>
-                      <span className="font-bold">{(googleStats.conversions + metaStats.conversions).toLocaleString('pt-BR')}</span>
-                    </p>
+         {(googleAccount !== null || metaAccount !== null) && (
+           <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
+              <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Investimento (Mkt)</span><div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><Megaphone size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
+              {isLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-6 bg-slate-200 rounded w-2/3"></div>
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                    <div className="h-3 bg-slate-100 rounded w-5/6"></div>
+                    <div className="h-3 bg-slate-100 rounded w-4/5"></div>
+                    <div className="h-3 bg-slate-100 rounded w-2/3"></div>
                   </div>
-                ) : (
-                  <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
-                )}
-              </>
-            )}
-         </div>
+                </div>
+              ) : (
+                (() => {
+                  const hasGoogle = googleAccount !== null;
+                  const hasMeta = metaAccount !== null;
+                  const totalSpend = (hasGoogle ? googleStats.spend : 0) + (hasMeta ? metaStats.spend : 0);
+
+                  return (
+                    <>
+                      <h3 className="text-base md:text-2xl font-black text-navy leading-none">
+                        {totalSpend > 0 ? (
+                          `R$ ${totalSpend.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                        ) : (
+                          "Sem dados no período"
+                        )}
+                      </h3>
+                      
+                      <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[8px] md:text-[10px] font-semibold text-slate-500">
+                        <p className="flex justify-between">
+                          {hasGoogle && (
+                            <span>G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+                          )}
+                          {hasMeta && (
+                            <span>M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+                          )}
+                        </p>
+                        
+                        {(hasGoogle || hasMeta) && (
+                          <>
+                            <p className="flex justify-between text-blue-600 border-t border-slate-50 pt-1 mt-1">
+                              <span>Cliques Totais:</span>
+                              <span className="font-bold">
+                                {((hasGoogle ? googleStats.clicks : 0) + (hasMeta ? metaStats.clicks : 0)).toLocaleString('pt-BR')}
+                              </span>
+                            </p>
+                            <p className="flex justify-between text-indigo-600">
+                              <span>Impressões Totais:</span>
+                              <span className="font-bold">
+                                {((hasGoogle ? googleStats.impressions : 0) + (hasMeta ? metaStats.impressions : 0)).toLocaleString('pt-BR')}
+                              </span>
+                            </p>
+                            <p className="flex justify-between text-emerald-600">
+                              <span>Conversões Totais:</span>
+                              <span className="font-bold">
+                                {((hasGoogle ? googleStats.conversions : 0) + (hasMeta ? metaStats.conversions : 0)).toLocaleString('pt-BR')}
+                              </span>
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()
+              )}
+           </div>
+         )}
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-indigo-300 transition-colors">
             <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Leads no Período</span><div className="p-1.5 md:p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0"><Users size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
             <h3 className="text-base md:text-2xl font-black text-navy leading-none">
@@ -524,139 +889,145 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* PAINEL DE ATRIBUIÇÃO DE ROI (ADS -> CRM -> CONSULTAS) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* GOOGLE ADS CARD (FUNIL) */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-300 transition-colors">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                  <div className="flex items-center gap-3">
-                     <div className="p-2 bg-white rounded-xl shadow-sm"><GoogleIcon size={24} /></div>
-                     <div>
-                        <span className="font-bold text-navy text-sm block">Google Ads</span>
-                        <span className="text-[10px] text-slate-400 font-medium">Funil de Aquisição</span>
-                     </div>
-                  </div>
-              </div>
-              
-              <div className="p-6 flex-1 flex flex-col gap-6">
-                  {/* FUNIL VISUAL */}
-                  <div className="space-y-4">
-                      {/* TOPO: Investimento */}
-                      <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600"><DollarSign size={16}/></div>
-                             <span className="text-xs font-bold text-slate-600">Investimento</span>
-                          </div>
-                          <span className="text-sm font-black text-navy">R$ {adPerformanceData.google.spend.toLocaleString('pt-BR', {minimumFractionDigits: 0})}</span>
-                      </div>
-                      
-                      <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
-
-                      {/* MEIO: Leads */}
-                      <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><Users size={16}/></div>
-                             <div>
-                                <span className="text-xs font-bold text-slate-600 block">Leads (CRM)</span>
-                                <span className="text-[9px] text-slate-400 uppercase font-medium">CPL: R$ {adPerformanceData.google.cpl.toFixed(2)}</span>
-                             </div>
-                          </div>
-                          <span className="text-xl font-black text-navy">{adPerformanceData.google.leads}</span>
-                      </div>
-
-                      <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
-
-                      {/* FUNDO: Consultas (Objetivo Final) */}
-                      <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600"><Calendar size={16}/></div>
-                             <div>
-                                <span className="text-xs font-bold text-emerald-800 block">Consultas Marcadas</span>
-                                <span className="text-[9px] text-emerald-600 uppercase font-bold">CPA: R$ {adPerformanceData.google.cpa.toFixed(2)}</span>
-                             </div>
-                          </div>
-                          <span className="text-2xl font-black text-emerald-700">{adPerformanceData.google.appointments}</span>
+      {(googleAccount !== null || metaAccount !== null) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* GOOGLE ADS CARD (FUNIL) */}
+            {googleAccount !== null && (
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-300 transition-colors">
+                  <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <div className="flex items-center gap-3">
+                         <div className="p-2 bg-white rounded-xl shadow-sm"><GoogleIcon size={24} /></div>
+                         <div>
+                            <span className="font-bold text-navy text-sm block">Google Ads</span>
+                            <span className="text-[10px] text-slate-400 font-medium">Funil de Aquisição</span>
+                         </div>
                       </div>
                   </div>
-
-                  <div className="border-t border-slate-100 pt-4 mt-auto">
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Target size={12}/> Melhor Criativo</h4>
-                    <div className="flex gap-4 items-center group cursor-pointer" onClick={() => setSelectedAd(adPerformanceData.google.topAd)}>
-                        <img src={adPerformanceData.google.topAd.imageUrl} alt="Ad" className="w-16 h-16 object-cover rounded-lg shadow-sm" />
-                        <div>
-                            <p className="text-xs font-bold text-navy line-clamp-1">{adPerformanceData.google.topAd.headline}</p>
-                            <p className="text-[10px] text-slate-500 mt-0.5">Gerou <span className="font-bold text-blue-600">{adPerformanceData.google.topAd.generatedLeads} leads</span> qualificados</p>
+                  
+                  <div className="p-6 flex-1 flex flex-col gap-6">
+                      {/* FUNIL VISUAL */}
+                      <div className="space-y-4">
+                          {/* TOPO: Investimento */}
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                 <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600"><DollarSign size={16}/></div>
+                                 <span className="text-xs font-bold text-slate-600">Investimento</span>
+                              </div>
+                              <span className="text-sm font-black text-navy">R$ {adPerformanceData.google.spend.toLocaleString('pt-BR', {minimumFractionDigits: 0})}</span>
+                          </div>
+                          
+                          <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
+    
+                          {/* MEIO: Leads */}
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                 <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><Users size={16}/></div>
+                                 <div>
+                                    <span className="text-xs font-bold text-slate-600 block">Leads (CRM)</span>
+                                    <span className="text-[9px] text-slate-400 uppercase font-medium">CPL: R$ {adPerformanceData.google.cpl.toFixed(2)}</span>
+                                 </div>
+                              </div>
+                              <span className="text-xl font-black text-navy">{adPerformanceData.google.leads}</span>
+                          </div>
+    
+                          <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
+    
+                          {/* FUNDO: Consultas (Objetivo Final) */}
+                          <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                              <div className="flex items-center gap-2">
+                                 <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600"><Calendar size={16}/></div>
+                                 <div>
+                                    <span className="text-xs font-bold text-emerald-800 block">Consultas Marcadas</span>
+                                    <span className="text-[9px] text-emerald-600 uppercase font-bold">CPA: R$ {adPerformanceData.google.cpa.toFixed(2)}</span>
+                                 </div>
+                              </div>
+                              <span className="text-2xl font-black text-emerald-700">{adPerformanceData.google.appointments}</span>
+                          </div>
+                      </div>
+    
+                      <div className="border-t border-slate-100 pt-4 mt-auto">
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Target size={12}/> Melhor Criativo</h4>
+                        <div className="flex gap-4 items-center group cursor-pointer" onClick={() => setSelectedAd(adPerformanceData.google.topAd)}>
+                            <img src={adPerformanceData.google.topAd.imageUrl} alt="Ad" className="w-16 h-16 object-cover rounded-lg shadow-sm" />
+                            <div>
+                                <p className="text-xs font-bold text-navy line-clamp-1">{adPerformanceData.google.topAd.headline}</p>
+                                <p className="text-[10px] text-slate-500 mt-0.5">Gerou <span className="font-bold text-blue-600">{adPerformanceData.google.topAd.generatedLeads} leads</span> qualificados</p>
+                            </div>
                         </div>
-                    </div>
+                      </div>
                   </div>
               </div>
-          </div>
-
-          {/* META ADS CARD (FUNIL) */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-300 transition-colors">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                  <div className="flex items-center gap-3">
-                     <div className="p-2 bg-white rounded-xl shadow-sm"><MetaIcon size={24} /></div>
-                     <div>
-                        <span className="font-bold text-navy text-sm block">Meta Ads</span>
-                        <span className="text-[10px] text-slate-400 font-medium">Instagram & Facebook</span>
-                     </div>
-                  </div>
-              </div>
-              
-              <div className="p-6 flex-1 flex flex-col gap-6">
-                   {/* FUNIL VISUAL */}
-                  <div className="space-y-4">
-                      {/* TOPO: Investimento */}
-                      <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600"><DollarSign size={16}/></div>
-                             <span className="text-xs font-bold text-slate-600">Investimento</span>
-                          </div>
-                          <span className="text-sm font-black text-navy">R$ {adPerformanceData.meta.spend.toLocaleString('pt-BR', {minimumFractionDigits: 0})}</span>
-                      </div>
-                      
-                      <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
-
-                      {/* MEIO: Leads */}
-                      <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><Users size={16}/></div>
-                             <div>
-                                <span className="text-xs font-bold text-slate-600 block">Leads (CRM)</span>
-                                <span className="text-[9px] text-slate-400 uppercase font-medium">CPL: R$ {adPerformanceData.meta.cpl.toFixed(2)}</span>
-                             </div>
-                          </div>
-                          <span className="text-xl font-black text-navy">{adPerformanceData.meta.leads}</span>
-                      </div>
-
-                      <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
-
-                      {/* FUNDO: Consultas (Objetivo Final) */}
-                      <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl border border-blue-100">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><Calendar size={16}/></div>
-                             <div>
-                                <span className="text-xs font-bold text-blue-800 block">Consultas Marcadas</span>
-                                <span className="text-[9px] text-blue-600 uppercase font-bold">CPA: R$ {adPerformanceData.meta.cpa.toFixed(2)}</span>
-                             </div>
-                          </div>
-                          <span className="text-2xl font-black text-blue-700">{adPerformanceData.meta.appointments}</span>
+            )}
+  
+            {/* META ADS CARD (FUNIL) */}
+            {metaAccount !== null && (
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-300 transition-colors">
+                  <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <div className="flex items-center gap-3">
+                         <div className="p-2 bg-white rounded-xl shadow-sm"><MetaIcon size={24} /></div>
+                         <div>
+                            <span className="font-bold text-navy text-sm block">Meta Ads</span>
+                            <span className="text-[10px] text-slate-400 font-medium">Instagram & Facebook</span>
+                         </div>
                       </div>
                   </div>
-
-                  <div className="border-t border-slate-100 pt-4 mt-auto">
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Target size={12}/> Melhor Criativo</h4>
-                    <div className="flex gap-4 items-center group cursor-pointer" onClick={() => setSelectedAd(adPerformanceData.meta.topAd)}>
-                        <img src={adPerformanceData.meta.topAd.imageUrl} alt="Ad" className="w-16 h-16 object-cover rounded-lg shadow-sm" />
-                        <div>
-                            <p className="text-xs font-bold text-navy line-clamp-1">{adPerformanceData.meta.topAd.headline}</p>
-                            <p className="text-[10px] text-slate-500 mt-0.5">Gerou <span className="font-bold text-blue-600">{adPerformanceData.meta.topAd.generatedLeads} leads</span> qualificados</p>
+                  
+                  <div className="p-6 flex-1 flex flex-col gap-6">
+                       {/* FUNIL VISUAL */}
+                      <div className="space-y-4">
+                          {/* TOPO: Investimento */}
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                 <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600"><DollarSign size={16}/></div>
+                                 <span className="text-xs font-bold text-slate-600">Investimento</span>
+                              </div>
+                              <span className="text-sm font-black text-navy">R$ {adPerformanceData.meta.spend.toLocaleString('pt-BR', {minimumFractionDigits: 0})}</span>
+                          </div>
+                          
+                          <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
+    
+                          {/* MEIO: Leads */}
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                 <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600"><Users size={16}/></div>
+                                 <div>
+                                    <span className="text-xs font-bold text-slate-600 block">Leads (CRM)</span>
+                                    <span className="text-[9px] text-slate-400 uppercase font-medium">CPL: R$ {adPerformanceData.meta.cpl.toFixed(2)}</span>
+                                 </div>
+                              </div>
+                              <span className="text-xl font-black text-navy">{adPerformanceData.meta.leads}</span>
+                          </div>
+    
+                          <div className="flex justify-center"><ArrowDown size={14} className="text-slate-300"/></div>
+    
+                          {/* FUNDO: Consultas (Objetivo Final) */}
+                          <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl border border-blue-100">
+                              <div className="flex items-center gap-2">
+                                 <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><Calendar size={16}/></div>
+                                 <div>
+                                    <span className="text-xs font-bold text-blue-800 block">Consultas Marcadas</span>
+                                    <span className="text-[9px] text-blue-600 uppercase font-bold">CPA: R$ {adPerformanceData.meta.cpa.toFixed(2)}</span>
+                                 </div>
+                              </div>
+                              <span className="text-2xl font-black text-blue-700">{adPerformanceData.meta.appointments}</span>
+                          </div>
+                      </div>
+    
+                      <div className="border-t border-slate-100 pt-4 mt-auto">
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Target size={12}/> Melhor Criativo</h4>
+                        <div className="flex gap-4 items-center group cursor-pointer" onClick={() => setSelectedAd(adPerformanceData.meta.topAd)}>
+                            <img src={adPerformanceData.meta.topAd.imageUrl} alt="Ad" className="w-16 h-16 object-cover rounded-lg shadow-sm" />
+                            <div>
+                                <p className="text-xs font-bold text-navy line-clamp-1">{adPerformanceData.meta.topAd.headline}</p>
+                                <p className="text-[10px] text-slate-500 mt-0.5">Gerou <span className="font-bold text-blue-600">{adPerformanceData.meta.topAd.generatedLeads} leads</span> qualificados</p>
+                            </div>
                         </div>
-                    </div>
+                      </div>
                   </div>
               </div>
-          </div>
-      </div>
+            )}
+        </div>
+      )}
 
       {/* AD PREVIEW MODAL */}
       {selectedAd && (

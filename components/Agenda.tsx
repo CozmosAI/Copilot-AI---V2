@@ -15,6 +15,24 @@ const Agenda: React.FC = () => {
   const [loadingCalendar, setLoadingCalendar] = useState(false);
   const [calendarError, setCalendarError] = useState(false);
   
+  const [tokenExpiryWarning, setTokenExpiryWarning] = useState<string | null>(null);
+
+  const getTokenExpiryDays = (token: string | null): number | null => {
+    if (!token) return null;
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (!payload.exp) return null;
+      const expDate = new Date(payload.exp * 1000);
+      const now = new Date();
+      const diffDays = Math.floor((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays;
+    } catch (e) {
+      return null;
+    }
+  };
+
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingApt, setEditingApt] = useState<Appointment | null>(null);
@@ -28,6 +46,18 @@ const Agenda: React.FC = () => {
   // Busca eventos do Google Calendar se estiver conectado
   useEffect(() => {
     if (googleCalendarToken) {
+      // Verificar dias até expirar
+      const days = getTokenExpiryDays(googleCalendarToken);
+      if (days !== null) {
+        if (days < 0) {
+          setTokenExpiryWarning('expired');
+        } else if (days <= 7) {
+          setTokenExpiryWarning(`expiring_${days}`);
+        } else {
+          setTokenExpiryWarning(null);
+        }
+      }
+      
       setLoadingCalendar(true);
       setCalendarError(false);
       // Passa o ID do usuário para o serviço tentar o refresh se necessário
@@ -46,6 +76,7 @@ const Agenda: React.FC = () => {
           }
         });
     } else {
+      setTokenExpiryWarning(null);
       setGoogleEvents([]);
     }
   }, [googleCalendarToken, user?.id]);
@@ -214,6 +245,41 @@ const Agenda: React.FC = () => {
           </span>
         </div>
       </header>
+
+      {googleCalendarToken && tokenExpiryWarning && (
+        <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+          tokenExpiryWarning === 'expired' 
+            ? 'bg-rose-50 border-rose-200 text-rose-800' 
+            : 'bg-amber-50 border-amber-200 text-amber-800'
+        }`}>
+          <AlertCircle size={20} className="shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">
+              {tokenExpiryWarning === 'expired' 
+                ? 'Acesso ao Google Calendar expirado' 
+                : `Acesso ao Google Calendar expira em ${tokenExpiryWarning.replace('expiring_', '')} dias`
+              }
+            </p>
+            <p className="text-xs mt-0.5 opacity-90">
+              {tokenExpiryWarning === 'expired' 
+                ? 'Clique em "Reconectar" para voltar a ver seus agendamentos.'
+                : 'Recomendamos reconectar antes que expire para não perder acesso aos agendamentos.'
+              }
+            </p>
+          </div>
+          <button 
+            type="button"
+            onClick={handleReconnectCalendar}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors shrink-0 ${
+              tokenExpiryWarning === 'expired'
+                ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                : 'bg-amber-500 hover:bg-amber-600 text-white'
+            }`}
+          >
+            Reconectar
+          </button>
+        </div>
+      )}
 
       {/* KPI GRID */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-4">

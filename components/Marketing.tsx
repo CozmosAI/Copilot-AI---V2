@@ -887,7 +887,19 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
           const url = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `Relatorio_GoogleAds_${dateFilter.start}_${dateFilter.end}.pdf`;
+          
+          const hasGoogle = !!googleAdsToken;
+          const hasMeta = !!metaAdsStatus;
+          let platformLabel = 'Marketing';
+          if (hasGoogle && hasMeta) {
+              platformLabel = 'Google_e_Meta';
+          } else if (hasGoogle) {
+              platformLabel = 'GoogleAds';
+          } else if (hasMeta) {
+              platformLabel = 'MetaAds';
+          }
+          
+          a.download = `Relatorio_${platformLabel}_${dateFilter.start}_${dateFilter.end}.pdf`;
           document.body.appendChild(a);
           a.click();
           window.URL.revokeObjectURL(url);

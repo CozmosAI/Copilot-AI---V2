@@ -5,7 +5,7 @@ import {
   ArrowUpCircle, ArrowDownCircle,
   TrendingUp, PiggyBank,
   Bot, Target, Calendar, Filter, X, Save,
-  AlertTriangle 
+  AlertTriangle, CheckCircle2, AlertCircle, FileText
 } from 'lucide-react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, 
@@ -25,6 +25,13 @@ const Financial: React.FC = () => {
   // Estados para Modal de Confirmação de Exclusão
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const [formData, setFormData] = useState<Partial<FinancialEntry>>({
     type: 'receivable',
@@ -113,15 +120,16 @@ const Financial: React.FC = () => {
     setShowDeleteConfirm(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (itemToDelete) {
-      deleteFinancialEntry(itemToDelete);
+      const success = await deleteFinancialEntry(itemToDelete);
+      showToast(success ? 'Transação excluída!' : 'Erro ao excluir', success ? 'success' : 'error');
       setShowDeleteConfirm(false);
       setItemToDelete(null);
     }
   };
 
-  const handleSaveEntry = (e: React.FormEvent) => {
+  const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     const total = Number(formData.unitValue) || 0;
     
@@ -135,9 +143,11 @@ const Financial: React.FC = () => {
     };
     
     if (editingEntry) {
-      updateFinancialEntry(newEntry);
+      const success = await updateFinancialEntry(newEntry);
+      showToast(success ? 'Transação atualizada!' : 'Erro ao atualizar', success ? 'success' : 'error');
     } else {
-      addFinancialEntry(newEntry);
+      const success = await addFinancialEntry(newEntry);
+      showToast(success ? 'Transação cadastrada!' : 'Erro ao cadastrar', success ? 'success' : 'error');
     }
     
     closeForm();
@@ -397,11 +407,44 @@ const Financial: React.FC = () => {
                     </tr>
                   ))}
                 {filteredEntries.filter(e => e.type === subSection).length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-10 py-24 text-center text-slate-400 text-xs font-medium italic opacity-50">
-                      Nenhum lançamento encontrado neste período.
-                    </td>
-                  </tr>
+                  financialEntries.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-10 py-20 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
+                            <FileText size={28} className="text-slate-300" />
+                          </div>
+                          <p className="text-slate-500 font-bold text-sm">Nenhuma transação cadastrada ainda</p>
+                          <p className="text-slate-400 text-xs">Cadastre sua primeira transação para começar a controlar seu fluxo de caixa.</p>
+                          <button 
+                            onClick={() => { 
+                              setEditingEntry(null); 
+                              setFormData({
+                                type: subSection as any,
+                                category: 'Consulta Particular',
+                                name: '',
+                                unitValue: 0,
+                                discount: 0,
+                                addition: 0,
+                                status: 'efetuada',
+                                date: new Date().toISOString().split('T')[0],
+                              }); 
+                              setShowForm(true); 
+                            }} 
+                            className="mt-2 px-4 py-2 bg-navy text-white text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2 mx-auto"
+                          >
+                            <Plus size={14} /> Adicionar Transação
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="px-10 py-24 text-center text-slate-400 text-xs font-medium italic opacity-50">
+                        Nenhum lançamento encontrado neste período.
+                      </td>
+                    </tr>
+                  )
                 )}
               </tbody>
             </table>
@@ -525,6 +568,19 @@ const Financial: React.FC = () => {
                 </div>
             </div>
         </div>
+      )}
+
+      {/* SYSTEM TOAST */}
+      {toast && (
+          <div className={`fixed bottom-6 right-6 z-[120] px-5 py-3 rounded-xl shadow-2xl font-bold text-sm flex items-center gap-2 animate-in slide-in-from-bottom-2 duration-300 ${
+              toast.type === 'success' ? 'bg-emerald-500 text-white' :
+              toast.type === 'error' ? 'bg-rose-500 text-white' :
+              'bg-navy text-white'
+          }`}>
+              {toast.type === 'success' && <CheckCircle2 size={18} />}
+              {toast.type === 'error' && <AlertCircle size={18} />}
+              <span>{toast.message}</span>
+          </div>
       )}
     </div>
   );

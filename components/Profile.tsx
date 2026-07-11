@@ -1,15 +1,19 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, Mail, Camera, Save, DollarSign, Phone, MapPin, 
   Stethoscope, Building2, Briefcase, Plus, Trash2, Crown, Users,
-  Shield, CheckCircle2, AlertCircle, X
+  Shield, CheckCircle2, AlertCircle, X, Loader2
 } from 'lucide-react';
 import { useApp } from '../App';
 import { UserRole } from '../types';
 
 const Profile: React.FC = () => {
   const { user, updateUser, teamMembers, addTeamMember, removeTeamMember } = useApp();
+  
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // States - Dados Pessoais e Profissionais
   const [formData, setFormData] = useState({
@@ -29,6 +33,7 @@ const Profile: React.FC = () => {
 
   useEffect(() => {
     if (user) {
+      setAvatarUrl((user as any).avatar_url || null);
       setFormData({
         name: user.name || '',
         email: user.email || '',
@@ -53,6 +58,60 @@ const Profile: React.FC = () => {
       city: formData.city
     });
     alert('Perfil atualizado com sucesso!');
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Validações
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor, selecione um arquivo de imagem.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('A imagem deve ter no máximo 5MB.');
+      return;
+    }
+    
+    setUploadingAvatar(true);
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user?.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${user?.id}/${fileName}`;
+      
+      // Upload pro Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { cacheControl: '3600', upsert: true });
+      
+      if (uploadError) throw uploadError;
+      
+      // Obter URL pública
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+      
+      // Atualizar profiles.avatar_url
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user?.id);
+      
+      if (updateError) throw updateError;
+      
+      setAvatarUrl(publicUrl);
+      // Atualizar contexto do App
+      updateUser({ avatar_url: publicUrl } as any);
+      alert('Foto de perfil atualizada com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao fazer upload:', err);
+      alert('Erro ao atualizar foto: ' + (err.message || err));
+    } finally {
+      setUploadingAvatar(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleAddMember = (e: React.FormEvent) => {
@@ -87,11 +146,32 @@ const Profile: React.FC = () => {
             <div className="flex items-center gap-6">
                 <div className="relative group">
                     <div className="w-24 h-24 rounded-3xl border-4 border-white shadow-xl overflow-hidden bg-slate-200">
-                        <img src={`https://ui-avatars.com/api/?name=${formData.name}&background=0f172a&color=fff&size=128`} alt="Avatar" className="w-full h-full object-cover" />
+                        <img 
+                          src={avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.name || 'User')}&background=0f172a&color=fff&size=128`} 
+                          alt="Avatar" 
+                          className="w-full h-full object-cover"
+                        />
                     </div>
-                    <button className="absolute -bottom-2 -right-2 p-2 bg-white rounded-xl shadow-md text-navy border border-slate-100 hover:bg-slate-50 transition-colors">
+                    <button 
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingAvatar}
+                      className="absolute -bottom-2 -right-2 p-2 bg-white rounded-xl shadow-md text-navy border border-slate-100 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Alterar foto de perfil"
+                    >
+                      {uploadingAvatar ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
                         <Camera size={16} />
+                      )}
                     </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
                 </div>
                 <div>
                     <h3 className="text-2xl font-bold text-navy">{formData.name || 'Doutor(a)'}</h3>

@@ -23,6 +23,21 @@ export interface DateRange {
 // --- PERFIL & USUÁRIO ---
 export type UserRole = 'owner' | 'admin' | 'member';
 
+export interface User {
+  id: string;
+  name: string;
+  clinic: string;
+  email: string;
+  plan: 'free' | 'pro' | 'enterprise';
+  ticketValue: number;
+  phone?: string;
+  specialty?: string;
+  procedures?: string;
+  city?: string;
+  role?: UserRole;
+  avatar_url?: string;
+}
+
 export interface TeamMember {
   id: string;
   name: string;

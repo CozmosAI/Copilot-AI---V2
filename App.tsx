@@ -39,6 +39,7 @@ interface User {
   procedures?: string;
   city?: string;
   role?: UserRole;
+  avatar_url?: string;
 }
 
 interface AppContextType {
@@ -70,9 +71,9 @@ interface AppContextType {
   metrics: ConsolidatedMetrics;
   
   financialEntries: FinancialEntry[];
-  addFinancialEntry: (entry: FinancialEntry) => Promise<void>;
-  updateFinancialEntry: (entry: FinancialEntry) => Promise<void>;
-  deleteFinancialEntry: (id: string) => Promise<void>;
+  addFinancialEntry: (entry: FinancialEntry) => Promise<boolean>;
+  updateFinancialEntry: (entry: FinancialEntry) => Promise<boolean>;
+  deleteFinancialEntry: (id: string) => Promise<boolean>;
 
   leads: Lead[];
   addLead: (lead: Lead) => Promise<void>;
@@ -345,7 +346,8 @@ const App: React.FC = () => {
                     specialty: 'Dermatologia',
                     city: 'São Paulo',
                     procedures: 'Botox, Preenchimento, Laser',
-                    phone: '11999999999'
+                    phone: '11999999999',
+                    avatar_url: profile.avatar_url || undefined
                 });
                 if (profile.google_calendar_token) setGoogleCalendarToken(profile.google_calendar_token);
                 
@@ -427,24 +429,50 @@ const App: React.FC = () => {
   };
 
   // CRUD Implementations
-  const addFinancialEntry = async (entry: FinancialEntry) => {
-    if (!user) return;
+  const addFinancialEntry = async (entry: FinancialEntry): Promise<boolean> => {
+    if (!user) return false;
     const tempId = crypto.randomUUID();
     const newEntry = { ...entry, id: tempId };
     setFinancialEntries(prev => [newEntry, ...prev]);
-    const { error } = await supabase!.from('transactions').insert([{ user_id: user.id, type: entry.type, category: entry.category, name: entry.name, unit_value: entry.unitValue, discount: entry.discount, addition: entry.addition, total: entry.total, status: entry.status, date: entry.date, payment_method: entry.paymentMethod || null, installments: entry.installments || null }]);
-    if (error) { setFinancialEntries(prev => prev.filter(e => e.id !== tempId)); alert("Erro ao salvar."); }
+    const { error } = await supabase!.from('transactions').insert([{ 
+      id: tempId,
+      user_id: user.id, 
+      type: entry.type, 
+      category: entry.category, 
+      name: entry.name, 
+      unit_value: entry.unitValue, 
+      discount: entry.discount, 
+      addition: entry.addition, 
+      total: entry.total, 
+      status: entry.status, 
+      date: entry.date, 
+      payment_method: entry.paymentMethod || null, 
+      installments: entry.installments || null 
+    }]);
+    if (error) { 
+      setFinancialEntries(prev => prev.filter(e => e.id !== tempId)); 
+      return false; 
+    }
+    return true;
   };
-  const updateFinancialEntry = async (entry: FinancialEntry) => {
+  const updateFinancialEntry = async (entry: FinancialEntry): Promise<boolean> => {
     setFinancialEntries(prev => prev.map(e => e.id === entry.id ? entry : e));
     const { error } = await supabase!.from('transactions').update({ type: entry.type, category: entry.category, name: entry.name, unit_value: entry.unitValue, discount: entry.discount, addition: entry.addition, total: entry.total, status: entry.status, date: entry.date, payment_method: entry.paymentMethod || null, installments: entry.installments || null }).eq('id', entry.id);
-    if (error) fetchFinancials();
+    if (error) {
+      fetchFinancials();
+      return false;
+    }
+    return true;
   };
-  const deleteFinancialEntry = async (id: string) => {
+  const deleteFinancialEntry = async (id: string): Promise<boolean> => {
     const backup = [...financialEntries];
     setFinancialEntries(prev => prev.filter(e => e.id !== id));
     const { error } = await supabase!.from('transactions').delete().eq('id', id);
-    if (error) setFinancialEntries(backup);
+    if (error) {
+      setFinancialEntries(backup);
+      return false;
+    }
+    return true;
   };
   
   const addLead = async (lead: Lead) => {
@@ -505,7 +533,17 @@ const App: React.FC = () => {
   const updateUser = async (updates: Partial<User>) => {
     if (!user) return;
     setUser({ ...user, ...updates });
-    if (user.id !== 'demo-user' && supabase) await supabase.from('profiles').update({ name: updates.name, clinic_name: updates.clinic, ticket_value: updates.ticketValue }).eq('id', user.id);
+    if (user.id !== 'demo-user' && supabase) {
+      const dbUpdates: any = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.clinic !== undefined) dbUpdates.clinic_name = updates.clinic;
+      if (updates.ticketValue !== undefined) dbUpdates.ticket_value = updates.ticketValue;
+      if (updates.avatar_url !== undefined) dbUpdates.avatar_url = updates.avatar_url;
+      
+      if (Object.keys(dbUpdates).length > 0) {
+        await supabase.from('profiles').update(dbUpdates).eq('id', user.id);
+      }
+    }
   };
 
   const addTeamMember = (member: Omit<TeamMember, 'id' | 'addedAt' | 'status'>) => {
