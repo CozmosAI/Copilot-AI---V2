@@ -294,25 +294,6 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   }, [user]);
 
-  /* REMOVIDO
-  const restoreWhatsappConnection = async (userId: string, clinic: string) => {
-      try {
-          const { data } = await supabase.from('whatsapp_instances').select('*').eq('user_id', userId).maybeSingle();
-          if (data && data.instance_name) {
-              const statusData = await checkStatus(data.instance_name);
-              
-              if (statusData.status === 'connected') {
-                  setWhatsappConfigState({ instanceName: data.instance_name, isConnected: true, apiKey: '', baseUrl: '' });
-                  configureInstance(data.instance_name, userId).catch(console.error);
-              } else {
-                  setWhatsappConfigState(null);
-              }
-          } else {
-              setWhatsappConfigState(null);
-          }
-      } catch (err) { console.error(err); }
-  };
-  */
 
   const refreshGoogleCredentials = async () => {
       if (!user) return;
@@ -338,16 +319,6 @@ const App: React.FC = () => {
              setAiConfig(prev => ({...prev, ...newProfile.ai_config}));
          }
       })
-      /* REMOVIDO
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_instances', filter: `user_id=eq.${user.id}` }, (payload) => {
-          const newData = payload.new as any;
-          if (newData && newData.status === 'connected') {
-              setWhatsappConfigState({ instanceName: newData.instance_name, isConnected: true, apiKey: '', baseUrl: '' });
-          } else if (newData && newData.status === 'disconnected') {
-              setWhatsappConfigState(null);
-          }
-      })
-      */
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };

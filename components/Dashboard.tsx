@@ -38,6 +38,14 @@ const Dashboard: React.FC = () => {
   // States para dados reais de Ads
   const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
   const [metaStats, setMetaStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
+  const [isLoading, setIsLoading] = useState(false);
+  const [debouncedDate, setDebouncedDate] = useState(dateFilter);
+
+  // Debounce da data
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedDate(dateFilter), 300);
+    return () => clearTimeout(t);
+  }, [dateFilter.start, dateFilter.end]);
 
   // Filtrar Leads por Origem e Data no Período
   const leadsInPeriod = useMemo(() => {
@@ -45,69 +53,124 @@ const Dashboard: React.FC = () => {
        const d = l.created_at ? l.created_at.split('T')[0] : '';
        return d >= dateFilter.start && d <= dateFilter.end;
     });
-  }, [leads, dateFilter]);
+  }, [leads, dateFilter.start, dateFilter.end]);
 
   const hotLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Hot').length, [leadsInPeriod]);
   const warmLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Warm').length, [leadsInPeriod]);
   const coldLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Cold').length, [leadsInPeriod]);
 
-  const dateKey = JSON.stringify(dateFilter);
-
   // Efeito para carregar dados reais das APIs
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    
+    let stale = false;
+    
     const fetchAdsData = async () => {
       if (!user?.id) return;
+      setIsLoading(true);
       try {
-        const dateRangeParam = { start: dateFilter.start, end: dateFilter.end };
+        const dateRangeParam = { start: debouncedDate.start, end: debouncedDate.end };
         
-        // 1. Google Ads Overview (já é agregado por dia)
-        let gSpend = 0, gClicks = 0, gImpressions = 0, gConversions = 0;
-        try {
-            const googleData = await getGoogleOverview(user.id, dateRangeParam);
-            if (googleData && Array.isArray(googleData)) {
-                googleData.forEach((row: any) => {
-                    gSpend += row.spend || 0;
-                    gClicks += row.clicks || 0;
-                    gImpressions += row.impressions || 0;
-                    gConversions += row.conversions || 0;
-                });
-            }
-        } catch (e) { console.warn("Google Ads falhou no dashboard", e); }
+        const fetchGoogle = async () => {
+          const response = await fetch('/api/google-ads/overview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.id, date_range: dateRangeParam }),
+            signal
+          });
+          if (!response.ok) throw new Error('Google api error');
+          const data = await response.json();
+          const rows = data.results || [];
+          return rows.map((row: any) => ({
+            date: row.segments?.date,
+            clicks: parseInt(row.metrics?.clicks) || 0,
+            impressions: parseInt(row.metrics?.impressions) || 0,
+            spend: (parseInt(row.metrics?.costMicros) || 0) / 1000000,
+            conversions: parseFloat(row.metrics?.conversions) || 0,
+            conversionsValue: parseFloat(row.metrics?.conversionsValue) || 0
+          }));
+        };
 
-        // 2. Meta Ads Overview (já é agregado por dia)
+        const fetchMeta = async () => {
+          const response = await fetch('/api/meta-ads/overview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.id, date_range: dateRangeParam }),
+            signal
+          });
+          if (!response.ok) throw new Error('Meta api error');
+          const data = await response.json();
+          const rows = data.results || [];
+          return rows.map((row: any) => ({
+            date: row.date,
+            spend: parseFloat(row.spend) || 0,
+            impressions: parseInt(row.impressions) || 0,
+            clicks: parseInt(row.clicks) || 0,
+            conversions: parseInt(row.conversions) || 0
+          }));
+        };
+
+        const [googleResult, metaResult] = await Promise.allSettled([
+          fetchGoogle(),
+          fetchMeta()
+        ]);
+
+        if (stale || signal.aborted) return;
+
+        const googleData = googleResult.status === 'fulfilled' ? googleResult.value : null;
+        const metaData = metaResult.status === 'fulfilled' ? metaResult.value : null;
+
+        let gSpend = 0, gClicks = 0, gImpressions = 0, gConversions = 0;
+        if (googleData && Array.isArray(googleData)) {
+          googleData.forEach((row: any) => {
+            gSpend += row.spend || 0;
+            gClicks += row.clicks || 0;
+            gImpressions += row.impressions || 0;
+            gConversions += row.conversions || 0;
+          });
+        }
+
         let mSpend = 0, mClicks = 0, mImpressions = 0, mConversions = 0;
-        try {
-            const metaData = await getMetaOverview(user.id, dateRangeParam);
-            if (metaData && Array.isArray(metaData)) {
-                metaData.forEach((row: any) => {
-                    mSpend += row.spend || 0;
-                    mClicks += row.clicks || 0;
-                    mImpressions += row.impressions || 0;
-                    mConversions += row.conversions || 0;
-                });
-            }
-        } catch (e) { console.warn("Meta Ads falhou no dashboard", e); }
+        if (metaData && Array.isArray(metaData)) {
+          metaData.forEach((row: any) => {
+            mSpend += row.spend || 0;
+            mClicks += row.clicks || 0;
+            mImpressions += row.impressions || 0;
+            mConversions += row.conversions || 0;
+          });
+        }
 
         setGoogleStats({ 
-            spend: gSpend, 
-            clicks: gClicks, 
-            impressions: gImpressions,
-            conversions: gConversions
+          spend: gSpend, 
+          clicks: gClicks, 
+          impressions: gImpressions,
+          conversions: gConversions
         });
         setMetaStats({ 
-            spend: mSpend, 
-            clicks: mClicks, 
-            impressions: mImpressions,
-            conversions: mConversions
+          spend: mSpend, 
+          clicks: mClicks, 
+          impressions: mImpressions,
+          conversions: mConversions
         });
 
-      } catch (err) {
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
         console.error("Erro ao buscar dados de anúncios do dashboard:", err);
+      } finally {
+        if (!stale && !signal.aborted) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchAdsData();
-  }, [user?.id, dateKey, googleAdsToken]);
+
+    return () => {
+      stale = true;
+      controller.abort();
+    };
+  }, [user?.id, debouncedDate.start, debouncedDate.end]);
 
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
 
@@ -225,7 +288,15 @@ const Dashboard: React.FC = () => {
       {/* HEADER LIMPO */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold text-navy tracking-tight">Resumo Executivo</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl md:text-2xl font-bold text-navy tracking-tight">Resumo Executivo</h2>
+            {isLoading && (
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-1">
              <p className="text-xs md:text-sm text-slate-500">Dados consolidados de {dateFilter.start} até {dateFilter.end}</p>
           </div>
@@ -258,30 +329,43 @@ const Dashboard: React.FC = () => {
          {/* LINHA 1 */}
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
             <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Investimento (Mkt)</span><div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><Megaphone size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
-            <h3 className="text-base md:text-2xl font-black text-navy leading-none">
-              R$ {(googleStats.spend + metaStats.spend > 0 ? (googleStats.spend + metaStats.spend) : metrics.marketing.investimento).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </h3>
-            {googleStats.spend + metaStats.spend > 0 ? (
-              <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[8px] md:text-[10px] font-semibold text-slate-500">
-                <p className="flex justify-between">
-                  <span>G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
-                  <span>M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
-                </p>
-                <p className="flex justify-between text-blue-600 border-t border-slate-50 pt-1 mt-1">
-                  <span>Cliques Totais:</span>
-                  <span className="font-bold">{(googleStats.clicks + metaStats.clicks).toLocaleString('pt-BR')}</span>
-                </p>
-                <p className="flex justify-between text-indigo-600">
-                  <span>Impressões Totais:</span>
-                  <span className="font-bold">{(googleStats.impressions + metaStats.impressions).toLocaleString('pt-BR')}</span>
-                </p>
-                <p className="flex justify-between text-emerald-600">
-                  <span>Conversões Totais:</span>
-                  <span className="font-bold">{(googleStats.conversions + metaStats.conversions).toLocaleString('pt-BR')}</span>
-                </p>
+            {isLoading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-6 bg-slate-200 rounded w-2/3"></div>
+                <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                  <div className="h-3 bg-slate-100 rounded w-5/6"></div>
+                  <div className="h-3 bg-slate-100 rounded w-4/5"></div>
+                  <div className="h-3 bg-slate-100 rounded w-2/3"></div>
+                </div>
               </div>
             ) : (
-              <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
+              <>
+                <h3 className="text-base md:text-2xl font-black text-navy leading-none">
+                  R$ {(googleStats.spend + metaStats.spend > 0 ? (googleStats.spend + metaStats.spend) : metrics.marketing.investimento).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </h3>
+                {googleStats.spend + metaStats.spend > 0 ? (
+                  <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[8px] md:text-[10px] font-semibold text-slate-500">
+                    <p className="flex justify-between">
+                      <span>G: R$ {googleStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+                      <span>M: R$ {metaStats.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+                    </p>
+                    <p className="flex justify-between text-blue-600 border-t border-slate-50 pt-1 mt-1">
+                      <span>Cliques Totais:</span>
+                      <span className="font-bold">{(googleStats.clicks + metaStats.clicks).toLocaleString('pt-BR')}</span>
+                    </p>
+                    <p className="flex justify-between text-indigo-600">
+                      <span>Impressões Totais:</span>
+                      <span className="font-bold">{(googleStats.impressions + metaStats.impressions).toLocaleString('pt-BR')}</span>
+                    </p>
+                    <p className="flex justify-between text-emerald-600">
+                      <span>Conversões Totais:</span>
+                      <span className="font-bold">{(googleStats.conversions + metaStats.conversions).toLocaleString('pt-BR')}</span>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[8px] md:text-[10px] font-bold text-emerald-500 mt-1.5 md:mt-2 uppercase">+5% vs anterior</p>
+                )}
+              </>
             )}
          </div>
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-indigo-300 transition-colors">

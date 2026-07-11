@@ -1351,9 +1351,21 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 app.post('/api/meta-ads/campaigns/toggle-status', async (req, res) => {
     const { campaign_id, action } = req.body;
     try {
-        const user = await getAuthUser(req);
-        const user_id = user.id;
+        const authUser = await getAuthUser(req);
+        const user_id = authUser.id;
         const { accessToken, adAccountId } = await getValidMetaToken(user_id);
+        
+        let campaignName = 'Unknown';
+        let oldStatus = null;
+        try {
+            const getCampaignUrl = `https://graph.facebook.com/v25.0/${campaign_id}?fields=name,status`;
+            const campaignDetails = await executeMetaMutation(getCampaignUrl, 'GET', accessToken);
+            campaignName = campaignDetails.name || 'Unknown';
+            oldStatus = campaignDetails.status || null;
+        } catch (e) {
+            console.warn('[Meta Ads Audit Log] Falhou ao buscar dados da campanha:', e.message);
+        }
+
         const url = `https://graph.facebook.com/v25.0/${campaign_id}`;
         const newStatus = action === 'pause' ? 'PAUSED' : 'ACTIVE';
         const body = { status: newStatus };
@@ -1361,11 +1373,13 @@ app.post('/api/meta-ads/campaigns/toggle-status', async (req, res) => {
         await executeMetaMutation(url, 'POST', accessToken, body);
         
         // Audit log
-        await supabase.from('meta_ads_audit_logs').insert({
-            user_id,
+        await supabaseAdmin.from('meta_ads_audit_logs').insert({
+            user_id: authUser.id,
             ad_account_id: adAccountId,
-            campaign_id,
-            action: `toggle_campaign_${action}`,
+            campaign_id: campaign_id,
+            campaign_name: campaignName,
+            action: action === 'pause' ? 'pause' : 'activate',
+            old_value: oldStatus,
             new_value: newStatus
         });
         
@@ -1379,21 +1393,35 @@ app.post('/api/meta-ads/campaigns/toggle-status', async (req, res) => {
 app.post('/api/meta-ads/campaigns/update-budget', async (req, res) => {
     const { adset_id, new_amount } = req.body;
     try {
-        const user = await getAuthUser(req);
-        const user_id = user.id;
+        const authUser = await getAuthUser(req);
+        const user_id = authUser.id;
         const { accessToken, adAccountId } = await getValidMetaToken(user_id);
+
+        let campaignName = 'Unknown';
+        let oldBudget = null;
+        try {
+            const getAdsetUrl = `https://graph.facebook.com/v25.0/${adset_id}?fields=name,daily_budget,lifetime_budget`;
+            const adsetDetails = await executeMetaMutation(getAdsetUrl, 'GET', accessToken);
+            campaignName = adsetDetails.name || 'Unknown';
+            const rawOldBudget = adsetDetails.daily_budget || adsetDetails.lifetime_budget;
+            oldBudget = rawOldBudget ? (rawOldBudget / 100).toString() : null;
+        } catch (e) {
+            console.warn('[Meta Ads Audit Log] Falhou ao buscar dados do adset:', e.message);
+        }
+
         const url = `https://graph.facebook.com/v25.0/${adset_id}`;
-        
         const body = { daily_budget: Math.round(new_amount * 100) };
         await executeMetaMutation(url, 'POST', accessToken, body);
         
         // Audit log
-        await supabase.from('meta_ads_audit_logs').insert({
-            user_id,
+        await supabaseAdmin.from('meta_ads_audit_logs').insert({
+            user_id: authUser.id,
             ad_account_id: adAccountId,
-            campaign_id: adset_id, // saving adset_id here since that's what was changed
-            action: 'update_adset_budget',
-            new_value: new_amount.toString()
+            campaign_id: adset_id,
+            campaign_name: campaignName,
+            action: 'update_budget',
+            old_value: oldBudget ? String(oldBudget) : null,
+            new_value: new_amount ? String(new_amount) : null
         });
         
         res.json({ ok: true, message: 'Orçamento atualizado com sucesso' });
@@ -2545,7 +2573,6 @@ app.post('/api/axis/chat', async (req, res) => {
         res.status(500).json({ response: "Desculpe, perdi a conexão com a base de dados. Tente novamente." });
     }
 });
-// ... (Evolution API requests mantidos) ...
 
 // ==============================================================================
 // 12. CRM & UAZAPI INTEGRATION BASE

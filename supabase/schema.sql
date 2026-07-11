@@ -79,28 +79,10 @@ begin
   end if;
 end $$;
 
--- 4. Tabela WHATSAPP_INSTANCES (Conexão Evolution API)
-create table if not exists whatsapp_instances (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid references auth.users(id) on delete cascade not null unique, -- 1 instância por usuário
-  instance_name text not null,
-  status text default 'disconnected', -- disconnected, connected, connecting
-  qr_code text, -- opcional, para cache
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now()
-);
-
--- 5. Tabela WHATSAPP_MESSAGES (Histórico de Chat)
-create table if not exists whatsapp_messages (
-  id uuid primary key default uuid_generate_v4(),
-  lead_id uuid references leads(id) on delete cascade, -- Link com o CRM
-  contact_phone text, -- Redundância útil para queries rápidas
-  sender text check (sender in ('me', 'contact')), -- Quem enviou
-  body text,
-  type text default 'text',
-  status text default 'delivered',
-  created_at timestamp with time zone default now()
-);
+-- 3.1 Índices na Tabela LEADS
+create index if not exists idx_leads_user_id on public.leads(user_id);
+create index if not exists idx_leads_status on public.leads(status);
+create index if not exists idx_leads_temperature on public.leads(temperature);
 
 -- 6. Outras Tabelas Existentes (Garantia de integridade)
 create table if not exists transactions (
@@ -150,8 +132,6 @@ create table if not exists appointments (
 -- Habilita RLS em todas as tabelas críticas
 alter table profiles enable row level security;
 alter table leads enable row level security;
-alter table whatsapp_instances enable row level security;
-alter table whatsapp_messages enable row level security;
 alter table transactions enable row level security;
 alter table appointments enable row level security;
 
@@ -164,13 +144,6 @@ drop policy if exists "Users can view own leads" on leads;
 drop policy if exists "Users can insert own leads" on leads;
 drop policy if exists "Users can update own leads" on leads;
 
-drop policy if exists "Users can view own instances" on whatsapp_instances;
-drop policy if exists "Users can update own instances" on whatsapp_instances;
-drop policy if exists "Users can insert own instances" on whatsapp_instances;
-
-drop policy if exists "Users can view own messages" on whatsapp_messages;
-drop policy if exists "Users can insert own messages" on whatsapp_messages;
-
 -- Cria Policies Novas
 
 -- PROFILES
@@ -182,21 +155,6 @@ create policy "Users can insert own profile" on profiles for insert with check (
 create policy "Users can view own leads" on leads for select using (auth.uid() = user_id);
 create policy "Users can insert own leads" on leads for insert with check (auth.uid() = user_id);
 create policy "Users can update own leads" on leads for update using (auth.uid() = user_id);
-
--- WHATSAPP INSTANCES
-create policy "Users can view own instances" on whatsapp_instances for select using (auth.uid() = user_id);
-create policy "Users can update own instances" on whatsapp_instances for update using (auth.uid() = user_id);
-create policy "Users can insert own instances" on whatsapp_instances for insert with check (auth.uid() = user_id);
-
--- WHATSAPP MESSAGES (Regra: Pode ver se o Lead pertencer ao usuário)
-create policy "Users can view own messages" on whatsapp_messages for select using (
-  exists (select 1 from leads where leads.id = whatsapp_messages.lead_id and leads.user_id = auth.uid())
-);
--- Nota: O insert em messages geralmente é feito pelo SERVICE_ROLE (backend), então RLS de insert para usuário pode ser opcional, 
--- mas se o usuário enviar mensagem pelo front, precisa disso:
-create policy "Users can insert own messages" on whatsapp_messages for insert with check (
-  exists (select 1 from leads where leads.id = whatsapp_messages.lead_id and leads.user_id = auth.uid())
-);
 
 -- ==============================================================================
 -- REALTIME
@@ -212,8 +170,6 @@ begin
   -- Adiciona tabelas (ignorando erro se já estiverem lá)
   begin alter publication supabase_realtime add table profiles; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table leads; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table whatsapp_instances; exception when duplicate_object then null; end;
-  begin alter publication supabase_realtime add table whatsapp_messages; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table transactions; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table appointments; exception when duplicate_object then null; end;
 end;
@@ -294,4 +250,7 @@ create table if not exists public.meta_ads_audit_logs (
 );
 create index if not exists idx_meta_ads_audit_user_id on public.meta_ads_audit_logs(user_id);
 create index if not exists idx_meta_ads_audit_created_at on public.meta_ads_audit_logs(created_at desc);
-ALTER TABLE public.meta_ads_audit_logs DISABLE ROW LEVEL SECURITY;
+alter table public.meta_ads_audit_logs enable row level security;
+
+drop policy if exists "Users can view own meta ads audit logs" on public.meta_ads_audit_logs;
+create policy "Users can view own meta ads audit logs" on public.meta_ads_audit_logs for select using (auth.uid() = user_id);
