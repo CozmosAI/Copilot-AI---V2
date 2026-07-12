@@ -41,7 +41,7 @@ const MetaIcon = ({ size = 20 }: { size?: number }) => (
 );
 
 const Dashboard: React.FC = () => {
-  const { dateFilter, setDateFilter, setCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user } = useApp();
+  const { dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user } = useApp();
   const [insight, setInsight] = useState<string>('Analisando sua clínica...');
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
@@ -50,7 +50,7 @@ const Dashboard: React.FC = () => {
   const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
   const [metaStats, setMetaStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
   const [isLoading, setIsLoading] = useState(false);
-  const [debouncedDate, setDebouncedDate] = useState(dateFilter);
+  const [debouncedDate, setDebouncedDate] = useState(dashboardDateFilter);
 
   // States para contas conectadas
   const [googleAccount, setGoogleAccount] = useState<{ customer_id: string; customer_name: string; status: string; last_sync_at: string } | null>(null);
@@ -62,18 +62,18 @@ const Dashboard: React.FC = () => {
 
   // State para popover personalizado
   const [showCustomRangePopover, setShowCustomRangePopover] = useState(false);
-  const [customStart, setCustomStart] = useState(dateFilter.start);
-  const [customEnd, setCustomEnd] = useState(dateFilter.end);
+  const [customStart, setCustomStart] = useState(dashboardDateFilter.start);
+  const [customEnd, setCustomEnd] = useState(dashboardDateFilter.end);
 
   // Sincronizar inputs de data personalizados quando a data global mudar
   useEffect(() => {
-    setCustomStart(dateFilter.start);
-    setCustomEnd(dateFilter.end);
-  }, [dateFilter.start, dateFilter.end]);
+    setCustomStart(dashboardDateFilter.start);
+    setCustomEnd(dashboardDateFilter.end);
+  }, [dashboardDateFilter.start, dashboardDateFilter.end]);
 
   const handleApplyCustomRange = () => {
     if (customStart && customEnd) {
-      setCustomDateRange(customStart, customEnd);
+      setDashboardCustomDateRange(customStart, customEnd);
       setShowCustomRangePopover(false);
     }
   };
@@ -112,9 +112,9 @@ const Dashboard: React.FC = () => {
   const leadsInPeriod = useMemo(() => {
     return leads.filter(l => {
        const d = l.created_at ? l.created_at.split('T')[0] : '';
-       return d >= dateFilter.start && d <= dateFilter.end;
+       return d >= dashboardDateFilter.start && d <= dashboardDateFilter.end;
     });
-  }, [leads, dateFilter.start, dateFilter.end]);
+  }, [leads, dashboardDateFilter.start, dashboardDateFilter.end]);
 
   const hotLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Hot').length, [leadsInPeriod]);
   const warmLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Warm').length, [leadsInPeriod]);
@@ -253,15 +253,15 @@ const Dashboard: React.FC = () => {
 
   // --- LÓGICA DO GRÁFICO FINANCEIRO ---
   const financialChartData = useMemo(() => {
-    const start = new Date(dateFilter.start);
-    const end = new Date(dateFilter.end);
+    const start = new Date(dashboardDateFilter.start);
+    const end = new Date(dashboardDateFilter.end);
     const diffTime = Math.abs(end.getTime() - start.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
     const isMonthlyView = diffDays > 35;
     const dataMap = new Map<string, { name: string; sortKey: string; receita: number; despesa: number; lucro: number }>();
 
     financialEntries.forEach(entry => {
-        if (entry.date < dateFilter.start || entry.date > dateFilter.end) return;
+        if (entry.date < dashboardDateFilter.start || entry.date > dashboardDateFilter.end) return;
         if (entry.status !== 'efetuada') return;
         const dateObj = new Date(entry.date + 'T12:00:00'); 
         let key = '', sortKey = '';
@@ -282,7 +282,7 @@ const Dashboard: React.FC = () => {
     });
 
     return Array.from(dataMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-  }, [financialEntries, dateFilter]);
+  }, [financialEntries, dashboardDateFilter]);
 
 
   // --- DADOS DE ATRIBUIÇÃO DE ANÚNCIOS (Cruzamento Ads x CRM) ---
@@ -361,7 +361,7 @@ const Dashboard: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-xs md:text-sm text-slate-500">Dados consolidados de {dateFilter.start} até {dateFilter.end}</p>
+             <p className="text-xs md:text-sm text-slate-500">Dados consolidados de {dashboardDateFilter.start} até {dashboardDateFilter.end}</p>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto shrink-0">
@@ -383,10 +383,10 @@ const Dashboard: React.FC = () => {
               <button 
                 key={t} 
                 onClick={() => {
-                  setDateFilter(t);
+                  setDashboardDateFilterByLabel(t);
                   setShowCustomRangePopover(false);
                 }} 
-                className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${t === dateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
+                className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${t === dashboardDateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
               >
                 {t}
               </button>
@@ -394,7 +394,7 @@ const Dashboard: React.FC = () => {
             
             <button 
               onClick={() => setShowCustomRangePopover(!showCustomRangePopover)} 
-              className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${dateFilter.label === 'Custom' ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
+              className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${dashboardDateFilter.label === 'Custom' ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
             >
               Personalizado
             </button>
@@ -448,7 +448,7 @@ const Dashboard: React.FC = () => {
              </button>
              <div>
                   <div className="flex items-center gap-2 mb-1">
-                     <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1"><Bot size={12}/> Relatório do Copilot AI ({dateFilter.label})</span>
+                     <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1"><Bot size={12}/> Relatório do Copilot AI ({dashboardDateFilter.label})</span>
                   </div>
                   <p className="text-sm md:text-lg font-medium italic opacity-90 leading-relaxed">"{insight}"</p>
              </div>
@@ -869,7 +869,7 @@ const Dashboard: React.FC = () => {
       {/* GRÁFICO FINANCEIRO AGREGADO */}
       <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
-              <div><h3 className="text-sm font-bold text-navy uppercase tracking-widest flex items-center gap-2"><BarChart3 size={16} className="text-emerald-600" /> Fluxo Financeiro Detalhado</h3><p className="text-xs text-slate-500 mt-1">Comparativo de Receita, Despesa e Lucro ({dateFilter.label})</p></div>
+              <div><h3 className="text-sm font-bold text-navy uppercase tracking-widest flex items-center gap-2"><BarChart3 size={16} className="text-emerald-600" /> Fluxo Financeiro Detalhado</h3><p className="text-xs text-slate-500 mt-1">Comparativo de Receita, Despesa e Lucro ({dashboardDateFilter.label})</p></div>
           </div>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">

@@ -63,7 +63,7 @@ const DEFAULT_METRIC_STYLES: Record<string, { label: string, color: string, axis
 };
 
 const Marketing: React.FC = () => {
-  const { dateFilter, setCustomDateRange, googleAdsToken, metrics, user, metaAdsStatus } = useApp();
+  const { marketingDateFilter, setMarketingCustomDateRange, googleAdsToken, metrics, user, metaAdsStatus } = useApp();
   const [loading, setLoading] = useState(false);
   const [activePlatform, setActivePlatform] = useState<'google' | 'meta'>('google');
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adgroups' | 'keywords' | 'ads' | 'assetgroups' | 'searchterms' | 'accounts'>('overview');
@@ -261,7 +261,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       return Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
   };
 
-  const daysInPeriod = useMemo(() => getDaysDifference(dateFilter.start, dateFilter.end), [dateFilter]);
+  const daysInPeriod = useMemo(() => getDaysDifference(marketingDateFilter.start, marketingDateFilter.end), [marketingDateFilter]);
   
   const budgetMetrics = useMemo(() => {
       // Filter campaigns if global filter is active
@@ -299,16 +299,16 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
   // Clear cache when filters that affect all data change
   useEffect(() => {
       cacheRef.current = {};
-  }, [dateFilter.start, dateFilter.end, isCompareEnabled, compareDateFilter.start, compareDateFilter.end, selectedAccountId, activePlatform]);
+  }, [marketingDateFilter.start, marketingDateFilter.end, isCompareEnabled, compareDateFilter.start, compareDateFilter.end, selectedAccountId, activePlatform]);
 
   useEffect(() => {
     const fetchData = async () => {
-        if (!user || !dateFilter.start || !dateFilter.end) return;
+        if (!user || !marketingDateFilter.start || !marketingDateFilter.end) return;
         
         if (activePlatform === 'google') {
             const customerId = selectedAccountId || 'default';
             const compareKey = isCompareEnabled ? `${compareDateFilter.start}_${compareDateFilter.end}` : 'none';
-            const baseCacheKey = `${dateFilter.start}_${dateFilter.end}_${customerId}_${compareKey}`;
+            const baseCacheKey = `${marketingDateFilter.start}_${marketingDateFilter.end}_${customerId}_${compareKey}`;
             
             try {
                 const promises = [];
@@ -325,7 +325,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`,
-                            () => getGoogleOverview(user.id, dateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined)
+                            () => getGoogleOverview(user.id, marketingDateFilter, globalCampaignFilter || undefined, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined)
                         ).then(res => { overviewRes = res; cacheRef.current[`${baseCacheKey}_overview_${globalCampaignFilter || 'all'}`] = res; })
                     );
                 }
@@ -333,7 +333,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_campaigns`,
-                            () => getGoogleCampaigns(user.id, dateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined)
+                            () => getGoogleCampaigns(user.id, marketingDateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined)
                         ).then(res => { campaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; })
                     );
                 }
@@ -341,7 +341,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_adgroups`,
-                            () => getGoogleAdGroups(user.id, dateFilter, selectedAccountId || undefined)
+                            () => getGoogleAdGroups(user.id, marketingDateFilter, selectedAccountId || undefined)
                         ).then(res => { adGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; })
                     );
                 }
@@ -349,7 +349,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_keywords`,
-                            () => getGoogleKeywords(user.id, dateFilter, selectedAccountId || undefined)
+                            () => getGoogleKeywords(user.id, marketingDateFilter, selectedAccountId || undefined)
                         ).then(res => { keywordsRes = res; cacheRef.current[`${baseCacheKey}_keywords`] = res; })
                     );
                 }
@@ -357,7 +357,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_ads`,
-                            () => getGoogleAds(user.id, dateFilter, selectedAccountId || undefined)
+                            () => getGoogleAds(user.id, marketingDateFilter, selectedAccountId || undefined)
                         ).then(res => { adsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; })
                     );
                 }
@@ -365,7 +365,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_searchterms`,
-                            () => getGoogleSearchTerms(user.id, dateFilter, selectedAccountId || undefined)
+                            () => getGoogleSearchTerms(user.id, marketingDateFilter, selectedAccountId || undefined)
                         ).then(res => { searchTermsRes = res; cacheRef.current[`${baseCacheKey}_searchterms`] = res; })
                     );
                 }
@@ -373,7 +373,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_assetgroups_${globalCampaignFilter}`,
-                            () => getGoogleAssetGroups(user.id, dateFilter, globalCampaignFilter, selectedAccountId || undefined)
+                            () => getGoogleAssetGroups(user.id, marketingDateFilter, globalCampaignFilter, selectedAccountId || undefined)
                         ).then(res => { assetGroupsRes = res; cacheRef.current[`${baseCacheKey}_assetgroups_${globalCampaignFilter}`] = res; })
                     );
                 }
@@ -431,7 +431,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                 setLoading(false);
             }
         } else if (activePlatform === 'meta') {
-            const baseCacheKey = `${dateFilter.start}_${dateFilter.end}_meta`;
+            const baseCacheKey = `${marketingDateFilter.start}_${marketingDateFilter.end}_meta`;
             try {
                 const promises = [];
                 let metaOverviewRes = cacheRef.current[`${baseCacheKey}_overview`];
@@ -444,7 +444,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_overview`,
-                            () => getMetaOverview(user.id, dateFilter)
+                            () => getMetaOverview(user.id, marketingDateFilter)
                         ).then(res => { metaOverviewRes = res; cacheRef.current[`${baseCacheKey}_overview`] = res; })
                     );
                 }
@@ -452,7 +452,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_campaigns`,
-                            () => getMetaCampaigns(user.id, dateFilter)
+                            () => getMetaCampaigns(user.id, marketingDateFilter)
                         ).then(res => { metaCampaignsRes = res; cacheRef.current[`${baseCacheKey}_campaigns`] = res; })
                     );
                 }
@@ -460,7 +460,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_adgroups`,
-                            () => getMetaAdGroups(user.id, dateFilter)
+                            () => getMetaAdGroups(user.id, marketingDateFilter)
                         ).then(res => { metaAdGroupsRes = res; cacheRef.current[`${baseCacheKey}_adgroups`] = res; })
                     );
                 }
@@ -468,7 +468,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     promises.push(
                         cachedApiCall(
                             `${baseCacheKey}_ads`,
-                            () => getMetaAds(user.id, dateFilter)
+                            () => getMetaAds(user.id, marketingDateFilter)
                         ).then(res => { metaAdsRes = res; cacheRef.current[`${baseCacheKey}_ads`] = res; })
                     );
                 }
@@ -493,20 +493,20 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
     };
 
     fetchData();
-  }, [user, dateFilter, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId, activePlatform]);
+  }, [user, marketingDateFilter, globalCampaignFilter, isCompareEnabled, compareDateFilter, selectedAccountId, activePlatform]);
 
   // MCC Check
   useEffect(() => {
       if (!googleAdsToken) return;
-      if (user && dateFilter.start && dateFilter.end) {
-          getGoogleMccOverview(user.id, dateFilter).then(accounts => {
+      if (user && marketingDateFilter.start && marketingDateFilter.end) {
+          getGoogleMccOverview(user.id, marketingDateFilter).then(accounts => {
               if (accounts && accounts.length > 0) {
                   setMccAccounts(accounts);
                   setIsMccUser(true);
               }
           }).catch(err => console.error("MCC Check Error", err));
       }
-  }, [user, dateFilter]);
+  }, [user, marketingDateFilter]);
 
   
   const handleToggleMetaCampaign = async () => {
@@ -852,7 +852,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
           const payload = {
               client_name: reportConfig.clientName,
               agency_name: reportConfig.agencyName,
-              date_range: dateFilter,
+              date_range: marketingDateFilter,
               logo_url: reportConfig.logoUrl,
               kpis: {
                   cost: formatCurrency(periodTotals.spend),
@@ -899,7 +899,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
               platformLabel = 'MetaAds';
           }
           
-          a.download = `Relatorio_${platformLabel}_${dateFilter.start}_${dateFilter.end}.pdf`;
+          a.download = `Relatorio_${platformLabel}_${marketingDateFilter.start}_${marketingDateFilter.end}.pdf`;
           document.body.appendChild(a);
           a.click();
           window.URL.revokeObjectURL(url);
@@ -1043,15 +1043,15 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         <div className="flex items-center gap-1">
                             <input 
                                 type="date" 
-                                value={dateFilter.start} 
-                                onChange={(e) => setCustomDateRange(e.target.value, dateFilter.end)}
+                                value={marketingDateFilter.start} 
+                                onChange={(e) => setMarketingCustomDateRange(e.target.value, marketingDateFilter.end)}
                                 className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-navy transition-colors cursor-pointer w-[110px]"
                             />
                             <span className="text-[10px] text-slate-300 font-bold">-</span>
                             <input 
                                 type="date" 
-                                value={dateFilter.end} 
-                                onChange={(e) => setCustomDateRange(dateFilter.start, e.target.value)}
+                                value={marketingDateFilter.end} 
+                                onChange={(e) => setMarketingCustomDateRange(marketingDateFilter.start, e.target.value)}
                                 className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-navy transition-colors cursor-pointer w-[110px]"
                             />
                         </div>
@@ -3858,7 +3858,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                           <h4 className="text-[10px] font-bold text-slate-900 uppercase tracking-wider mb-2">Resumo do Relatório</h4>
                           <div className="text-xs text-slate-500 space-y-1.5 font-medium">
-                              <p>• Período: <span className="font-bold text-slate-900">{new Date(dateFilter.start).toLocaleDateString('pt-BR')} a {new Date(dateFilter.end).toLocaleDateString('pt-BR')}</span></p>
+                              <p>• Período: <span className="font-bold text-slate-900">{new Date(marketingDateFilter.start).toLocaleDateString('pt-BR')} a {new Date(marketingDateFilter.end).toLocaleDateString('pt-BR')}</span></p>
                               <p>• Campanhas: <span className="font-bold text-slate-900">{campaigns.length}</span></p>
                               <p>• Gráfico de Evolução: <span className="font-bold text-slate-900">Incluído</span></p>
                           </div>

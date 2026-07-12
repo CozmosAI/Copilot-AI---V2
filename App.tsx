@@ -65,9 +65,12 @@ interface AppContextType {
   
   refreshGoogleCredentials: () => Promise<void>;
 
-  dateFilter: DateRange;
-  setDateFilter: (label: string) => void;
-  setCustomDateRange: (start: string, end: string) => void;
+  dashboardDateFilter: DateRange;
+  setDashboardDateFilterByLabel: (label: string) => void;
+  setDashboardCustomDateRange: (start: string, end: string) => void;
+  marketingDateFilter: DateRange;
+  setMarketingDateFilterByLabel: (label: string) => void;
+  setMarketingCustomDateRange: (start: string, end: string) => void;
   metrics: ConsolidatedMetrics;
   
   financialEntries: FinancialEntry[];
@@ -132,7 +135,8 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<AppSection>(AppSection.DASHBOARD);
   const [isSidebarOpen, setSidebarOpen] = useState(false);
-  const [dateFilter, setInternalDateFilter] = useState<DateRange>(calculateRange('7 dias'));
+  const [dashboardDateFilter, setDashboardDateFilter] = useState<DateRange>(calculateRange('7 dias'));
+  const [marketingDateFilter, setMarketingDateFilter] = useState<DateRange>(calculateRange('7 dias'));
   
   // Pending Accounts state
   const [pendingMetaAccounts, setPendingMetaAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_meta_accounts') || '[]'));
@@ -553,9 +557,9 @@ const App: React.FC = () => {
   const removeTeamMember = (id: string) => { setTeamMembers(prev => prev.filter(m => m.id !== id)); };
 
   const consolidatedMetrics = useMemo((): ConsolidatedMetrics => {
-    const filteredEntries = financialEntries.filter(e => e.date >= dateFilter.start && e.date <= dateFilter.end && e.status !== 'cancelada');
-    const filteredLeads = leads.filter(l => l.created_at && l.created_at.split('T')[0] >= dateFilter.start && l.created_at.split('T')[0] <= dateFilter.end);
-    const filteredAppointments = appointments.filter(a => a.date >= dateFilter.start && a.date <= dateFilter.end);
+    const filteredEntries = financialEntries.filter(e => e.date >= dashboardDateFilter.start && e.date <= dashboardDateFilter.end && e.status !== 'cancelada');
+    const filteredLeads = leads.filter(l => l.created_at && l.created_at.split('T')[0] >= dashboardDateFilter.start && l.created_at.split('T')[0] <= dashboardDateFilter.end);
+    const filteredAppointments = appointments.filter(a => a.date >= dashboardDateFilter.start && a.date <= dashboardDateFilter.end);
     
     const receitaBruta = filteredEntries.filter(e => e.type === 'receivable' && e.status === 'efetuada').reduce((acc, curr) => acc + curr.total, 0);
     const gastosOperacionais = filteredEntries.filter(e => e.type === 'payable' && e.category !== 'Marketing').reduce((acc, curr) => acc + curr.total, 0);
@@ -592,10 +596,12 @@ const App: React.FC = () => {
         receitaBruta, gastosTotais, lucroLiquido: receitaBruta - gastosTotais, roi: gastosTotais > 0 ? ((receitaBruta - gastosTotais) / gastosTotais) * 100 : 0, ticketMedio: vendas > 0 ? receitaBruta / vendas : 0 
       }
     };
-  }, [dateFilter, financialEntries, leads, appointments, user?.ticketValue]);
+  }, [dashboardDateFilter, financialEntries, leads, appointments, user?.ticketValue]);
 
-  const setDateFilter = (label: string) => setInternalDateFilter(calculateRange(label));
-  const setCustomDateRange = (start: string, end: string) => setInternalDateFilter({ start, end, label: 'Custom' });
+  const setDashboardDateFilterByLabel = (label: string) => setDashboardDateFilter(calculateRange(label));
+  const setDashboardCustomDateRange = (start: string, end: string) => setDashboardDateFilter({ start, end, label: 'Custom' });
+  const setMarketingDateFilterByLabel = (label: string) => setMarketingDateFilter(calculateRange(label));
+  const setMarketingCustomDateRange = (start: string, end: string) => setMarketingDateFilter({ start, end, label: 'Custom' });
   const toggleIntegration = (id: string) => setIntegrations(prev => ({ ...prev, [id]: !prev[id] }));
 
   // Render Optimized
@@ -630,7 +636,9 @@ const App: React.FC = () => {
         googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
         metaAdsStatus, setMetaAdsStatus,
         /* whatsappConfig, setWhatsappConfig, */ toggleIntegration, refreshGoogleCredentials, 
-        dateFilter, setDateFilter, setCustomDateRange, metrics: consolidatedMetrics, 
+        dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange,
+        marketingDateFilter, setMarketingDateFilterByLabel, setMarketingCustomDateRange,
+        metrics: consolidatedMetrics, 
         financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, 
         leads, addLead, updateLead, appointments, addAppointment, updateAppointment,
         teamMembers, addTeamMember, removeTeamMember,

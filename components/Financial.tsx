@@ -17,7 +17,7 @@ import { useApp } from '../App';
 type HistoryPeriod = 'month' | '3months' | '6months' | 'year' | 'custom';
 
 const Financial: React.FC = () => {
-  const { dateFilter, setDateFilter, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, metrics } = useApp();
+  const { dashboardDateFilter, setDashboardDateFilterByLabel, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, metrics } = useApp();
   const [subSection, setSubSection] = useState<FinancialSubSection>(FinancialSubSection.OVERVIEW);
   const [showForm, setShowForm] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinancialEntry | null>(null);
@@ -48,9 +48,9 @@ const Financial: React.FC = () => {
   const filteredEntries = useMemo(() => {
     return financialEntries.filter(entry => {
       const entryDate = entry.date;
-      return entryDate >= dateFilter.start && entryDate <= dateFilter.end;
+      return entryDate >= dashboardDateFilter.start && entryDate <= dashboardDateFilter.end;
     });
-  }, [financialEntries, dateFilter]);
+  }, [financialEntries, dashboardDateFilter]);
 
   // CÁLCULO REAL DO FLUXO DE CAIXA (Últimos 6 meses)
   const cashFlowProjection = useMemo(() => {

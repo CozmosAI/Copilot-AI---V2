@@ -637,40 +637,51 @@ const Integration: React.FC = () => {
     fetchCrmHealth();
   }, [user]);
 
-  // --- CHECK CONNECTION STATUS ON MOUNT ---
+  // --- CHECK CONNECTION STATUS ON MOUNT DIRECT FROM SUPABASE ---
   useEffect(() => {
-    const fetchInitialStatus = async () => {
+    const fetchConnectionsFromSupabase = async () => {
       if (!user?.id) return;
       try {
-        // Google Ads status
-        const googleRes = await fetch(`/api/google-ads/status/${user.id}`);
-        if (googleRes.ok) {
-          const googleData = await googleRes.json();
-          if (googleData.mappedStatus === 'connected' || googleData.status === 'connected' || googleData.status === 'active') {
+        const { supabase } = await import('../lib/supabase');
+        
+        const [googleRes, metaRes] = await Promise.allSettled([
+          supabase.from('google_ads_integrations').select('customer_id, customer_name, status').eq('user_id', user.id).maybeSingle(),
+          supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status').eq('user_id', user.id).maybeSingle()
+        ]);
+        
+        // Google Ads
+        if (googleRes.status === 'fulfilled' && googleRes.value.data) {
+          const g = googleRes.value.data;
+          if (g.status === 'active') {
             setGoogleAdsToken('backend-connected');
-            setAccountName(googleData.accountName || googleData.ad_account_name || '');
+            setAccountName(g.customer_name || '');
           } else {
             setGoogleAdsToken(null);
+            setAccountName('');
           }
+        } else {
+          setGoogleAdsToken(null);
         }
         
-        // Meta Ads status (em paralelo pra não bloquear)
-        const metaRes = await fetch(`/api/meta-ads/status/${user.id}`);
-        if (metaRes.ok) {
-          const metaData = await metaRes.json();
-          if (metaData.status === 'connected' || metaData.status === 'active') {
+        // Meta Ads
+        if (metaRes.status === 'fulfilled' && metaRes.value.data) {
+          const m = metaRes.value.data;
+          if (m.status === 'active' || m.status === 'connected') {
             setMetaAdsStatus('backend-connected');
-            setMetaAccountName(metaData.ad_account_name || metaData.accountName || '');
+            setMetaAccountName(m.ad_account_name || '');
           } else {
             setMetaAdsStatus(null);
+            setMetaAccountName('');
           }
+        } else {
+          setMetaAdsStatus(null);
         }
       } catch (err) {
-        console.error('Erro ao buscar status inicial das integrações:', err);
+        console.error('Erro ao buscar conexões do Supabase:', err);
       }
     };
     
-    fetchInitialStatus();
+    fetchConnectionsFromSupabase();
   }, [user?.id]);
 
   // Handle OAuth Callback from Global Event

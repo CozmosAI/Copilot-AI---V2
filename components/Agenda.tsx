@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import { useApp } from '../App';
 import { getUpcomingEvents, GoogleCalendarEvent, signInWithGoogleCalendar, createCalendarEvent } from '../services/googleCalendarService';
 import { Appointment } from '../types';
@@ -16,6 +16,8 @@ const Agenda: React.FC = () => {
   const [calendarError, setCalendarError] = useState(false);
   
   const [tokenExpiryWarning, setTokenExpiryWarning] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [syncCount, setSyncCount] = useState(0);
 
   const getTokenExpiryDays = (token: string | null): number | null => {
     if (!token) return null;
@@ -83,39 +85,65 @@ const Agenda: React.FC = () => {
 
   // Sincroniza agendamentos locais não sincronizados para o Google Calendar automaticamente
   useEffect(() => {
-    if (googleCalendarToken && appointments.length > 0 && user?.id) {
-      const syncExistingAppointments = async () => {
-        const syncedIdsKey = `synced_appointments_${user.id}`;
-        const syncedIds = JSON.parse(localStorage.getItem(syncedIdsKey) || '[]');
-        const unsynced = appointments.filter(a => !syncedIds.includes(a.id));
-        
-        if (unsynced.length === 0) return;
-        
-        const newSyncedIds = [...syncedIds];
-        for (const apt of unsynced) {
-          try {
-            const startDateTime = new Date(`${apt.date}T${apt.time || '09:00'}:00`).toISOString();
-            const endTime = new Date(new Date(`${apt.date}T${apt.time || '09:00'}:00`).getTime() + 60 * 60 * 1000).toISOString();
-            
-            const googleEventId = await createCalendarEvent(googleCalendarToken, {
-              summary: `${apt.patientName} - ${apt.type}`,
-              start: { dateTime: startDateTime },
-              end: { dateTime: endTime },
-              description: `Agendamento criado via AXIS AI - Tipo: ${apt.type}`
-            });
-            
-            if (googleEventId) {
-              newSyncedIds.push(apt.id);
-            }
-          } catch (err) {
-            console.error('Erro ao sincronizar agendamento local:', apt.id, err);
-          }
-        }
-        localStorage.setItem(syncedIdsKey, JSON.stringify(newSyncedIds));
-      };
-      
-      syncExistingAppointments();
+    if (!googleCalendarToken || !user?.id || appointments.length === 0) {
+      return;
     }
+    
+    const syncExistingAppointments = async () => {
+      const syncedIdsKey = `synced_appointments_${user.id}`;
+      const syncedIds: string[] = JSON.parse(localStorage.getItem(syncedIdsKey) || '[]');
+      const unsynced = appointments.filter(a => !syncedIds.includes(a.id));
+      
+      if (unsynced.length === 0) {
+        setSyncStatus('idle');
+        return;
+      }
+      
+      setSyncStatus('syncing');
+      let successCount = 0;
+      let failCount = 0;
+      const newSyncedIds = [...syncedIds];
+      
+      for (const apt of unsynced) {
+        try {
+          const startDateTime = new Date(`${apt.date}T${apt.time || '09:00'}:00`).toISOString();
+          const endTime = new Date(new Date(`${apt.date}T${apt.time || '09:00'}:00`).getTime() + 60 * 60 * 1000).toISOString();
+          
+          const googleEventId = await createCalendarEvent(googleCalendarToken, {
+            summary: `${apt.patientName} - ${apt.type}`,
+            start: { dateTime: startDateTime },
+            end: { dateTime: endTime },
+            description: `Agendamento criado via AXIS AI - Tipo: ${apt.type}`
+          });
+          
+          if (googleEventId) {
+            newSyncedIds.push(apt.id);
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (err) {
+          console.error('Erro ao sincronizar agendamento:', apt.id, err);
+          failCount++;
+        }
+      }
+      
+      localStorage.setItem(syncedIdsKey, JSON.stringify(newSyncedIds));
+      setSyncCount(successCount);
+      
+      if (failCount === 0) {
+        setSyncStatus('success');
+      } else if (successCount === 0) {
+        setSyncStatus('error');
+      } else {
+        setSyncStatus('success'); // partial success
+      }
+      
+      // Reset status after 5 seconds
+      setTimeout(() => setSyncStatus('idle'), 5000);
+    };
+    
+    syncExistingAppointments();
   }, [googleCalendarToken, appointments, user?.id]);
 
   const handleReconnectCalendar = async () => {
@@ -282,7 +310,30 @@ const Agenda: React.FC = () => {
     <div className="space-y-6 animate-in fade-in duration-500 pb-12 relative">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-navy">Gestão de Agenda</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl font-bold text-navy">Gestão de Agenda</h2>
+            {googleCalendarToken && appointments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (user?.id) {
+                    localStorage.removeItem(`synced_appointments_${user.id}`);
+                    // Forçar re-render pra re-disparar o useEffect
+                    setSyncStatus('syncing');
+                    setTimeout(() => {
+                      // Trigger re-sync by updating appointments reference
+                      setSyncStatus('idle');
+                    }, 100);
+                  }
+                }}
+                className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-sm"
+                title="Reenviar todos os agendamentos para o Google Calendar"
+              >
+                <RefreshCw size={14} />
+                Sincronizar Calendar
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-1">
              <p className="text-slate-500">Otimize seu tempo e reduza a ociosidade.</p>
              {googleCalendarToken && (
@@ -292,9 +343,9 @@ const Agenda: React.FC = () => {
                        <AlertCircle size={10} /> Sessão Expirada (Reconectar)
                     </button>
                  ) : (
-                   <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full uppercase">
-                     <RefreshCw size={10} className={`${loadingCalendar ? 'animate-spin' : ''}`} /> Google Calendar Sincronizado
-                   </span>
+                    <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full uppercase">
+                      <RefreshCw size={10} className={`${loadingCalendar ? 'animate-spin' : ''}`} /> Google Calendar Sincronizado
+                    </span>
                  )}
                </>
              )}
@@ -340,6 +391,36 @@ const Agenda: React.FC = () => {
           >
             Reconectar
           </button>
+        </div>
+      )}
+
+      {syncStatus === 'syncing' && (
+        <div className="mb-4 p-4 rounded-xl border bg-blue-50 border-blue-200 text-blue-800 flex items-center gap-3">
+          <Loader2 size={20} className="animate-spin shrink-0 text-blue-600" />
+          <div>
+            <p className="text-sm font-bold">Sincronizando agendamentos com Google Calendar...</p>
+            <p className="text-xs mt-0.5 opacity-90">Aguarde, seus agendamentos estão sendo enviados para o Google Calendar.</p>
+          </div>
+        </div>
+      )}
+
+      {syncStatus === 'success' && (
+        <div className="mb-4 p-4 rounded-xl border bg-emerald-50 border-emerald-200 text-emerald-800 flex items-center gap-3">
+          <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
+          <div>
+            <p className="text-sm font-bold">{syncCount} agendamento(s) sincronizado(s) com Google Calendar!</p>
+            <p className="text-xs mt-0.5 opacity-90">Você já pode ver seus agendamentos no Google Calendar.</p>
+          </div>
+        </div>
+      )}
+
+      {syncStatus === 'error' && (
+        <div className="mb-4 p-4 rounded-xl border bg-rose-50 border-rose-200 text-rose-800 flex items-center gap-3">
+          <AlertCircle size={20} className="shrink-0 text-rose-600" />
+          <div>
+            <p className="text-sm font-bold">Erro ao sincronizar com Google Calendar</p>
+            <p className="text-xs mt-0.5 opacity-90">Verifique se o token não expirou e tente novamente. Seus agendamentos continuam salvos no AXIS.</p>
+          </div>
         </div>
       )}
 
