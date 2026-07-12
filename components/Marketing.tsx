@@ -589,14 +589,14 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
 
   useEffect(() => {
       if (user?.id) {
-          preloadAdsData(true);
+          preloadAdsData('marketing', false);
       }
-  }, [marketingDateFilter.start, marketingDateFilter.end, user?.id]);
+  }, [marketingDateFilter.start, marketingDateFilter.end, user?.id, preloadAdsData]);
 
   // --- PLATFORM ADAPTERS ---
   const currentOverviewData = useMemo(() => {
-      if (activePlatform === 'google' && adsData?.googleOverview) {
-          return adsData.googleOverview.map((row: any) => ({
+      if (activePlatform === 'google' && adsData?.marketing?.googleOverview) {
+          return adsData.marketing.googleOverview.map((row: any) => ({
               date: row.segments?.date,
               clicks: parseInt(row.metrics?.clicks) || 0,
               impressions: parseInt(row.metrics?.impressions) || 0,
@@ -605,8 +605,8 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
               conversionsValue: parseFloat(row.metrics?.conversionsValue) || 0
           })).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
       }
-      if (activePlatform === 'meta' && adsData?.metaOverview) {
-          return adsData.metaOverview.map((row: any) => ({
+      if (activePlatform === 'meta' && adsData?.marketing?.metaOverview) {
+          return adsData.marketing.metaOverview.map((row: any) => ({
               date: row.date,
               clicks: parseInt(row.clicks) || 0,
               impressions: parseInt(row.impressions) || 0,
@@ -615,7 +615,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
           })).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
       }
       return activePlatform === 'meta' ? metaOverviewData : overviewData;
-  }, [activePlatform, metaOverviewData, overviewData, adsData?.googleOverview, adsData?.metaOverview]);
+  }, [activePlatform, metaOverviewData, overviewData, adsData?.marketing?.googleOverview, adsData?.marketing?.metaOverview]);
 
   const currentOverviewComparison = useMemo(() => {
       return activePlatform === 'meta' ? [] : overviewComparison;

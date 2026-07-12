@@ -54,8 +54,8 @@ const Dashboard: React.FC = () => {
   // Derivados de adsData do Context
   const googleAccount = adsData.googleAccount;
   const metaAccount = adsData.metaAccount;
-  const loadingAccounts = adsData.isLoading;
-  const isLoading = adsData.isLoading;
+  const loadingAccounts = adsData.dashboard.isLoading;
+  const isLoading = adsData.dashboard.isLoading;
 
   // Triggers de atualização
   const [refreshCount, setRefreshCount] = useState(0);
@@ -93,8 +93,8 @@ const Dashboard: React.FC = () => {
   // Efeito para calcular as métricas de Ads baseadas nos dados do Context
   useEffect(() => {
     let gSpend = 0, gClicks = 0, gImpressions = 0, gConversions = 0;
-    if (adsData.googleOverview && Array.isArray(adsData.googleOverview)) {
-      adsData.googleOverview.forEach((row: any) => {
+    if (adsData.dashboard.googleOverview && Array.isArray(adsData.dashboard.googleOverview)) {
+      adsData.dashboard.googleOverview.forEach((row: any) => {
         gSpend += (parseInt(row.metrics?.costMicros) || 0) / 1000000;
         gClicks += parseInt(row.metrics?.clicks) || 0;
         gImpressions += parseInt(row.metrics?.impressions) || 0;
@@ -103,8 +103,8 @@ const Dashboard: React.FC = () => {
     }
     
     let mSpend = 0, mClicks = 0, mImpressions = 0, mConversions = 0;
-    if (adsData.metaOverview && Array.isArray(adsData.metaOverview)) {
-      adsData.metaOverview.forEach((row: any) => {
+    if (adsData.dashboard.metaOverview && Array.isArray(adsData.dashboard.metaOverview)) {
+      adsData.dashboard.metaOverview.forEach((row: any) => {
         mSpend += parseFloat(row.spend) || 0;
         mClicks += parseInt(row.clicks) || 0;
         mImpressions += parseInt(row.impressions) || 0;
@@ -114,7 +114,7 @@ const Dashboard: React.FC = () => {
     
     setGoogleStats({ spend: gSpend, clicks: gClicks, impressions: gImpressions, conversions: gConversions });
     setMetaStats({ spend: mSpend, clicks: mClicks, impressions: mImpressions, conversions: mConversions });
-  }, [adsData.googleOverview, adsData.metaOverview]);
+  }, [adsData.dashboard.googleOverview, adsData.dashboard.metaOverview]);
 
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
 
@@ -251,7 +251,7 @@ const Dashboard: React.FC = () => {
           {/* BOTÃO ATUALIZAR */}
           <button 
             onClick={() => {
-              preloadAdsData(true);
+              preloadAdsData('dashboard', true);
             }}
             disabled={isLoading || loadingAccounts}
             className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-600 hover:text-navy border border-slate-200 rounded-lg text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0 w-full sm:w-auto justify-center"

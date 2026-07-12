@@ -1,5 +1,5 @@
 
-import React, { useState, createContext, useContext, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, createContext, useContext, useEffect, useMemo, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import Marketing from './components/Marketing';
@@ -65,8 +65,24 @@ interface AppContextType {
   
   refreshGoogleCredentials: () => Promise<void>;
 
-  adsData: any;
-  preloadAdsData: (forceRefresh?: boolean) => void;
+  adsData: {
+    googleAccount: { customer_id: string; customer_name: string; status: string; last_sync_at: string } | null;
+    metaAccount: { ad_account_id: string; ad_account_name: string; status: string; last_sync_at: string; currency: string } | null;
+    dashboard: {
+      googleOverview: any[] | null;
+      metaOverview: any[] | null;
+      isLoading: boolean;
+      lastFetch: number;
+    };
+    marketing: {
+      googleOverview: any[] | null;
+      metaOverview: any[] | null;
+      isLoading: boolean;
+      lastFetch: number;
+    };
+    isPreloadingAds: boolean;
+  };
+  preloadAdsData: (section?: 'dashboard' | 'marketing' | 'all', forceRefresh?: boolean, explicitUserId?: string) => Promise<void>;
 
   dashboardDateFilter: DateRange;
   setDashboardDateFilterByLabel: (label: string) => void;
@@ -232,20 +248,46 @@ const App: React.FC = () => {
     setRecordings(prev => prev.filter(r => r.id !== id));
   };
 
+  const cacheRef = useRef<{
+    dashboard: { lastFetch: number; start: string; end: string };
+    marketing: { lastFetch: number; start: string; end: string };
+  }>({
+    dashboard: { lastFetch: 0, start: '', end: '' },
+    marketing: { lastFetch: 0, start: '', end: '' }
+  });
+
   const [adsData, setAdsData] = useState<{
-    googleOverview: any[] | null;
-    metaOverview: any[] | null;
     googleAccount: { customer_id: string; customer_name: string; status: string; last_sync_at: string } | null;
     metaAccount: { ad_account_id: string; ad_account_name: string; status: string; last_sync_at: string; currency: string } | null;
-    lastFetch: number;
-    isLoading: boolean;
+    dashboard: {
+      googleOverview: any[] | null;
+      metaOverview: any[] | null;
+      isLoading: boolean;
+      lastFetch: number;
+    };
+    marketing: {
+      googleOverview: any[] | null;
+      metaOverview: any[] | null;
+      isLoading: boolean;
+      lastFetch: number;
+    };
+    isPreloadingAds: boolean;
   }>({
-    googleOverview: null,
-    metaOverview: null,
     googleAccount: null,
     metaAccount: null,
-    lastFetch: 0,
-    isLoading: false
+    dashboard: {
+      googleOverview: null,
+      metaOverview: null,
+      isLoading: false,
+      lastFetch: 0
+    },
+    marketing: {
+      googleOverview: null,
+      metaOverview: null,
+      isLoading: false,
+      lastFetch: 0
+    },
+    isPreloadingAds: false
   });
   
   // Tokens & Configs
@@ -409,7 +451,7 @@ const App: React.FC = () => {
                 localStorage.removeItem('auth_intent');
              }
           }
-          preloadAdsData();
+          preloadAdsData('all', false, userId);
        } else {
           setUser(null); setFinancialEntries([]); setLeads([]); setAppointments([]); /* setWhatsappConfig(null); */ setGoogleCalendarToken(null);
        }
@@ -420,11 +462,19 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Preload dashboard data on date change
   useEffect(() => {
     if (user?.id && isAuthenticated) {
-      preloadAdsData(true);
+      preloadAdsData('dashboard', true);
     }
   }, [dashboardDateFilter.start, dashboardDateFilter.end, user?.id, isAuthenticated]);
+
+  // Preload marketing data on date change
+  useEffect(() => {
+    if (user?.id && isAuthenticated) {
+      preloadAdsData('marketing', true);
+    }
+  }, [marketingDateFilter.start, marketingDateFilter.end, user?.id, isAuthenticated]);
 
   const login = async (email: string, pass: string) => {
     try {
@@ -624,36 +674,81 @@ const App: React.FC = () => {
     };
   }, [dashboardDateFilter, financialEntries, leads, appointments, user?.ticketValue]);
 
-  const setDashboardDateFilterByLabel = (label: string) => setDashboardDateFilter(calculateRange(label));
-  const setDashboardCustomDateRange = (start: string, end: string) => setDashboardDateFilter({ start, end, label: 'Custom' });
-  const setMarketingDateFilterByLabel = (label: string) => setMarketingDateFilter(calculateRange(label));
-  const setMarketingCustomDateRange = (start: string, end: string) => setMarketingDateFilter({ start, end, label: 'Custom' });
-  const toggleIntegration = (id: string) => setIntegrations(prev => ({ ...prev, [id]: !prev[id] }));
+  const setDashboardDateFilterByLabel = useCallback((label: string) => {
+    setDashboardDateFilter(calculateRange(label));
+  }, []);
 
-  const preloadAdsData = async (forceRefresh = false) => {
-    // Cache de 5 minutos (300000 ms)
+  const setDashboardCustomDateRange = useCallback((start: string, end: string) => {
+    setDashboardDateFilter({ start, end, label: 'Custom' });
+  }, []);
+
+  const setMarketingDateFilterByLabel = useCallback((label: string) => {
+    setMarketingDateFilter(calculateRange(label));
+  }, []);
+
+  const setMarketingCustomDateRange = useCallback((start: string, end: string) => {
+    setMarketingDateFilter({ start, end, label: 'Custom' });
+  }, []);
+
+  const toggleIntegration = useCallback((id: string) => {
+    setIntegrations(prev => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const preloadAdsData = useCallback(async (
+    section: 'dashboard' | 'marketing' | 'all' = 'all',
+    forceRefresh = false,
+    explicitUserId?: string
+  ) => {
+    const activeUserId = explicitUserId || user?.id;
+    if (!activeUserId) return;
+
     const now = Date.now();
-    if (!forceRefresh && adsData.lastFetch && (now - adsData.lastFetch) < 300000) {
-      return;
+    const needDashboard = section === 'dashboard' || section === 'all';
+    const needMarketing = section === 'marketing' || section === 'all';
+
+    let fetchDashboard = false;
+    if (needDashboard) {
+      const cached = cacheRef.current.dashboard;
+      const dateRangeMatch = cached.start === dashboardDateFilter.start && cached.end === dashboardDateFilter.end;
+      const isExpired = (now - cached.lastFetch) >= 300000;
+      if (forceRefresh || !dateRangeMatch || isExpired) {
+        fetchDashboard = true;
+      }
     }
-    
-    if (!user?.id) return;
-    
-    setAdsData(prev => ({ ...prev, isLoading: true }));
-    
+
+    let fetchMarketing = false;
+    if (needMarketing) {
+      const cached = cacheRef.current.marketing;
+      const dateRangeMatch = cached.start === marketingDateFilter.start && cached.end === marketingDateFilter.end;
+      const isExpired = (now - cached.lastFetch) >= 300000;
+      if (forceRefresh || !dateRangeMatch || isExpired) {
+        fetchMarketing = true;
+      }
+    }
+
+    // Se for carregamento inicial completo ('all'), mostramos isPreloadingAds
+    const isInitialPreload = section === 'all' && (fetchDashboard || fetchMarketing);
+
+    setAdsData(prev => ({
+      ...prev,
+      isPreloadingAds: isInitialPreload ? true : prev.isPreloadingAds,
+      dashboard: fetchDashboard ? { ...prev.dashboard, isLoading: true } : prev.dashboard,
+      marketing: fetchMarketing ? { ...prev.marketing, isLoading: true } : prev.marketing
+    }));
+
     try {
       const { supabase } = await import('./lib/supabase');
-      
+
       // 1. Buscar contas conectadas (rápido)
       const [googleRes, metaRes] = await Promise.allSettled([
-        supabase.from('google_ads_integrations').select('customer_id, customer_name, status, last_sync_at').eq('user_id', user.id).maybeSingle(),
-        supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status, last_sync_at, currency').eq('user_id', user.id).maybeSingle()
+        supabase.from('google_ads_integrations').select('customer_id, customer_name, status, last_sync_at').eq('user_id', activeUserId).maybeSingle(),
+        supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status, last_sync_at, currency').eq('user_id', activeUserId).maybeSingle()
       ]);
-      
+
       const googleAccount = googleRes.status === 'fulfilled' && googleRes.value.data ? googleRes.value.data : null;
       const metaAccount = metaRes.status === 'fulfilled' && metaRes.value.data ? metaRes.value.data : null;
-      
-      // 2. Atualizar estados de token/status globais
+
+      // Atualizar estados de token/status globais
       if (googleAccount && googleAccount.status === 'active') {
         setGoogleAdsToken('backend-connected');
       } else {
@@ -664,54 +759,140 @@ const App: React.FC = () => {
       } else {
         setMetaAdsStatus(null);
       }
-      
-      // 3. Buscar overview de Ads em paralelo (só se tiver conta conectada)
-      const fetchGoogleOverview = async () => {
-        if (!googleAccount || googleAccount.status !== 'active') return null;
-        try {
-          const response = await fetch('/api/google-ads/overview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: user.id, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
-          });
-          if (!response.ok) return null;
-          const data = await response.json();
-          return data.results || [];
-        } catch { return null; }
-      };
-      
-      const fetchMetaOverview = async () => {
-        if (!metaAccount || (metaAccount.status !== 'active' && metaAccount.status !== 'connected')) return null;
-        try {
-          const response = await fetch('/api/meta-ads/overview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: user.id, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
-          });
-          if (!response.ok) return null;
-          const data = await response.json();
-          return data.results || [];
-        } catch { return null; }
-      };
-      
-      const [googleOverview, metaOverview] = await Promise.allSettled([
-        fetchGoogleOverview(),
-        fetchMetaOverview()
-      ]);
-      
-      setAdsData({
-        googleOverview: googleOverview.status === 'fulfilled' ? googleOverview.value : null,
-        metaOverview: metaOverview.status === 'fulfilled' ? metaOverview.value : null,
-        googleAccount,
-        metaAccount,
-        lastFetch: now,
-        isLoading: false
+
+      // 2. Preparar as chamadas de API
+      let dashboardGoogleResults: any[] | null = null;
+      let dashboardMetaResults: any[] | null = null;
+      let marketingGoogleResults: any[] | null = null;
+      let marketingMetaResults: any[] | null = null;
+
+      const promises: Promise<any>[] = [];
+
+      if (fetchDashboard) {
+        const fetchDashGoogle = async () => {
+          if (!googleAccount || googleAccount.status !== 'active') return null;
+          try {
+            const response = await fetch('/api/google-ads/overview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: activeUserId, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.results || [];
+          } catch { return null; }
+        };
+
+        const fetchDashMeta = async () => {
+          if (!metaAccount || (metaAccount.status !== 'active' && metaAccount.status !== 'connected')) return null;
+          try {
+            const response = await fetch('/api/meta-ads/overview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: activeUserId, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.results || [];
+          } catch { return null; }
+        };
+
+        promises.push(
+          fetchDashGoogle().then(res => { dashboardGoogleResults = res; }),
+          fetchDashMeta().then(res => { dashboardMetaResults = res; })
+        );
+      }
+
+      if (fetchMarketing) {
+        const fetchMarkGoogle = async () => {
+          if (!googleAccount || googleAccount.status !== 'active') return null;
+          try {
+            const response = await fetch('/api/google-ads/overview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: activeUserId, date_range: { start: marketingDateFilter.start, end: marketingDateFilter.end } })
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.results || [];
+          } catch { return null; }
+        };
+
+        const fetchMarkMeta = async () => {
+          if (!metaAccount || (metaAccount.status !== 'active' && metaAccount.status !== 'connected')) return null;
+          try {
+            const response = await fetch('/api/meta-ads/overview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: activeUserId, date_range: { start: marketingDateFilter.start, end: marketingDateFilter.end } })
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.results || [];
+          } catch { return null; }
+        };
+
+        promises.push(
+          fetchMarkGoogle().then(res => { marketingGoogleResults = res; }),
+          fetchMarkMeta().then(res => { marketingMetaResults = res; })
+        );
+      }
+
+      if (promises.length > 0) {
+        await Promise.allSettled(promises);
+      }
+
+      const updateNow = Date.now();
+      if (fetchDashboard) {
+        cacheRef.current.dashboard = {
+          lastFetch: updateNow,
+          start: dashboardDateFilter.start,
+          end: dashboardDateFilter.end
+        };
+      }
+      if (fetchMarketing) {
+        cacheRef.current.marketing = {
+          lastFetch: updateNow,
+          start: marketingDateFilter.start,
+          end: marketingDateFilter.end
+        };
+      }
+
+      setAdsData(prev => {
+        const nextDashboard = fetchDashboard ? {
+          googleOverview: dashboardGoogleResults,
+          metaOverview: dashboardMetaResults,
+          isLoading: false,
+          lastFetch: updateNow
+        } : prev.dashboard;
+
+        const nextMarketing = fetchMarketing ? {
+          googleOverview: marketingGoogleResults,
+          metaOverview: marketingMetaResults,
+          isLoading: false,
+          lastFetch: updateNow
+        } : prev.marketing;
+
+        return {
+          ...prev,
+          googleAccount,
+          metaAccount,
+          dashboard: nextDashboard,
+          marketing: nextMarketing,
+          isPreloadingAds: false
+        };
       });
+
     } catch (err) {
       console.error('Erro ao pré-carregar dados de Ads:', err);
-      setAdsData(prev => ({ ...prev, isLoading: false }));
+      setAdsData(prev => ({
+        ...prev,
+        isPreloadingAds: false,
+        dashboard: { ...prev.dashboard, isLoading: false },
+        marketing: { ...prev.marketing, isLoading: false }
+      }));
     }
-  };
+  }, [user?.id, dashboardDateFilter.start, dashboardDateFilter.end, marketingDateFilter.start, marketingDateFilter.end]);
 
   // Render Optimized
   const renderContent = () => {
@@ -737,6 +918,7 @@ const App: React.FC = () => {
   };
 
   if (authLoading) return <LoadingScreen />;
+  if (adsData.isPreloadingAds) return <LoadingScreen message="Sincronizando contas e pré-carregando dados de marketing e anúncios..." />;
   if (!isAuthenticated) return <AuthScreen onLogin={login} onSignUp={signUp} />;
 
   return (

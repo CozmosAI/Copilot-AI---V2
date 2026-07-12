@@ -8,7 +8,11 @@ const AxisLogo = ({ size = 40, className = "" }: { size?: number, className?: st
   </svg>
 );
 
-const LoadingScreen: React.FC = () => {
+interface LoadingScreenProps {
+  message?: string;
+}
+
+const LoadingScreen: React.FC<LoadingScreenProps> = ({ message = "Inicializando Sistema..." }) => {
   return (
     <div className="fixed inset-0 bg-[#0f172a] flex flex-col items-center justify-center z-[9999] overflow-hidden font-sans">
       {/* Abstract Background Elements */}
@@ -43,7 +47,7 @@ const LoadingScreen: React.FC = () => {
              </div>
              <div className="flex items-center gap-2">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] animate-pulse">
-                  Inicializando Sistema...
+                  {message}
                 </p>
              </div>
           </div>
