@@ -63,7 +63,7 @@ const DEFAULT_METRIC_STYLES: Record<string, { label: string, color: string, axis
 };
 
 const Marketing: React.FC = () => {
-  const { marketingDateFilter, setMarketingCustomDateRange, googleAdsToken, metrics, user, metaAdsStatus } = useApp();
+  const { marketingDateFilter, setMarketingDateFilterByLabel, setMarketingCustomDateRange, googleAdsToken, metrics, user, metaAdsStatus, adsData, preloadAdsData } = useApp();
   const [loading, setLoading] = useState(false);
   const [activePlatform, setActivePlatform] = useState<'google' | 'meta'>('google');
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adgroups' | 'keywords' | 'ads' | 'assetgroups' | 'searchterms' | 'accounts'>('overview');
@@ -587,10 +587,35 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       }
   };
 
+  useEffect(() => {
+      if (user?.id) {
+          preloadAdsData(true);
+      }
+  }, [marketingDateFilter.start, marketingDateFilter.end, user?.id]);
+
   // --- PLATFORM ADAPTERS ---
   const currentOverviewData = useMemo(() => {
+      if (activePlatform === 'google' && adsData?.googleOverview) {
+          return adsData.googleOverview.map((row: any) => ({
+              date: row.segments?.date,
+              clicks: parseInt(row.metrics?.clicks) || 0,
+              impressions: parseInt(row.metrics?.impressions) || 0,
+              spend: (parseInt(row.metrics?.costMicros) || 0) / 1000000,
+              conversions: parseFloat(row.metrics?.conversions) || 0,
+              conversionsValue: parseFloat(row.metrics?.conversionsValue) || 0
+          })).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      }
+      if (activePlatform === 'meta' && adsData?.metaOverview) {
+          return adsData.metaOverview.map((row: any) => ({
+              date: row.date,
+              clicks: parseInt(row.clicks) || 0,
+              impressions: parseInt(row.impressions) || 0,
+              spend: parseFloat(row.spend) || 0,
+              conversions: parseInt(row.conversions) || 0
+          })).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      }
       return activePlatform === 'meta' ? metaOverviewData : overviewData;
-  }, [activePlatform, metaOverviewData, overviewData]);
+  }, [activePlatform, metaOverviewData, overviewData, adsData?.googleOverview, adsData?.metaOverview]);
 
   const currentOverviewComparison = useMemo(() => {
       return activePlatform === 'meta' ? [] : overviewComparison;
@@ -735,7 +760,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
   };
 
   const processedOverviewData = useMemo(() => {
-      return currentOverviewData.map(day => {
+      return currentOverviewData.map((day: any) => {
           const enhancedDay = { ...day };
           customMetrics.forEach(metric => {
               enhancedDay[metric.id] = calculateMetricValue(metric, day);
@@ -745,7 +770,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
   }, [currentOverviewData, customMetrics]);
 
   const processedComparisonData = useMemo(() => {
-      return currentOverviewComparison.map(day => {
+      return currentOverviewComparison.map((day: any) => {
           const enhancedDay = { ...day };
           customMetrics.forEach(metric => {
               enhancedDay[metric.id] = calculateMetricValue(metric, day);

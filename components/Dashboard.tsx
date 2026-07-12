@@ -41,7 +41,7 @@ const MetaIcon = ({ size = 20 }: { size?: number }) => (
 );
 
 const Dashboard: React.FC = () => {
-  const { dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user } = useApp();
+  const { dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user, adsData, preloadAdsData } = useApp();
   const [insight, setInsight] = useState<string>('Analisando sua clínica...');
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
@@ -49,13 +49,13 @@ const Dashboard: React.FC = () => {
   // States para dados reais de Ads
   const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
   const [metaStats, setMetaStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
-  const [isLoading, setIsLoading] = useState(false);
   const [debouncedDate, setDebouncedDate] = useState(dashboardDateFilter);
 
-  // States para contas conectadas
-  const [googleAccount, setGoogleAccount] = useState<{ customer_id: string; customer_name: string; status: string; last_sync_at: string } | null>(null);
-  const [metaAccount, setMetaAccount] = useState<{ ad_account_id: string; ad_account_name: string; status: string; last_sync_at: string; currency: string } | null>(null);
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
+  // Derivados de adsData do Context
+  const googleAccount = adsData.googleAccount;
+  const metaAccount = adsData.metaAccount;
+  const loadingAccounts = adsData.isLoading;
+  const isLoading = adsData.isLoading;
 
   // Triggers de atualização
   const [refreshCount, setRefreshCount] = useState(0);
@@ -78,36 +78,6 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Buscar contas conectadas do Supabase
-  useEffect(() => {
-    const fetchConnectedAccounts = async () => {
-      if (!user?.id) return;
-      setLoadingAccounts(true);
-      try {
-        const [googleRes, metaRes] = await Promise.allSettled([
-          supabase.from('google_ads_integrations').select('customer_id, customer_name, status, last_sync_at').eq('user_id', user.id).maybeSingle(),
-          supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status, last_sync_at, currency').eq('user_id', user.id).maybeSingle()
-        ]);
-        
-        if (googleRes.status === 'fulfilled' && googleRes.value.data) {
-          setGoogleAccount(googleRes.value.data);
-        } else {
-          setGoogleAccount(null);
-        }
-        if (metaRes.status === 'fulfilled' && metaRes.value.data) {
-          setMetaAccount(metaRes.value.data);
-        } else {
-          setMetaAccount(null);
-        }
-      } catch (err) {
-        console.error('Erro ao buscar contas conectadas:', err);
-      } finally {
-        setLoadingAccounts(false);
-      }
-    };
-    fetchConnectedAccounts();
-  }, [user?.id, refreshCount]);
-
   // Filtrar Leads por Origem e Data no Período
   const leadsInPeriod = useMemo(() => {
     return leads.filter(l => {
@@ -120,118 +90,31 @@ const Dashboard: React.FC = () => {
   const warmLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Warm').length, [leadsInPeriod]);
   const coldLeadsCount = useMemo(() => leadsInPeriod.filter(l => l.temperature === 'Cold').length, [leadsInPeriod]);
 
-  // Efeito para carregar dados reais das APIs
+  // Efeito para calcular as métricas de Ads baseadas nos dados do Context
   useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
+    let gSpend = 0, gClicks = 0, gImpressions = 0, gConversions = 0;
+    if (adsData.googleOverview && Array.isArray(adsData.googleOverview)) {
+      adsData.googleOverview.forEach((row: any) => {
+        gSpend += (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+        gClicks += parseInt(row.metrics?.clicks) || 0;
+        gImpressions += parseInt(row.metrics?.impressions) || 0;
+        gConversions += parseFloat(row.metrics?.conversions) || 0;
+      });
+    }
     
-    let stale = false;
+    let mSpend = 0, mClicks = 0, mImpressions = 0, mConversions = 0;
+    if (adsData.metaOverview && Array.isArray(adsData.metaOverview)) {
+      adsData.metaOverview.forEach((row: any) => {
+        mSpend += parseFloat(row.spend) || 0;
+        mClicks += parseInt(row.clicks) || 0;
+        mImpressions += parseInt(row.impressions) || 0;
+        mConversions += parseInt(row.conversions) || 0;
+      });
+    }
     
-    const fetchAdsData = async () => {
-      if (!user?.id) return;
-      setIsLoading(true);
-      try {
-        const dateRangeParam = { start: debouncedDate.start, end: debouncedDate.end };
-        
-        const fetchGoogle = async () => {
-          const response = await fetch('/api/google-ads/overview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: user.id, date_range: dateRangeParam }),
-            signal
-          });
-          if (!response.ok) throw new Error('Google api error');
-          const data = await response.json();
-          const rows = data.results || [];
-          return rows.map((row: any) => ({
-            date: row.segments?.date,
-            clicks: parseInt(row.metrics?.clicks) || 0,
-            impressions: parseInt(row.metrics?.impressions) || 0,
-            spend: (parseInt(row.metrics?.costMicros) || 0) / 1000000,
-            conversions: parseFloat(row.metrics?.conversions) || 0,
-            conversionsValue: parseFloat(row.metrics?.conversionsValue) || 0
-          }));
-        };
-
-        const fetchMeta = async () => {
-          const response = await fetch('/api/meta-ads/overview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: user.id, date_range: dateRangeParam }),
-            signal
-          });
-          if (!response.ok) throw new Error('Meta api error');
-          const data = await response.json();
-          const rows = data.results || [];
-          return rows.map((row: any) => ({
-            date: row.date,
-            spend: parseFloat(row.spend) || 0,
-            impressions: parseInt(row.impressions) || 0,
-            clicks: parseInt(row.clicks) || 0,
-            conversions: parseInt(row.conversions) || 0
-          }));
-        };
-
-        const [googleResult, metaResult] = await Promise.allSettled([
-          fetchGoogle(),
-          fetchMeta()
-        ]);
-
-        if (stale || signal.aborted) return;
-
-        const googleData = googleResult.status === 'fulfilled' ? googleResult.value : null;
-        const metaData = metaResult.status === 'fulfilled' ? metaResult.value : null;
-
-        let gSpend = 0, gClicks = 0, gImpressions = 0, gConversions = 0;
-        if (googleData && Array.isArray(googleData)) {
-          googleData.forEach((row: any) => {
-            gSpend += row.spend || 0;
-            gClicks += row.clicks || 0;
-            gImpressions += row.impressions || 0;
-            gConversions += row.conversions || 0;
-          });
-        }
-
-        let mSpend = 0, mClicks = 0, mImpressions = 0, mConversions = 0;
-        if (metaData && Array.isArray(metaData)) {
-          metaData.forEach((row: any) => {
-            mSpend += row.spend || 0;
-            mClicks += row.clicks || 0;
-            mImpressions += row.impressions || 0;
-            mConversions += row.conversions || 0;
-          });
-        }
-
-        setGoogleStats({ 
-          spend: gSpend, 
-          clicks: gClicks, 
-          impressions: gImpressions,
-          conversions: gConversions
-        });
-        setMetaStats({ 
-          spend: mSpend, 
-          clicks: mClicks, 
-          impressions: mImpressions,
-          conversions: mConversions
-        });
-
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-        console.error("Erro ao buscar dados de anúncios do dashboard:", err);
-      } finally {
-        if (!stale && !signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchAdsData();
-
-    return () => {
-      stale = true;
-      controller.abort();
-    };
-  }, [user?.id, debouncedDate.start, debouncedDate.end, refreshCount]);
+    setGoogleStats({ spend: gSpend, clicks: gClicks, impressions: gImpressions, conversions: gConversions });
+    setMetaStats({ spend: mSpend, clicks: mClicks, impressions: mImpressions, conversions: mConversions });
+  }, [adsData.googleOverview, adsData.metaOverview]);
 
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
 
@@ -368,7 +251,7 @@ const Dashboard: React.FC = () => {
           {/* BOTÃO ATUALIZAR */}
           <button 
             onClick={() => {
-              setRefreshCount(prev => prev + 1);
+              preloadAdsData(true);
             }}
             disabled={isLoading || loadingAccounts}
             className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-600 hover:text-navy border border-slate-200 rounded-lg text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0 w-full sm:w-auto justify-center"

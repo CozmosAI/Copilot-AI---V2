@@ -65,6 +65,9 @@ interface AppContextType {
   
   refreshGoogleCredentials: () => Promise<void>;
 
+  adsData: any;
+  preloadAdsData: (forceRefresh?: boolean) => void;
+
   dashboardDateFilter: DateRange;
   setDashboardDateFilterByLabel: (label: string) => void;
   setDashboardCustomDateRange: (start: string, end: string) => void;
@@ -228,6 +231,22 @@ const App: React.FC = () => {
   const deleteRecording = (id: string) => {
     setRecordings(prev => prev.filter(r => r.id !== id));
   };
+
+  const [adsData, setAdsData] = useState<{
+    googleOverview: any[] | null;
+    metaOverview: any[] | null;
+    googleAccount: { customer_id: string; customer_name: string; status: string; last_sync_at: string } | null;
+    metaAccount: { ad_account_id: string; ad_account_name: string; status: string; last_sync_at: string; currency: string } | null;
+    lastFetch: number;
+    isLoading: boolean;
+  }>({
+    googleOverview: null,
+    metaOverview: null,
+    googleAccount: null,
+    metaAccount: null,
+    lastFetch: 0,
+    isLoading: false
+  });
   
   // Tokens & Configs
   const [googleCalendarToken, setGoogleCalendarToken] = useState<string | null>(null);
@@ -390,6 +409,7 @@ const App: React.FC = () => {
                 localStorage.removeItem('auth_intent');
              }
           }
+          preloadAdsData();
        } else {
           setUser(null); setFinancialEntries([]); setLeads([]); setAppointments([]); /* setWhatsappConfig(null); */ setGoogleCalendarToken(null);
        }
@@ -399,6 +419,12 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => { handleSession(session); });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (user?.id && isAuthenticated) {
+      preloadAdsData(true);
+    }
+  }, [dashboardDateFilter.start, dashboardDateFilter.end, user?.id, isAuthenticated]);
 
   const login = async (email: string, pass: string) => {
     try {
@@ -604,6 +630,89 @@ const App: React.FC = () => {
   const setMarketingCustomDateRange = (start: string, end: string) => setMarketingDateFilter({ start, end, label: 'Custom' });
   const toggleIntegration = (id: string) => setIntegrations(prev => ({ ...prev, [id]: !prev[id] }));
 
+  const preloadAdsData = async (forceRefresh = false) => {
+    // Cache de 5 minutos (300000 ms)
+    const now = Date.now();
+    if (!forceRefresh && adsData.lastFetch && (now - adsData.lastFetch) < 300000) {
+      return;
+    }
+    
+    if (!user?.id) return;
+    
+    setAdsData(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      const { supabase } = await import('./lib/supabase');
+      
+      // 1. Buscar contas conectadas (rápido)
+      const [googleRes, metaRes] = await Promise.allSettled([
+        supabase.from('google_ads_integrations').select('customer_id, customer_name, status, last_sync_at').eq('user_id', user.id).maybeSingle(),
+        supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status, last_sync_at, currency').eq('user_id', user.id).maybeSingle()
+      ]);
+      
+      const googleAccount = googleRes.status === 'fulfilled' && googleRes.value.data ? googleRes.value.data : null;
+      const metaAccount = metaRes.status === 'fulfilled' && metaRes.value.data ? metaRes.value.data : null;
+      
+      // 2. Atualizar estados de token/status globais
+      if (googleAccount && googleAccount.status === 'active') {
+        setGoogleAdsToken('backend-connected');
+      } else {
+        setGoogleAdsToken(null);
+      }
+      if (metaAccount && (metaAccount.status === 'active' || metaAccount.status === 'connected')) {
+        setMetaAdsStatus('backend-connected');
+      } else {
+        setMetaAdsStatus(null);
+      }
+      
+      // 3. Buscar overview de Ads em paralelo (só se tiver conta conectada)
+      const fetchGoogleOverview = async () => {
+        if (!googleAccount || googleAccount.status !== 'active') return null;
+        try {
+          const response = await fetch('/api/google-ads/overview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.id, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
+          });
+          if (!response.ok) return null;
+          const data = await response.json();
+          return data.results || [];
+        } catch { return null; }
+      };
+      
+      const fetchMetaOverview = async () => {
+        if (!metaAccount || (metaAccount.status !== 'active' && metaAccount.status !== 'connected')) return null;
+        try {
+          const response = await fetch('/api/meta-ads/overview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.id, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
+          });
+          if (!response.ok) return null;
+          const data = await response.json();
+          return data.results || [];
+        } catch { return null; }
+      };
+      
+      const [googleOverview, metaOverview] = await Promise.allSettled([
+        fetchGoogleOverview(),
+        fetchMetaOverview()
+      ]);
+      
+      setAdsData({
+        googleOverview: googleOverview.status === 'fulfilled' ? googleOverview.value : null,
+        metaOverview: metaOverview.status === 'fulfilled' ? metaOverview.value : null,
+        googleAccount,
+        metaAccount,
+        lastFetch: now,
+        isLoading: false
+      });
+    } catch (err) {
+      console.error('Erro ao pré-carregar dados de Ads:', err);
+      setAdsData(prev => ({ ...prev, isLoading: false }));
+    }
+  };
+
   // Render Optimized
   const renderContent = () => {
     return (
@@ -636,6 +745,7 @@ const App: React.FC = () => {
         googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
         metaAdsStatus, setMetaAdsStatus,
         /* whatsappConfig, setWhatsappConfig, */ toggleIntegration, refreshGoogleCredentials, 
+        adsData, preloadAdsData,
         dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange,
         marketingDateFilter, setMarketingDateFilterByLabel, setMarketingCustomDateRange,
         metrics: consolidatedMetrics, 
