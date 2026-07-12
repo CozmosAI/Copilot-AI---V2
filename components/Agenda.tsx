@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle } from 'lucide-react';
 import { useApp } from '../App';
-import { getUpcomingEvents, GoogleCalendarEvent, signInWithGoogleCalendar } from '../services/googleCalendarService';
+import { getUpcomingEvents, GoogleCalendarEvent, signInWithGoogleCalendar, createCalendarEvent } from '../services/googleCalendarService';
 import { Appointment } from '../types';
 
 type ViewMode = 'month' | 'week';
@@ -80,6 +80,43 @@ const Agenda: React.FC = () => {
       setGoogleEvents([]);
     }
   }, [googleCalendarToken, user?.id]);
+
+  // Sincroniza agendamentos locais não sincronizados para o Google Calendar automaticamente
+  useEffect(() => {
+    if (googleCalendarToken && appointments.length > 0 && user?.id) {
+      const syncExistingAppointments = async () => {
+        const syncedIdsKey = `synced_appointments_${user.id}`;
+        const syncedIds = JSON.parse(localStorage.getItem(syncedIdsKey) || '[]');
+        const unsynced = appointments.filter(a => !syncedIds.includes(a.id));
+        
+        if (unsynced.length === 0) return;
+        
+        const newSyncedIds = [...syncedIds];
+        for (const apt of unsynced) {
+          try {
+            const startDateTime = new Date(`${apt.date}T${apt.time || '09:00'}:00`).toISOString();
+            const endTime = new Date(new Date(`${apt.date}T${apt.time || '09:00'}:00`).getTime() + 60 * 60 * 1000).toISOString();
+            
+            const googleEventId = await createCalendarEvent(googleCalendarToken, {
+              summary: `${apt.patientName} - ${apt.type}`,
+              start: { dateTime: startDateTime },
+              end: { dateTime: endTime },
+              description: `Agendamento criado via AXIS AI - Tipo: ${apt.type}`
+            });
+            
+            if (googleEventId) {
+              newSyncedIds.push(apt.id);
+            }
+          } catch (err) {
+            console.error('Erro ao sincronizar agendamento local:', apt.id, err);
+          }
+        }
+        localStorage.setItem(syncedIdsKey, JSON.stringify(newSyncedIds));
+      };
+      
+      syncExistingAppointments();
+    }
+  }, [googleCalendarToken, appointments, user?.id]);
 
   const handleReconnectCalendar = async () => {
      try {
@@ -203,15 +240,40 @@ const Agenda: React.FC = () => {
            type: formType as any
         });
      } else {
+        const newAptId = crypto.randomUUID();
         const newApt: any = {
-           id: crypto.randomUUID(),
+           id: newAptId,
            date: formDate,
            time: formTime,
            patientName: formName,
            type: formType,
            status: 'Confirmado'
-        };
-        await addAppointment(newApt);
+         };
+
+         if (googleCalendarToken) {
+            try {
+               const startDateTime = new Date(`${formDate}T${formTime}:00`).toISOString();
+               const endTime = new Date(new Date(`${formDate}T${formTime}:00`).getTime() + 60 * 60 * 1000).toISOString();
+               
+               const googleEventId = await createCalendarEvent(googleCalendarToken, {
+                 summary: `${formName} - ${formType}`,
+                 start: { dateTime: startDateTime },
+                 end: { dateTime: endTime },
+                 description: `Agendamento criado via AXIS AI - Tipo: ${formType}`
+               });
+
+               if (googleEventId && user?.id) {
+                  const syncedIdsKey = `synced_appointments_${user.id}`;
+                  const syncedIds = JSON.parse(localStorage.getItem(syncedIdsKey) || '[]');
+                  syncedIds.push(newAptId);
+                  localStorage.setItem(syncedIdsKey, JSON.stringify(syncedIds));
+               }
+            } catch (err) {
+               console.error('Erro ao sincronizar novo agendamento com o Google Calendar:', err);
+            }
+         }
+
+         await addAppointment(newApt);
      }
      setShowModal(false);
   };

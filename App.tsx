@@ -553,11 +553,11 @@ const App: React.FC = () => {
   const removeTeamMember = (id: string) => { setTeamMembers(prev => prev.filter(m => m.id !== id)); };
 
   const consolidatedMetrics = useMemo((): ConsolidatedMetrics => {
-    const filteredEntries = financialEntries.filter(e => e.date >= dateFilter.start && e.date <= dateFilter.end && e.status === 'efetuada');
+    const filteredEntries = financialEntries.filter(e => e.date >= dateFilter.start && e.date <= dateFilter.end && e.status !== 'cancelada');
     const filteredLeads = leads.filter(l => l.created_at && l.created_at.split('T')[0] >= dateFilter.start && l.created_at.split('T')[0] <= dateFilter.end);
     const filteredAppointments = appointments.filter(a => a.date >= dateFilter.start && a.date <= dateFilter.end);
     
-    const receitaBruta = filteredEntries.filter(e => e.type === 'receivable').reduce((acc, curr) => acc + curr.total, 0);
+    const receitaBruta = filteredEntries.filter(e => e.type === 'receivable' && e.status === 'efetuada').reduce((acc, curr) => acc + curr.total, 0);
     const gastosOperacionais = filteredEntries.filter(e => e.type === 'payable' && e.category !== 'Marketing').reduce((acc, curr) => acc + curr.total, 0);
     const finalMarketingSpend = filteredEntries.filter(e => e.type === 'payable' && e.category === 'Marketing').reduce((acc, curr) => acc + curr.total, 0);
     const gastosTotais = gastosOperacionais + finalMarketingSpend;

@@ -638,35 +638,40 @@ const Integration: React.FC = () => {
   }, [user]);
 
   // --- CHECK CONNECTION STATUS ON MOUNT ---
-  // CORREÇÃO: Só checa status se NÃO houver código OAuth na URL (evita race condition)
   useEffect(() => {
-      const params = new URLSearchParams(window.location.search);
-      const hasCode = params.get('code');
-
-      if (user && !hasCode) {
-          checkGoogleAdsStatus(user.id).then(status => {
-              if (status.connected) {
-                  setGoogleAdsToken('backend-connected');
-                  setAccountName(status.accountName || '');
-              } else {
-                  setGoogleAdsToken(null);
-                  localStorage.removeItem('google_ads_token');
-              }
-          });
-
-          getMetaAdsStatus(user.id).then(status => {
-              if (status.connected && status.status === 'active') {
-                  setMetaAdsStatus('backend-connected');
-                  setMetaAccountName(status.ad_account_name || '');
-              } else {
-                  setMetaAdsStatus(null);
-                  localStorage.removeItem('meta_ads_connected');
-              }
-          }).catch(err => {
-              console.error("Erro ao verificar status do Meta Ads:", err);
-          });
+    const fetchInitialStatus = async () => {
+      if (!user?.id) return;
+      try {
+        // Google Ads status
+        const googleRes = await fetch(`/api/google-ads/status/${user.id}`);
+        if (googleRes.ok) {
+          const googleData = await googleRes.json();
+          if (googleData.mappedStatus === 'connected' || googleData.status === 'connected' || googleData.status === 'active') {
+            setGoogleAdsToken('backend-connected');
+            setAccountName(googleData.accountName || googleData.ad_account_name || '');
+          } else {
+            setGoogleAdsToken(null);
+          }
+        }
+        
+        // Meta Ads status (em paralelo pra não bloquear)
+        const metaRes = await fetch(`/api/meta-ads/status/${user.id}`);
+        if (metaRes.ok) {
+          const metaData = await metaRes.json();
+          if (metaData.status === 'connected' || metaData.status === 'active') {
+            setMetaAdsStatus('backend-connected');
+            setMetaAccountName(metaData.ad_account_name || metaData.accountName || '');
+          } else {
+            setMetaAdsStatus(null);
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao buscar status inicial das integrações:', err);
       }
-  }, [user]);
+    };
+    
+    fetchInitialStatus();
+  }, [user?.id]);
 
   // Handle OAuth Callback from Global Event
   useEffect(() => {

@@ -920,38 +920,36 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 pb-20">
       {/* HEADER */}
       <header className="flex flex-col gap-4 md:gap-6">
-        {metaAdsStatus && (
-            <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-fit border border-slate-200/60 shadow-inner">
-                <button
-                    onClick={() => {
-                        setActivePlatform('google');
-                        setActiveTab('overview');
-                    }}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold tracking-wide transition-all ${
-                        activePlatform === 'google' 
-                            ? 'bg-white text-navy shadow-md scale-102 font-bold' 
-                            : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                >
-                    <Grid size={14} className="md:w-4 md:h-4" />
-                    <span>Google Ads</span>
-                </button>
-                <button
-                    onClick={() => {
-                        setActivePlatform('meta');
-                        setActiveTab('overview');
-                    }}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold tracking-wide transition-all ${
-                        activePlatform === 'meta' 
-                            ? 'bg-white text-navy shadow-md scale-102 font-bold' 
-                            : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                >
-                    <Instagram size={14} className="md:w-4 md:h-4" />
-                    <span>Meta Ads</span>
-                </button>
-            </div>
-        )}
+        <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-fit border border-slate-200/60 shadow-inner">
+            <button
+                onClick={() => {
+                    setActivePlatform('google');
+                    setActiveTab('overview');
+                }}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold tracking-wide transition-all ${
+                    activePlatform === 'google' 
+                        ? 'bg-white text-navy shadow-md scale-102 font-bold' 
+                        : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+                <Grid size={14} className="md:w-4 md:h-4" />
+                <span>Google Ads</span>
+            </button>
+            <button
+                onClick={() => {
+                    setActivePlatform('meta');
+                    setActiveTab('overview');
+                }}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold tracking-wide transition-all ${
+                    activePlatform === 'meta' 
+                        ? 'bg-white text-navy shadow-md scale-102 font-bold' 
+                        : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+                <Instagram size={14} className="md:w-4 md:h-4" />
+                <span>Meta Ads</span>
+            </button>
+        </div>
 
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>

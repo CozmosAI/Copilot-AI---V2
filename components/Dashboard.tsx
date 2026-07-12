@@ -378,7 +378,7 @@ const Dashboard: React.FC = () => {
           </button>
 
           {/* FILTRO DE PERÍODO */}
-          <div className="relative bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex gap-1 overflow-x-auto scrollbar-none w-full sm:w-auto shrink-0 items-center">
+          <div className="relative bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex flex-wrap sm:flex-nowrap gap-1 w-full sm:w-auto shrink-0 items-center z-[110]">
             {['Hoje', '7 dias', '30 dias', 'Este Ano'].map((t) => (
               <button 
                 key={t} 
@@ -400,7 +400,7 @@ const Dashboard: React.FC = () => {
             </button>
 
             {showCustomRangePopover && (
-              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 shadow-xl p-4 rounded-xl z-[100] w-72 text-slate-700">
+              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 shadow-xl p-4 rounded-xl z-[9999] w-72 max-w-[calc(100vw-2rem)] text-slate-700">
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-xs font-bold text-navy uppercase tracking-wider">Período Personalizado</span>
                   <button onClick={() => setShowCustomRangePopover(false)} className="text-slate-400 hover:text-slate-600">

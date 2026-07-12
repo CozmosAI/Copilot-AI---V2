@@ -160,3 +160,37 @@ export const getUpcomingEvents = async (accessToken: string, userId?: string): P
     return []; 
   }
 };
+
+/**
+ * Cria um evento no Google Calendar.
+ */
+export const createCalendarEvent = async (accessToken: string, eventData: {
+  summary: string;
+  start: { dateTime: string }; // Formato ISO
+  end: { dateTime: string };
+  description?: string;
+}): Promise<string | null> => {
+  try {
+    const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(eventData)
+    });
+    
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.error('Erro ao criar evento no Google Calendar:', err);
+      throw new Error(err.error?.message || 'Falha ao criar evento');
+    }
+    
+    const data = await response.json();
+    return data.id; // retorna o ID do evento criado
+  } catch (err) {
+    console.error('createCalendarEvent error:', err);
+    throw err;
+  }
+};
+
