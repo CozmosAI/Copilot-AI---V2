@@ -587,12 +587,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       }
   };
 
-  useEffect(() => {
-      if (user?.id) {
-          preloadAdsData('marketing', false);
-      }
-  }, [marketingDateFilter.start, marketingDateFilter.end, user?.id, preloadAdsData]);
-
   // --- PLATFORM ADAPTERS ---
   const currentOverviewData = useMemo(() => {
       if (activePlatform === 'google' && adsData?.marketing?.googleOverview) {

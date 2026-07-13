@@ -465,14 +465,14 @@ const App: React.FC = () => {
   // Preload dashboard data on date change
   useEffect(() => {
     if (user?.id && isAuthenticated) {
-      preloadAdsData('dashboard', true);
+      preloadAdsData('dashboard', false);
     }
   }, [dashboardDateFilter.start, dashboardDateFilter.end, user?.id, isAuthenticated]);
 
   // Preload marketing data on date change
   useEffect(() => {
     if (user?.id && isAuthenticated) {
-      preloadAdsData('marketing', true);
+      preloadAdsData('marketing', false);
     }
   }, [marketingDateFilter.start, marketingDateFilter.end, user?.id, isAuthenticated]);
 
