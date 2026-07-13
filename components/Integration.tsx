@@ -185,7 +185,7 @@ const Integration: React.FC = () => {
   const [crmToken, setCrmToken] = useState('');
   const [crmInstanceName, setCrmInstanceName] = useState('');
   const [crmListenGroups, setCrmListenGroups] = useState(false);
-  const [crmRestoreMsgs, setCrmRestoreMsgs] = useState(false);
+  const [crmRestoreMsgs, setCrmRestoreMsgs] = useState(true);
 
   // Normalization helper
   const normalizeConnectionsResponse = (data: any): any[] => {
@@ -1252,7 +1252,7 @@ const Integration: React.FC = () => {
         */}
         
         {/* GOOGLE ADS CARD */}
-        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleAdsToken ? 'border-emerald-100 ring-1 ring-emerald-50 col-span-1 md:col-span-2' : 'border-slate-200 hover:border-navy'}`}>
+        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleAdsToken ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
             <div className="flex justify-between items-start mb-4">
               <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><GoogleIcon size={24} /></div>
               {googleAdsToken ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
@@ -1278,7 +1278,7 @@ const Integration: React.FC = () => {
         </div>
 
         {/* META ADS CARD */}
-        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${metaAdsStatus ? 'border-emerald-100 ring-1 ring-emerald-50 col-span-1 md:col-span-2' : 'border-slate-200 hover:border-navy'}`}>
+        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${metaAdsStatus ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
             <div className="flex justify-between items-start mb-4">
               <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MetaIcon size={24} /></div>
               {metaAdsStatus ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
@@ -1335,7 +1335,7 @@ const Integration: React.FC = () => {
             {googleCalendarToken ? (<div className="mt-auto"><button onClick={handleCalendarLogout} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><LogOut size={12} /> Desconectar</button></div>) : (<button onClick={handleCalendarLogin} disabled={!!loading} className={`mt-auto w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${loading === 'calendar' ? 'bg-slate-100 text-slate-400' : 'bg-navy text-white hover:bg-slate-800 shadow-lg shadow-navy/20'}`}>{loading === 'calendar' ? <Loader2 size={14} className="animate-spin" /> : 'Conectar Agora'}</button>)}
         </div>
 
-        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleSheetsToken ? 'border-emerald-100 ring-1 ring-emerald-50 col-span-1 md:col-span-2 lg:col-span-1' : 'border-slate-200 hover:border-navy'}`}>
+        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleSheetsToken ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
             <div className="flex justify-between items-start mb-4"><div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><FileSpreadsheet className="text-emerald-500" /></div>{googleSheetsToken ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Ativo</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}</div>
             <h3 className="font-black text-navy text-sm uppercase tracking-widest">Planilhas Google</h3><p className="text-[10px] text-slate-400 mt-1 mb-4">Importe listas de leads.</p>
             {googleSheetsToken ? (<div className="mt-auto space-y-4 animate-in fade-in"><div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-3">{importStatus && <p className="text-[9px] font-bold text-emerald-600 bg-emerald-50 p-2 rounded mb-2 text-center">{importStatus}</p>}<div className="space-y-2"><select onChange={handleSelectSpreadsheet} className="w-full mt-1 p-1.5 text-[10px] border rounded bg-white focus:outline-none focus:border-navy"><option value="">Selecione arquivo...</option>{spreadsheets.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select><select onChange={e => setSelectedTab(e.target.value)} value={selectedTab} disabled={!selectedSpreadsheet} className="w-full mt-1 p-1.5 text-[10px] border rounded bg-white focus:outline-none focus:border-navy">{sheetTabs.map(t => <option key={t} value={t}>{t}</option>)}</select></div><button onClick={handleImportLeads} disabled={importLoading || !selectedTab} className="w-full bg-navy text-white py-2 rounded-lg text-[10px] font-bold uppercase flex justify-center items-center gap-2 hover:bg-slate-800 disabled:opacity-50">{importLoading ? <Loader2 size={12} className="animate-spin"/> : <><Upload size={12} /> Importar</>}</button></div><button onClick={handleSheetsLogout} className="text-[9px] font-bold text-rose-400 underline w-full text-center">Desconectar</button></div>) : (<button onClick={handleSheetsLogin} disabled={!!loading} className={`mt-auto w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${loading === 'sheets' ? 'bg-slate-100 text-slate-400' : 'bg-navy text-white hover:bg-slate-800 shadow-lg shadow-navy/20'}`}>{loading === 'sheets' ? <Loader2 size={14} className="animate-spin" /> : 'Conectar Agora'}</button>)}
@@ -1414,7 +1414,7 @@ const Integration: React.FC = () => {
             </div>
             
             {uazapiFormMode === 'manual' ? (
-              <form onSubmit={handleSaveCrmConnection} className="space-y-3 bg-slate-50/50 p-4 border border-slate-150 rounded-2xl">
+              <form onSubmit={handleSaveCrmConnection} className="space-y-3 bg-slate-50/50 p-4 border border-slate-150 rounded-2xl animate-in fade-in">
                 <div>
                   <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Nome da Conexão *</label>
                   <input 
@@ -1451,45 +1451,16 @@ const Integration: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Nome da Instância (Opcional)</label>
-                  <input 
-                    type="text" 
-                    value={crmInstanceName} 
-                    onChange={(e) => setCrmInstanceName(e.target.value)} 
-                    placeholder="Ex: clinica-whatsapp" 
-                    className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-xs text-navy focus:outline-none focus:border-blue-500 bg-white font-medium" 
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 pt-1">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input 
-                      type="checkbox" 
-                      checked={crmListenGroups} 
-                      onChange={(e) => setCrmListenGroups(e.target.checked)} 
-                      className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" 
-                    />
-                    <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">Ouvir Grupos</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input 
-                      type="checkbox" 
-                      checked={crmRestoreMsgs} 
-                      onChange={(e) => setCrmRestoreMsgs(e.target.checked)} 
-                      className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" 
-                    />
-                    <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">Restaurar Msgs</span>
-                  </label>
-                </div>
+                <p className="text-[10px] text-slate-400 leading-normal font-medium mt-1 select-none">
+                  Precisa de uma instância Uazapi? Acesse <a href="https://uazapi.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline font-bold">uazapi.com</a> para criar. O AXIS conecta 1 WhatsApp por usuário.
+                </p>
 
                 <button 
                   type="submit" 
                   disabled={submittingCrm}
                   className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[9px] font-black uppercase flex justify-center items-center gap-2 disabled:opacity-50 transition-all shadow-sm"
                 >
-                  {submittingCrm ? <Loader2 size={12} className="animate-spin" /> : 'Salvar Conexão Uazapi'}
+                  {submittingCrm ? <Loader2 size={12} className="animate-spin" /> : 'Conectar WhatsApp'}
                 </button>
               </form>
             ) : (

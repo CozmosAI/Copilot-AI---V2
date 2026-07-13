@@ -1140,7 +1140,7 @@ const Sales: React.FC = () => {
 
       return (
           <div 
-            className="flex flex-col h-full min-w-[280px] w-full md:w-1/5 bg-[#f8fafc] rounded-xl border border-slate-200 transition-all" 
+            className="flex flex-col h-full w-[280px] shrink-0 bg-[#f8fafc] rounded-xl border border-slate-200 transition-all" 
             onDragOver={(e) => e.preventDefault()} 
             onDrop={(e) => {
                // Handle Lead Drop
