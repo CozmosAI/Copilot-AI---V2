@@ -256,6 +256,8 @@ const App: React.FC = () => {
     marketing: { lastFetch: 0, start: '', end: '' }
   });
 
+  const hasInitialPreloadedRef = useRef(false);
+
   const [adsData, setAdsData] = useState<{
     googleAccount: { customer_id: string; customer_name: string; status: string; last_sync_at: string } | null;
     metaAccount: { ad_account_id: string; ad_account_name: string; status: string; last_sync_at: string; currency: string } | null;
@@ -458,7 +460,30 @@ const App: React.FC = () => {
        setAuthLoading(false);
     };
     supabase.auth.getSession().then(({ data: { session } }) => handleSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => { handleSession(session); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Só re-executa handleSession completo (com preloadAdsData) no login inicial
+      // TOKEN_REFRESHED (a cada ~1h) e USER_UPDATED só atualizam a sessão, sem LoadingScreen
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        handleSession(session);
+      } else if (event === 'SIGNED_OUT') {
+        handleSession(session); // session será null, faz logout
+      } else if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        // Só atualizar o estado da sessão, SEM chamar preloadAdsData
+        setSession(session);
+        setIsAuthenticated(!!session);
+        // Se tem usuário logado, atualizar profile em background (sem LoadingScreen)
+        if (session && user) {
+          supabase.from('profiles').select('*').eq('id', session.user.id).single().then(
+            ({ data: profile }) => {
+              if (profile) {
+                setUser(prev => prev ? { ...prev, name: profile.name || prev.name, ticketValue: Number(profile.ticket_value) || prev.ticketValue } : prev);
+              }
+            },
+            () => {}
+          );
+        }
+      }
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -727,7 +752,7 @@ const App: React.FC = () => {
     }
 
     // Se for carregamento inicial completo ('all'), mostramos isPreloadingAds
-    const isInitialPreload = section === 'all' && (fetchDashboard || fetchMarketing);
+    const isInitialPreload = section === 'all' && (fetchDashboard || fetchMarketing) && !hasInitialPreloadedRef.current;
 
     setAdsData(prev => ({
       ...prev,
@@ -882,6 +907,10 @@ const App: React.FC = () => {
           isPreloadingAds: false
         };
       });
+
+      if (isInitialPreload) {
+        hasInitialPreloadedRef.current = true;
+      }
 
     } catch (err) {
       console.error('Erro ao pré-carregar dados de Ads:', err);
