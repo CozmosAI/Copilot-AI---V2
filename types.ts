@@ -134,6 +134,51 @@ export interface Lead {
   conversation_id?: string; // Vincular ao CRM
   channel?: string;
   external_chat_id?: string;
+  tags?: string[];
+  custom_fields?: Record<string, any>;
+  lifecycle_stage?: string;
+}
+
+// --- NOVAS ENTRADAS (CRM MULTI-NICHO, SEGMENTAÇÃO, CUSTOM FIELDS) ---
+export interface CustomFieldDefinition {
+  id: string;
+  user_id: string;
+  field_key: string;
+  field_label: string;
+  field_type: 'text' | 'number' | 'date' | 'select';
+  field_options?: string[] | null;
+  is_required: boolean;
+  sort_order: number;
+  created_at?: string;
+}
+
+export interface LifecycleStage {
+  id: string;
+  user_id: string;
+  stage_key: string;
+  stage_label: string;
+  stage_color: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface LeadSegment {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  rules: {
+    operator: 'AND' | 'OR';
+    conditions: Array<{
+      field: string;
+      op: 'eq' | 'neq' | 'in' | 'gt' | 'gte' | 'lt' | 'lte' | 'older_than_hours' | 'older_than_days' | 'contains';
+      value: any;
+    }>;
+  };
+  color: string;
+  is_system: boolean;
+  created_at?: string;
 }
 
 // --- TABELA: MENSAGENS WHATSAPP ---

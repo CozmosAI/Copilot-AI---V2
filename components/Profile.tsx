@@ -3,13 +3,112 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, Mail, Camera, Save, DollarSign, Phone, MapPin, 
   Stethoscope, Building2, Briefcase, Plus, Trash2, Crown, Users,
-  Shield, CheckCircle2, AlertCircle, X, Loader2
+  Shield, CheckCircle2, AlertCircle, X, Loader2, Edit2, Sliders, Settings, Activity, FileText
 } from 'lucide-react';
 import { useApp } from '../App';
-import { UserRole } from '../types';
+import { UserRole, CustomFieldDefinition, LifecycleStage } from '../types';
 
 const Profile: React.FC = () => {
   const { user, updateUser, teamMembers, addTeamMember, removeTeamMember } = useApp();
+
+  // Tab Switcher State
+  const [activeTab, setActiveTab] = useState<'profile' | 'crm'>('profile');
+
+  // CRM Configs States
+  const [stages, setStages] = useState<LifecycleStage[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
+  const [loadingCRM, setLoadingCRM] = useState(false);
+
+  // Lifecycle Stage Form States
+  const [isAddingStage, setIsAddingStage] = useState(false);
+  const [editingStage, setEditingStage] = useState<LifecycleStage | null>(null);
+  const [stageKey, setStageKey] = useState('');
+  const [stageLabel, setStageLabel] = useState('');
+  const [stageColor, setStageColor] = useState('#3B82F6');
+  const [stageSortOrder, setStageSortOrder] = useState(0);
+  const [stageIsActive, setStageIsActive] = useState(true);
+
+  // Custom Field Form States
+  const [isAddingField, setIsAddingField] = useState(false);
+  const [editingField, setEditingField] = useState<CustomFieldDefinition | null>(null);
+  const [fieldKey, setFieldKey] = useState('');
+  const [fieldLabel, setFieldLabel] = useState('');
+  const [fieldType, setFieldType] = useState<'text' | 'number' | 'date' | 'select'>('text');
+  const [fieldOptions, setFieldOptions] = useState('');
+  const [fieldIsRequired, setFieldIsRequired] = useState(false);
+  const [fieldSortOrder, setFieldSortOrder] = useState(0);
+
+  const loadStages = async () => {
+    if (!user?.id) return;
+    try {
+      setLoadingCRM(true);
+      const { supabase } = await import('../lib/supabase');
+      const { data, error } = await supabase.from('lifecycle_stages').select('*').eq('user_id', user.id).order('sort_order', { ascending: true });
+      if (error) throw error;
+      if (data) setStages(data);
+    } catch (err) {
+      console.error('Erro ao carregar estágios:', err);
+    } finally {
+      setLoadingCRM(false);
+    }
+  };
+
+  const loadFields = async () => {
+    if (!user?.id) return;
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { data, error } = await supabase.from('custom_field_definitions').select('*').eq('user_id', user.id).order('sort_order', { ascending: true });
+      if (error) throw error;
+      if (data) setCustomFields(data);
+    } catch (err) {
+      console.error('Erro ao carregar campos personalizados:', err);
+    }
+  };
+
+  const resetStageForm = () => {
+    setStageKey('');
+    setStageLabel('');
+    setStageColor('#3B82F6');
+    setStageSortOrder(stages.length);
+    setStageIsActive(true);
+  };
+
+  const resetFieldForm = () => {
+    setFieldKey('');
+    setFieldLabel('');
+    setFieldType('text');
+    setFieldOptions('');
+    setFieldIsRequired(false);
+    setFieldSortOrder(customFields.length);
+  };
+
+  const handleEditStage = (stage: LifecycleStage) => {
+    setEditingStage(stage);
+    setIsAddingStage(true);
+    setStageKey(stage.stage_key);
+    setStageLabel(stage.stage_label);
+    setStageColor(stage.stage_color);
+    setStageSortOrder(stage.sort_order);
+    setStageIsActive(stage.is_active);
+  };
+
+  const handleEditField = (field: CustomFieldDefinition) => {
+    setEditingField(field);
+    setIsAddingField(true);
+    setFieldKey(field.field_key);
+    setFieldLabel(field.field_label);
+    setFieldType(field.field_type);
+    setFieldOptions(Array.isArray(field.field_options) ? field.field_options.join(', ') : '');
+    setFieldIsRequired(field.is_required);
+    setFieldSortOrder(field.sort_order);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'crm' && user?.id) {
+      loadStages();
+      loadFields();
+    }
+  }, [activeTab, user?.id]);
   
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -138,8 +237,34 @@ const Profile: React.FC = () => {
         </div>
       </header>
 
-      {/* --- CARTÃO 1: PERFIL DO USUÁRIO --- */}
-      <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden relative">
+      {/* TABS SELECTOR */}
+      <div className="flex border-b border-slate-200 gap-6">
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'profile'
+              ? 'border-navy text-navy font-black'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Meu Perfil & Equipe
+        </button>
+        <button
+          onClick={() => setActiveTab('crm')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'crm'
+              ? 'border-navy text-navy font-black'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Configurações do CRM
+        </button>
+      </div>
+
+      {activeTab === 'profile' && (
+        <>
+          {/* --- CARTÃO 1: PERFIL DO USUÁRIO --- */}
+          <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden relative">
         
         {/* TOP BAR / COVER (Visual mais limpo) */}
         <div className="p-8 md:p-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-b border-slate-100 bg-slate-50/30">
@@ -411,6 +536,453 @@ const Profile: React.FC = () => {
              </div>
           </div>
       </div>
+      </>
+      )}
+
+      {activeTab === 'crm' && (
+        <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
+          
+          {/* SECÇÃO 1: ESTÁGIOS DO FUNIL */}
+          <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-8 md:p-10 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold text-navy flex items-center gap-3">
+                  <Activity size={24} className="text-slate-400"/> Estágios do Funil (CRM)
+                </h3>
+                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 ml-1">
+                  Defina os estágios do ciclo de vida dos leads
+                </p>
+              </div>
+              {!isAddingStage && (
+                <button
+                  onClick={() => { resetStageForm(); setEditingStage(null); setIsAddingStage(true); }}
+                  className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2 self-start md:self-auto"
+                >
+                  <Plus size={16}/> Adicionar Estágio
+                </button>
+              )}
+            </div>
+
+            <div className="p-8 md:p-10">
+              {isAddingStage && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!stageKey || !stageLabel) return;
+                    try {
+                      const { supabase } = await import('../lib/supabase');
+                      const payload = {
+                        user_id: user?.id,
+                        stage_key: stageKey.trim().toLowerCase(),
+                        stage_label: stageLabel.trim(),
+                        stage_color: stageColor,
+                        sort_order: stageSortOrder,
+                        is_active: stageIsActive
+                      };
+                      
+                      let err;
+                      if (editingStage) {
+                        const { error } = await supabase.from('lifecycle_stages').update(payload).eq('id', editingStage.id);
+                        err = error;
+                      } else {
+                        const { error } = await supabase.from('lifecycle_stages').insert([payload]);
+                        err = error;
+                      }
+                      
+                      if (err) throw err;
+                      alert(editingStage ? 'Estágio atualizado!' : 'Estágio adicionado com sucesso!');
+                      setIsAddingStage(false);
+                      setEditingStage(null);
+                      resetStageForm();
+                      loadStages();
+                    } catch (error: any) {
+                      console.error(error);
+                      alert('Erro ao salvar estágio: ' + (error.message || error));
+                    }
+                  }}
+                  className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4 animate-in slide-in-from-top-4"
+                >
+                  <div className="flex justify-between items-center border-b border-slate-200/60 pb-3">
+                    <h4 className="font-bold text-navy text-sm">{editingStage ? 'Editar Estágio' : 'Novo Estágio'}</h4>
+                    <button
+                      type="button"
+                      onClick={() => { setIsAddingStage(false); setEditingStage(null); }}
+                      className="p-1 hover:bg-slate-200 rounded-full transition-colors"
+                    >
+                      <X size={16} className="text-slate-400"/>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Identificador (Key - único)</label>
+                      <input
+                        required
+                        disabled={!!editingStage}
+                        type="text"
+                        placeholder="Ex: lead, agendou, procedimento"
+                        value={stageKey}
+                        onChange={e => setStageKey(e.target.value)}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white disabled:bg-slate-100 disabled:text-slate-400 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nome do Estágio</label>
+                      <input
+                        required
+                        type="text"
+                        placeholder="Ex: Novo Lead, Procedimento Concluído"
+                        value={stageLabel}
+                        onChange={e => setStageLabel(e.target.value)}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Cor do Badge</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={stageColor}
+                          onChange={e => setStageColor(e.target.value)}
+                          className="w-10 h-10 rounded-xl border border-slate-300 bg-white p-1 cursor-pointer"
+                        />
+                        <span className="text-sm font-mono font-semibold text-slate-600">{stageColor}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ordem de Exibição</label>
+                      <input
+                        required
+                        type="number"
+                        placeholder="0"
+                        value={stageSortOrder}
+                        onChange={e => setStageSortOrder(Number(e.target.value))}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                      />
+                    </div>
+                    <div className="flex items-center pt-6">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={stageIsActive}
+                          onChange={e => setStageIsActive(e.target.checked)}
+                          className="w-4.5 h-4.5 text-navy border-slate-300 rounded focus:ring-navy"
+                        />
+                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Ativo</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => { setIsAddingStage(false); setEditingStage(null); }}
+                      className="px-5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-colors"
+                    >
+                      Salvar Estágio
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {loadingCRM ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                  <Loader2 className="animate-spin" size={24} />
+                  <span className="text-xs font-semibold">Carregando CRM...</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {stages.map(stage => (
+                    <div key={stage.id} className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 hover:border-slate-300 transition-all bg-white shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <span className="w-4 h-4 rounded-full border border-slate-200" style={{ backgroundColor: stage.stage_color }} />
+                        <div>
+                          <p className="text-sm font-bold text-navy">{stage.stage_label}</p>
+                          <p className="text-xs text-slate-400 font-mono">key: {stage.stage_key} • ordem: {stage.sort_order}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-wider ${stage.is_active ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+                          {stage.is_active ? 'Ativo' : 'Inativo'}
+                        </span>
+                        <button
+                          onClick={() => handleEditStage(stage)}
+                          className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"
+                          title="Editar estágio"
+                        >
+                          <Edit2 size={14}/>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Deseja realmente remover este estágio?')) return;
+                            try {
+                              const { supabase } = await import('../lib/supabase');
+                              const { error } = await supabase.from('lifecycle_stages').delete().eq('id', stage.id);
+                              if (error) throw error;
+                              loadStages();
+                            } catch (err: any) {
+                              console.error(err);
+                              alert('Erro ao excluir estágio: ' + (err.message || err));
+                            }
+                          }}
+                          className="p-2 hover:bg-rose-50 rounded-lg text-slate-300 hover:text-rose-600 transition-colors"
+                          title="Excluir estágio"
+                        >
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {stages.length === 0 && (
+                    <div className="text-center py-12 text-slate-300 border-2 border-dashed border-slate-100 rounded-3xl">
+                      <p className="text-xs font-bold uppercase tracking-widest">Nenhum estágio do ciclo de vida definido</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SECÇÃO 2: CAMPOS CUSTOMIZADOS */}
+          <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-8 md:p-10 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold text-navy flex items-center gap-3">
+                  <Sliders size={24} className="text-slate-400"/> Campos Customizados (Leads)
+                </h3>
+                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 ml-1">
+                  Adicione dados extras personalizados na ficha do lead
+                </p>
+              </div>
+              {!isAddingField && (
+                <button
+                  onClick={() => { resetFieldForm(); setEditingField(null); setIsAddingField(true); }}
+                  className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2 self-start md:self-auto"
+                >
+                  <Plus size={16}/> Adicionar Campo
+                </button>
+              )}
+            </div>
+
+            <div className="p-8 md:p-10">
+              {isAddingField && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!fieldKey || !fieldLabel) return;
+                    try {
+                      const { supabase } = await import('../lib/supabase');
+                      let optionsArray = null;
+                      if (fieldType === 'select') {
+                        optionsArray = fieldOptions.split(',').map(o => o.trim()).filter(o => o.length > 0);
+                      }
+                      
+                      const payload = {
+                        user_id: user?.id,
+                        field_key: fieldKey.trim().toLowerCase(),
+                        field_label: fieldLabel.trim(),
+                        field_type: fieldType,
+                        field_options: optionsArray,
+                        is_required: fieldIsRequired,
+                        sort_order: fieldSortOrder
+                      };
+                      
+                      let err;
+                      if (editingField) {
+                        const { error } = await supabase.from('custom_field_definitions').update(payload).eq('id', editingField.id);
+                        err = error;
+                      } else {
+                        const { error } = await supabase.from('custom_field_definitions').insert([payload]);
+                        err = error;
+                      }
+                      
+                      if (err) throw err;
+                      alert(editingField ? 'Campo atualizado!' : 'Campo personalizado adicionado com sucesso!');
+                      setIsAddingField(false);
+                      setEditingField(null);
+                      resetFieldForm();
+                      loadFields();
+                    } catch (error: any) {
+                      console.error(error);
+                      alert('Erro ao salvar campo: ' + (error.message || error));
+                    }
+                  }}
+                  className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4 animate-in slide-in-from-top-4"
+                >
+                  <div className="flex justify-between items-center border-b border-slate-200/60 pb-3">
+                    <h4 className="font-bold text-navy text-sm">{editingField ? 'Editar Campo' : 'Novo Campo'}</h4>
+                    <button
+                      type="button"
+                      onClick={() => { setIsAddingField(false); setEditingField(null); }}
+                      className="p-1 hover:bg-slate-200 rounded-full transition-colors"
+                    >
+                      <X size={16} className="text-slate-400"/>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Identificador (Unique Key)</label>
+                      <input
+                        required
+                        disabled={!!editingField}
+                        type="text"
+                        placeholder="Ex: data_nascimento, convenio"
+                        value={fieldKey}
+                        onChange={e => setFieldKey(e.target.value)}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white disabled:bg-slate-100 disabled:text-slate-400 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Rótulo / Label</label>
+                      <input
+                        required
+                        type="text"
+                        placeholder="Ex: Data de Nascimento, Convênio"
+                        value={fieldLabel}
+                        onChange={e => setFieldLabel(e.target.value)}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tipo de Campo</label>
+                      <select
+                        value={fieldType}
+                        onChange={e => setFieldType(e.target.value as any)}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                      >
+                        <option value="text">Texto livre (text)</option>
+                        <option value="number">Numérico (number)</option>
+                        <option value="date">Data (date)</option>
+                        <option value="select">Seleção (select)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ordem</label>
+                      <input
+                        required
+                        type="number"
+                        placeholder="0"
+                        value={fieldSortOrder}
+                        onChange={e => setFieldSortOrder(Number(e.target.value))}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                      />
+                    </div>
+                    <div className="flex items-center pt-6">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={fieldIsRequired}
+                          onChange={e => setFieldIsRequired(e.target.checked)}
+                          className="w-4.5 h-4.5 text-navy border-slate-300 rounded focus:ring-navy"
+                        />
+                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Obrigatório</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {fieldType === 'select' && (
+                    <div className="animate-in fade-in duration-200">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Opções de Seleção (separadas por vírgula)</label>
+                      <input
+                        required
+                        type="text"
+                        placeholder="Ex: Unimed, Bradesco, Particular"
+                        value={fieldOptions}
+                        onChange={e => setFieldOptions(e.target.value)}
+                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => { setIsAddingField(false); setEditingField(null); }}
+                      className="px-5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-colors"
+                    >
+                      Salvar Campo
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="space-y-3">
+                {customFields.map(field => (
+                  <div key={field.id} className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 hover:border-slate-300 transition-all bg-white shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-slate-50 rounded-xl border border-slate-100 text-slate-500">
+                        <FileText size={18} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-navy">{field.field_label}</p>
+                        <p className="text-xs text-slate-400 font-mono">
+                          key: {field.field_key} • tipo: {field.field_type} {field.is_required && '• obrigatório'}
+                        </p>
+                        {field.field_type === 'select' && Array.isArray(field.field_options) && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {field.field_options.map(opt => (
+                              <span key={opt} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 uppercase border border-blue-100/50">{opt}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleEditField(field)}
+                        className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"
+                        title="Editar campo"
+                      >
+                        <Edit2 size={14}/>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Deseja realmente remover este campo personalizado?')) return;
+                          try {
+                            const { supabase } = await import('../lib/supabase');
+                            const { error } = await supabase.from('custom_field_definitions').delete().eq('id', field.id);
+                            if (error) throw error;
+                            loadFields();
+                          } catch (err: any) {
+                            console.error(err);
+                            alert('Erro ao excluir campo personalizado: ' + (err.message || err));
+                          }
+                        }}
+                        className="p-2 hover:bg-rose-50 rounded-lg text-slate-300 hover:text-rose-600 transition-colors"
+                        title="Excluir campo"
+                      >
+                        <Trash2 size={14}/>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {customFields.length === 0 && (
+                  <div className="text-center py-12 text-slate-300 border-2 border-dashed border-slate-100 rounded-3xl">
+                    <p className="text-xs font-bold uppercase tracking-widest">Nenhum campo personalizado definido</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+        </div>
+      )}
 
     </div>
   );

@@ -254,3 +254,57 @@ alter table public.meta_ads_audit_logs enable row level security;
 
 drop policy if exists "Users can view own meta ads audit logs" on public.meta_ads_audit_logs;
 create policy "Users can view own meta ads audit logs" on public.meta_ads_audit_logs for select using (auth.uid() = user_id);
+
+-- ============================================================
+-- SEGMENTAÇÃO, LIFECYCLE E CUSTOM FIELDS (multi-nicho)
+-- ============================================================
+
+-- Colunas em leads
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS custom_fields jsonb DEFAULT '{}'::jsonb;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS lifecycle_stage text;
+
+-- Tabela: custom_field_definitions
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  field_key text NOT NULL,
+  field_label text NOT NULL,
+  field_type text NOT NULL,
+  field_options jsonb,
+  is_required boolean DEFAULT false,
+  sort_order integer DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, field_key)
+);
+ALTER TABLE custom_field_definitions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_manage_own_custom_fields ON custom_field_definitions FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Tabela: lifecycle_stages
+CREATE TABLE IF NOT EXISTS lifecycle_stages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  stage_key text NOT NULL,
+  stage_label text NOT NULL,
+  stage_color text DEFAULT '#3B82F6',
+  sort_order integer DEFAULT 0,
+  is_active boolean DEFAULT true,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, stage_key)
+);
+ALTER TABLE lifecycle_stages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_manage_own_lifecycle_stages ON lifecycle_stages FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Tabela: lead_segments
+CREATE TABLE IF NOT EXISTS lead_segments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  description text,
+  rules jsonb NOT NULL,
+  color text DEFAULT '#3B82F6',
+  is_system boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE lead_segments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_manage_own_lead_segments ON lead_segments FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

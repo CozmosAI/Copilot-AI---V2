@@ -10,7 +10,7 @@ import { analyzeLeadConversation } from '../services/geminiService';
 import { apiFetch, apiUrl, safeJsonResponse } from '../services/apiClient';
 // import { sendMessage } from '../services/whatsappService'; // REMOVIDO
 import { useApp } from '../App';
-import { Lead, ChatMessage } from '../types';
+import { Lead, ChatMessage, LeadSegment } from '../types';
 import { supabase } from '../lib/supabase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
@@ -75,6 +75,71 @@ const DEFAULT_COLUMNS: KanbanColumnData[] = [
 
 const Sales: React.FC = () => {
   const { leads, addLead, updateLead, addFinancialEntry, user /*, whatsappConfig */ } = useApp(); // whatsappConfig REMOVIDO
+  
+  const [segments, setSegments] = useState<LeadSegment[]>([]);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadSegments = async () => {
+      if (!user?.id) return;
+      try {
+        const { supabase } = await import('../lib/supabase');
+        const { data } = await supabase.from('lead_segments').select('*').eq('user_id', user.id).order('is_system', { ascending: false });
+        if (data) setSegments(data);
+      } catch (err) { console.error('Erro ao carregar segmentos:', err); }
+    };
+    loadSegments();
+  }, [user?.id]);
+
+  const evaluateSegment = (lead: any, rules: any): boolean => {
+    if (!rules || !rules.conditions) return true;
+    const results = rules.conditions.map((cond: any) => {
+      let fieldValue: any;
+      if (cond.field.startsWith('custom_field.')) {
+        const customKey = cond.field.replace('custom_field.', '');
+        fieldValue = lead.custom_fields?.[customKey];
+      } else {
+        let field = cond.field;
+        if (field === 'potential_value') field = 'potentialValue';
+        if (field === 'last_interaction') field = 'lastInteraction';
+        if (field === 'last_sender') field = 'lastSender';
+        fieldValue = lead[field];
+      }
+      
+      switch (cond.op) {
+        case 'eq': return fieldValue === cond.value;
+        case 'neq': return fieldValue !== cond.value;
+        case 'in': return Array.isArray(cond.value) && cond.value.includes(fieldValue);
+        case 'gt': return Number(fieldValue) > Number(cond.value);
+        case 'gte': return Number(fieldValue) >= Number(cond.value);
+        case 'lt': return Number(fieldValue) < Number(cond.value);
+        case 'lte': return Number(fieldValue) <= Number(cond.value);
+        case 'contains': {
+          if (Array.isArray(fieldValue)) {
+            return fieldValue.includes(cond.value);
+          }
+          if (typeof fieldValue === 'string') {
+            return fieldValue.includes(cond.value);
+          }
+          return false;
+        }
+        case 'older_than_hours': {
+          if (!lead.lastInteraction && !lead.last_interaction) return false;
+          const dateVal = lead.lastInteraction || lead.last_interaction;
+          const hoursAgo = (Date.now() - new Date(dateVal).getTime()) / (1000 * 60 * 60);
+          return hoursAgo > Number(cond.value);
+        }
+        case 'older_than_days': {
+          if (!lead.lastInteraction && !lead.last_interaction) return false;
+          const dateVal = lead.lastInteraction || lead.last_interaction;
+          const daysAgo = (Date.now() - new Date(dateVal).getTime()) / (1000 * 60 * 60 * 24);
+          return daysAgo > Number(cond.value);
+        }
+        default: return true;
+      }
+    });
+    return rules.operator === 'OR' ? results.some((r: boolean) => r) : results.every((r: boolean) => r);
+  };
   
   // View State
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
@@ -1117,24 +1182,35 @@ const Sales: React.FC = () => {
       setNewLeadData({ name: '', phone: '', email: '', entryDate: new Date().toISOString().split('T')[0], value: '', source: 'Manual', adName: '', objective: 'Consulta', procedure: '', description: '' });
   };
 
+  const filteredLeads = useMemo(() => {
+    let result = leads;
+    if (activeSegmentId) {
+      const segment = segments.find(s => s.id === activeSegmentId);
+      if (segment) {
+        result = result.filter(lead => evaluateSegment(lead, segment.rules));
+      }
+    }
+    return result;
+  }, [leads, activeSegmentId, segments]);
+
   // --- STATS PARA O HEADER ---
-  const pipelineValue = leads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
-  const conversionRate = leads.length > 0 ? (leads.filter(l => l.status === 'Venda').length / leads.length) * 100 : 0;
-  const activeLeadsCount = leads.filter(l => l.status !== 'Venda' && l.status !== 'Perdido').length;
+  const pipelineValue = filteredLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
+  const conversionRate = filteredLeads.length > 0 ? (filteredLeads.filter(l => l.status === 'Venda').length / filteredLeads.length) * 100 : 0;
+  const activeLeadsCount = filteredLeads.filter(l => l.status !== 'Venda' && l.status !== 'Perdido').length;
 
   const sourceData = useMemo(() => {
     const sources: any = {};
-    leads.forEach(l => {
+    filteredLeads.forEach(l => {
         const s = l.source || 'Outros';
         sources[s] = (sources[s] || 0) + 1;
     });
     return Object.keys(sources).map(k => ({ name: k, value: sources[k] }));
-  }, [leads]);
+  }, [filteredLeads]);
   
   const COLORS = ['#0f172a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
   const KanbanColumn: React.FC<{ status: string; title: string; color: string; index: number }> = ({ status, title, color, index }) => {
-      const columnLeads = leads.filter(l => l.status === status);
+      const columnLeads = filteredLeads.filter(l => l.status === status);
       const totalValue = columnLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
       const isEditing = editingColumnId === status;
 
@@ -1203,6 +1279,17 @@ const Sales: React.FC = () => {
                              </div>
                           </div>
                           
+                          {lead.tags && lead.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2 pl-2">
+                              {lead.tags.slice(0, 3).map(tag => (
+                                <span key={tag} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200/40">
+                                  {tag}
+                                </span>
+                              ))}
+                              {lead.tags.length > 3 && <span className="text-[9px] text-slate-400">+{lead.tags.length - 3}</span>}
+                            </div>
+                          )}
+                          
                           <div className="pl-2 space-y-2">
                               <p className="text-xs text-slate-500 truncate">{lead.lastMessage || 'Sem interações recentes'}</p>
                               
@@ -1263,6 +1350,41 @@ const Sales: React.FC = () => {
           </div>
       </div>
 
+      {/* PAINEL DE SEGMENTOS */}
+      <div className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl mb-4 flex items-center gap-2 overflow-x-auto scrollbar-thin shrink-0 shadow-sm mx-1">
+        <div className="flex items-center gap-1.5 text-slate-400 mr-2">
+          <Filter size={14} />
+          <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Segmentação CRM:</span>
+        </div>
+        <button
+          onClick={() => setActiveSegmentId(null)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+            !activeSegmentId ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/60'
+          }`}
+        >
+          Ver Todos ({leads.length})
+        </button>
+        {segments.map(seg => {
+          const count = leads.filter(l => evaluateSegment(l, seg.rules)).length;
+          return (
+            <button
+              key={seg.id}
+              onClick={() => setActiveSegmentId(seg.id === activeSegmentId ? null : seg.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-2 border ${
+                activeSegmentId === seg.id
+                  ? 'text-white border-transparent'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200/60'
+              }`}
+              style={activeSegmentId === seg.id ? { backgroundColor: seg.color } : {}}
+            >
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activeSegmentId === seg.id ? 'white' : seg.color }} />
+              <span>{seg.name}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-bold ${activeSegmentId === seg.id ? 'bg-white/20 text-white' : 'bg-slate-200/60 text-slate-500'}`}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* METRICS VIEW */}
       {viewMode === 'metrics' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-6 pb-20">
@@ -1285,10 +1407,10 @@ const Sales: React.FC = () => {
                   <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={[
-                              { name: 'Novos', value: leads.filter(l => l.status === 'Novo').length },
-                              { name: 'Em Conversa', value: leads.filter(l => l.status === 'Conversa').length },
-                              { name: 'Agendados', value: leads.filter(l => l.status === 'Agendado').length },
-                              { name: 'Vendidos', value: leads.filter(l => l.status === 'Venda').length },
+                              { name: 'Novos', value: filteredLeads.filter(l => l.status === 'Novo').length },
+                              { name: 'Em Conversa', value: filteredLeads.filter(l => l.status === 'Conversa').length },
+                              { name: 'Agendados', value: filteredLeads.filter(l => l.status === 'Agendado').length },
+                              { name: 'Vendidos', value: filteredLeads.filter(l => l.status === 'Venda').length },
                           ]}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12}} />
@@ -1349,7 +1471,7 @@ const Sales: React.FC = () => {
                   </div>
                </div>
                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                   {leads.filter(lead => {
+                   {filteredLeads.filter(lead => {
                        const nameMatch = lead.name.toLowerCase().includes(chatSearchQuery.toLowerCase());
                        const phoneMatch = lead.phone ? lead.phone.includes(chatSearchQuery) : false;
                        return nameMatch || phoneMatch;
@@ -1882,7 +2004,7 @@ const Sales: React.FC = () => {
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                          {leads.map(lead => (
+                          {filteredLeads.map(lead => (
                               <tr key={lead.id} className="hover:bg-slate-50/80 transition-colors">
                                   <td className="px-6 py-4">
                                       <p className="text-sm font-bold text-slate-700">{lead.name}</p>
