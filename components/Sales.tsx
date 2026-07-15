@@ -1292,7 +1292,7 @@ const Sales: React.FC = () => {
                                   'bg-slate-100 text-slate-500'
                                 }`}
                                 title={lead.score_reasons ? 
-                                  lead.score_reasons.map(r => `${r.points > 0 ? '+' : ''}${r.points}: ${r.reason}`).join('\n') : 
+                                  (Array.isArray(lead.score_reasons) ? lead.score_reasons : []).map(r => `${r.points > 0 ? '+' : ''}${r.points}: ${r.reason}`).join('\n') : 
                                   `Score: ${lead.score}`
                                 }
                               >

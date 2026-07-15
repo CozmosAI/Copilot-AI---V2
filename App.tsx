@@ -718,7 +718,7 @@ const App: React.FC = () => {
     if (leads.length === 0) return;
     const updatedLeads = leads.map(lead => {
       const { score, reasons } = calcularScore(lead);
-      return { ...lead, score, score_reasons: reasons };
+      return { ...lead, score, score_reasons: Array.isArray(reasons) ? reasons : [] };
     });
     const hasChanges = updatedLeads.some((l, i) => l.score !== leads[i]?.score);
     if (hasChanges) {
