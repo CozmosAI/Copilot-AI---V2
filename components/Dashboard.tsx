@@ -41,7 +41,7 @@ const MetaIcon = ({ size = 20 }: { size?: number }) => (
 );
 
 const Dashboard: React.FC = () => {
-  const { dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user, adsData, preloadAdsData } = useApp();
+  const { dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user, adsData, preloadAdsData, aiConfig } = useApp();
   const [insight, setInsight] = useState<string>('Analisando sua clínica...');
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
@@ -615,61 +615,63 @@ const Dashboard: React.FC = () => {
              )}
           </div>
 
-          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
-             <div className="flex justify-between items-start mb-2 md:mb-4">
-               <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Leads por Score</span>
-               <div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
-                 <Target size={14} className="md:w-[18px] md:h-[18px]" />
-               </div>
-             </div>
-             
-             <div className="space-y-3">
-               <div>
-                 <h3 className="text-base md:text-2xl font-black text-navy leading-none">
-                   {leadsInPeriod.length} <span className="text-xs font-semibold text-slate-400 font-sans">Leads</span>
-                 </h3>
+          {aiConfig.scoringEnabled && (
+            <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
+               <div className="flex justify-between items-start mb-2 md:mb-4">
+                 <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Leads por Score</span>
+                 <div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
+                   <Target size={14} className="md:w-[18px] md:h-[18px]" />
+                 </div>
                </div>
                
-               <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                 {leadsInPeriod.length > 0 ? (
-                   <>
-                     <div 
-                       style={{ width: `${(hotLeadsByScoreCount / leadsInPeriod.length) * 100}%` }} 
-                       className="h-full bg-emerald-500 transition-all" 
-                       title={`Quentes: ${hotLeadsByScoreCount}`}
-                     />
-                     <div 
-                       style={{ width: `${(warmLeadsByScoreCount / leadsInPeriod.length) * 100}%` }} 
-                       className="h-full bg-amber-400 transition-all" 
-                       title={`Mornos: ${warmLeadsByScoreCount}`}
-                     />
-                     <div 
-                       style={{ width: `${(coldLeadsByScoreCount / leadsInPeriod.length) * 100}%` }} 
-                       className="h-full bg-slate-300 transition-all" 
-                       title={`Frios: ${coldLeadsByScoreCount}`}
-                     />
-                   </>
-                 ) : (
-                   <div className="h-full w-full bg-slate-200" />
-                 )}
+               <div className="space-y-3">
+                 <div>
+                   <h3 className="text-base md:text-2xl font-black text-navy leading-none">
+                     {leadsInPeriod.length} <span className="text-xs font-semibold text-slate-400 font-sans">Leads</span>
+                   </h3>
+                 </div>
+                 
+                 <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                   {leadsInPeriod.length > 0 ? (
+                     <>
+                       <div 
+                         style={{ width: `${(hotLeadsByScoreCount / leadsInPeriod.length) * 100}%` }} 
+                         className="h-full bg-emerald-500 transition-all" 
+                         title={`Quentes: ${hotLeadsByScoreCount}`}
+                       />
+                       <div 
+                         style={{ width: `${(warmLeadsByScoreCount / leadsInPeriod.length) * 100}%` }} 
+                         className="h-full bg-amber-400 transition-all" 
+                         title={`Mornos: ${warmLeadsByScoreCount}`}
+                       />
+                       <div 
+                         style={{ width: `${(coldLeadsByScoreCount / leadsInPeriod.length) * 100}%` }} 
+                         className="h-full bg-slate-300 transition-all" 
+                         title={`Frios: ${coldLeadsByScoreCount}`}
+                       />
+                     </>
+                   ) : (
+                     <div className="h-full w-full bg-slate-200" />
+                   )}
+                 </div>
+                 
+                 <div className="grid grid-cols-3 gap-1 text-[8px] md:text-[10px] font-bold">
+                   <div className="flex flex-col">
+                     <span className="text-emerald-600 flex items-center gap-0.5">🔥 {hotLeadsByScoreCount}</span>
+                     <span className="text-[7px] md:text-[9px] text-slate-400 uppercase font-medium">Quentes</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="text-amber-600 flex items-center gap-0.5">⚡ {warmLeadsByScoreCount}</span>
+                     <span className="text-[7px] md:text-[9px] text-slate-400 uppercase font-medium">Mornos</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="text-slate-500 flex items-center gap-0.5">❄️ {coldLeadsByScoreCount}</span>
+                     <span className="text-[7px] md:text-[9px] text-slate-400 uppercase font-medium">Frios</span>
+                   </div>
+                 </div>
                </div>
-               
-               <div className="grid grid-cols-3 gap-1 text-[8px] md:text-[10px] font-bold">
-                 <div className="flex flex-col">
-                   <span className="text-emerald-600 flex items-center gap-0.5">🔥 {hotLeadsByScoreCount}</span>
-                   <span className="text-[7px] md:text-[9px] text-slate-400 uppercase font-medium">Quentes</span>
-                 </div>
-                 <div className="flex flex-col">
-                   <span className="text-amber-600 flex items-center gap-0.5">⚡ {warmLeadsByScoreCount}</span>
-                   <span className="text-[7px] md:text-[9px] text-slate-400 uppercase font-medium">Mornos</span>
-                 </div>
-                 <div className="flex flex-col">
-                   <span className="text-slate-500 flex items-center gap-0.5">❄️ {coldLeadsByScoreCount}</span>
-                   <span className="text-[7px] md:text-[9px] text-slate-400 uppercase font-medium">Frios</span>
-                 </div>
-               </div>
-             </div>
-          </div>
+            </div>
+          )}
          <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-sky-300 transition-colors">
             <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Consultas Marcadas</span><div className="p-1.5 md:p-2 bg-sky-50 text-sky-600 rounded-lg shrink-0"><CalendarCheck size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
             <h3 className="text-base md:text-2xl font-black text-navy leading-none">{metrics.vendas.agendamentos}</h3>

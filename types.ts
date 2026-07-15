@@ -71,6 +71,7 @@ export interface AIConfig {
   objective: string; // Ex: Agendar, Tirar Dúvidas
   prompt: string;
   negativePrompt: string; // O que não fazer
+  scoringEnabled: boolean; // Ativar/desativar score automático de leads
   
   // Fontes de Dados (Contexto)
   useProfile: boolean; // Acesso aos dados do médico

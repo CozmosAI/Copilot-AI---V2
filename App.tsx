@@ -279,6 +279,7 @@ const App: React.FC = () => {
     objective: 'Agendamento de Consulta',
     prompt: 'Você é a assistente virtual da clínica. Seu tom deve ser acolhedor, profissional e direto. Seu objetivo é entender a queixa do paciente e agendar uma avaliação.',
     negativePrompt: 'Não dê diagnósticos médicos. Não prometa cura. Não seja rude. Não invente preços não tabelados.',
+    scoringEnabled: false,
     useProfile: true,
     useCRM: true,
     useHistory: true,
@@ -715,7 +716,7 @@ const App: React.FC = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (leads.length === 0) return;
+    if (leads.length === 0 || !aiConfig.scoringEnabled) return;
     const updatedLeads = leads.map(lead => {
       const { score, reasons } = calcularScore(lead);
       return { ...lead, score, score_reasons: Array.isArray(reasons) ? reasons : [] };
@@ -730,7 +731,7 @@ const App: React.FC = () => {
         }
       });
     }
-  }, [leads, updateLeadScore]);
+  }, [leads, updateLeadScore, aiConfig.scoringEnabled]);
 
   useEffect(() => {
     return () => {

@@ -9,7 +9,7 @@ import { useApp } from '../App';
 import { UserRole, CustomFieldDefinition, LifecycleStage } from '../types';
 
 const Profile: React.FC = () => {
-  const { user, updateUser, teamMembers, addTeamMember, removeTeamMember } = useApp();
+  const { user, updateUser, teamMembers, addTeamMember, removeTeamMember, aiConfig, updateAiConfig } = useApp();
 
   // Tab Switcher State
   const [activeTab, setActiveTab] = useState<'profile' | 'crm'>('profile');
@@ -541,6 +541,34 @@ const Profile: React.FC = () => {
 
       {activeTab === 'crm' && (
         <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
+          
+          {/* SEÇÃO: Automação */}
+          <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-8 md:p-10 border-b border-slate-100 bg-slate-50/50">
+              <h3 className="text-xl font-bold text-navy flex items-center gap-3">
+                <Sliders size={24} className="text-slate-400"/> Automação
+              </h3>
+              <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 ml-1">
+                Configure os recursos automatizados da plataforma
+              </p>
+            </div>
+            <div className="p-8 md:p-10">
+              <div className="p-4 bg-white border border-slate-200 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <h4 className="text-sm font-bold text-navy">Score Automático de Leads</h4>
+                    <p className="text-xs text-slate-500 mt-1">Ativa pontuação automática de leads (0-100) baseada em regras (recência, temperatura, valor potencial, dados preenchidos). Leads quentes (🔥), mornos (⚡) e frios (❄️) aparecem no Kanban e Dashboard.</p>
+                  </div>
+                  <button
+                    onClick={() => updateAiConfig({ scoringEnabled: !aiConfig.scoringEnabled })}
+                    className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${aiConfig.scoringEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${aiConfig.scoringEnabled ? 'translate-x-6' : ''}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
           
           {/* SECÇÃO 1: ESTÁGIOS DO FUNIL */}
           <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden">
