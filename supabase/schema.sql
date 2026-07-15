@@ -308,3 +308,10 @@ CREATE TABLE IF NOT EXISTS lead_segments (
 );
 ALTER TABLE lead_segments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY users_manage_own_lead_segments ON lead_segments FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Scoring automático de leads (sem IA, baseado em regras)
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS score integer DEFAULT 50;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS score_updated_at timestamp with time zone DEFAULT now();
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS score_reasons jsonb DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score DESC);
+

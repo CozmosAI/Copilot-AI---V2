@@ -78,6 +78,7 @@ const Sales: React.FC = () => {
   
   const [segments, setSegments] = useState<LeadSegment[]>([]);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
+  const [sortByScore, setSortByScore] = useState(false);
 
   useEffect(() => {
     const loadSegments = async () => {
@@ -1211,6 +1212,9 @@ const Sales: React.FC = () => {
 
   const KanbanColumn: React.FC<{ status: string; title: string; color: string; index: number }> = ({ status, title, color, index }) => {
       const columnLeads = filteredLeads.filter(l => l.status === status);
+      const sortedLeads = sortByScore 
+        ? [...columnLeads].sort((a, b) => (b.score || 0) - (a.score || 0))
+        : columnLeads;
       const totalValue = columnLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
       const isEditing = editingColumnId === status;
 
@@ -1264,7 +1268,7 @@ const Sales: React.FC = () => {
                   </div>
               </div>
               <div className="p-2 flex-1 overflow-y-auto custom-scrollbar space-y-3">
-                  {columnLeads.map(lead => (
+                  {sortedLeads.map(lead => (
                       <div key={lead.id} draggable onDragStart={(e) => { e.stopPropagation(); handleLeadDragStart(e, lead.id); }} onClick={() => { setActiveLead(lead); setViewMode('chat'); }}
                         className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all group select-none relative overflow-hidden">
                           <div className={`absolute left-0 top-0 bottom-0 w-1 ${lead.temperature === 'Hot' ? 'bg-orange-500' : lead.temperature === 'Warm' ? 'bg-amber-400' : 'bg-slate-300'}`}></div>
@@ -1278,6 +1282,24 @@ const Sales: React.FC = () => {
                                 {lead.potentialValue ? <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">R${lead.potentialValue}</span> : null}
                              </div>
                           </div>
+                          
+                          {lead.score !== undefined && (
+                            <div className="pl-2 mb-2">
+                              <span 
+                                className={`inline-flex items-center text-[9px] font-black px-1.5 py-0.5 rounded ${
+                                  lead.score >= 70 ? 'bg-emerald-100 text-emerald-700' :
+                                  lead.score >= 50 ? 'bg-amber-100 text-amber-700' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}
+                                title={lead.score_reasons ? 
+                                  lead.score_reasons.map(r => `${r.points > 0 ? '+' : ''}${r.points}: ${r.reason}`).join('\n') : 
+                                  `Score: ${lead.score}`
+                                }
+                              >
+                                {lead.score >= 70 ? '🔥' : lead.score >= 50 ? '⚡' : '❄️'} {lead.score}
+                              </span>
+                            </div>
+                          )}
                           
                           {lead.tags && lead.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mb-2 pl-2">
@@ -1426,7 +1448,21 @@ const Sales: React.FC = () => {
 
       {/* KANBAN DENSE */}
       {viewMode === 'kanban' && (
-          <div className="flex-1 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+          <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex justify-end mb-3 pr-2">
+                  <button
+                    onClick={() => setSortByScore(!sortByScore)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                      sortByScore 
+                        ? 'bg-navy text-white border-transparent shadow-sm' 
+                        : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200 shadow-sm'
+                    }`}
+                    title="Ordenar leads por score (mais quentes primeiro)"
+                  >
+                    <span>{sortByScore ? '🔥 Ordenado por Score' : '⚡ Ordenar por Score'}</span>
+                  </button>
+              </div>
+              <div className="flex-1 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
               <div className="flex gap-4 h-full min-w-max px-1">
                   {columns.map((col, index) => (
                       <KanbanColumn 
@@ -1451,6 +1487,7 @@ const Sales: React.FC = () => {
                       </button>
                   </div>
               </div>
+          </div>
           </div>
       )}
 

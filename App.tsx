@@ -147,6 +147,70 @@ const calculateRange = (label: string): DateRange => {
   return { start: start.toISOString().split('T')[0], end: end, label: label };
 };
 
+const calcularScore = (lead: Lead): { score: number; reasons: { action: string; points: number; reason: string }[] } => {
+  let score = 50; // base
+  const reasons: { action: string; points: number; reason: string }[] = [];
+  
+  // 1. RECENCY — dias desde última interação
+  const lastInteraction = lead.lastInteraction;
+  if (lastInteraction) {
+    const diasSemInteracao = Math.floor((Date.now() - new Date(lastInteraction).getTime()) / (1000 * 60 * 60 * 24));
+    if (diasSemInteracao < 1) {
+      score += 20;
+      reasons.push({ action: 'recency', points: 20, reason: `Interagiu hoje (${diasSemInteracao} dia)` });
+    } else if (diasSemInteracao < 7) {
+      score += 10;
+      reasons.push({ action: 'recency', points: 10, reason: `Interagiu esta semana (${diasSemInteracao} dias)` });
+    } else if (diasSemInteracao > 30) {
+      score -= 20;
+      reasons.push({ action: 'recency', points: -20, reason: `Sumiu há ${diasSemInteracao} dias` });
+    } else if (diasSemInteracao > 14) {
+      score -= 10;
+      reasons.push({ action: 'recency', points: -10, reason: `Sem interação há ${diasSemInteracao} dias` });
+    }
+  } else {
+    score -= 20;
+    reasons.push({ action: 'recency', points: -20, reason: 'Nunca interagiu' });
+  }
+  
+  // 2. TEMPERATURE
+  if (lead.temperature === 'Hot') {
+    score += 15;
+    reasons.push({ action: 'temperature', points: 15, reason: 'Lead quente' });
+  } else if (lead.temperature === 'Warm') {
+    score += 5;
+    reasons.push({ action: 'temperature', points: 5, reason: 'Lead morno' });
+  } else if (lead.temperature === 'Cold') {
+    score -= 5;
+    reasons.push({ action: 'temperature', points: -5, reason: 'Lead frio' });
+  }
+  
+  // 3. POTENTIAL VALUE
+  const valor = Number(lead.potentialValue || 0);
+  if (valor >= 1000) {
+    score += 15;
+    reasons.push({ action: 'value', points: 15, reason: `Alto valor (R$ ${valor})` });
+  } else if (valor >= 500) {
+    score += 10;
+    reasons.push({ action: 'value', points: 10, reason: `Valor médio (R$ ${valor})` });
+  } else if (valor >= 100) {
+    score += 5;
+    reasons.push({ action: 'value', points: 5, reason: `Baixo valor (R$ ${valor})` });
+  }
+  
+  // 4. DADOS COMPLETOS
+  if (lead.email) {
+    score += 5;
+    reasons.push({ action: 'data', points: 5, reason: 'Tem email' });
+  }
+  if (lead.objective) {
+    score += 5;
+    reasons.push({ action: 'data', points: 5, reason: 'Tem objetivo definido' });
+  }
+  
+  return { score: Math.max(0, Math.min(100, score)), reasons };
+};
+
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -257,6 +321,7 @@ const App: React.FC = () => {
   });
 
   const hasInitialPreloadedRef = useRef(false);
+  const pendingScoreUpdates = useRef<Record<string, NodeJS.Timeout>>({});
 
   const [adsData, setAdsData] = useState<{
     googleAccount: { customer_id: string; customer_name: string; status: string; last_sync_at: string } | null;
@@ -349,7 +414,10 @@ const App: React.FC = () => {
           email: d.email, 
           procedure: d.procedure, 
           notes: d.notes, 
-          source: d.source 
+          source: d.source,
+          score: d.score,
+          score_updated_at: d.score_updated_at,
+          score_reasons: d.score_reasons
       })));
     } catch (err) { console.error(err); }
   }, [user]);
@@ -623,6 +691,52 @@ const App: React.FC = () => {
     }).eq('id', lead.id);
     if (error) fetchLeads();
   };
+
+  const updateLeadScore = useCallback(async (leadId: string, score: number, reasons: any[]) => {
+    if (!user?.id) return;
+    
+    if (pendingScoreUpdates.current[leadId]) {
+      clearTimeout(pendingScoreUpdates.current[leadId]);
+    }
+    
+    pendingScoreUpdates.current[leadId] = setTimeout(async () => {
+      try {
+        const { supabase } = await import('./lib/supabase');
+        await supabase.from('leads').update({
+          score,
+          score_reasons: reasons,
+          score_updated_at: new Date().toISOString()
+        }).eq('id', leadId);
+        delete pendingScoreUpdates.current[leadId];
+      } catch (err) {
+        console.error('Erro ao atualizar score:', err);
+      }
+    }, 1000);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (leads.length === 0) return;
+    const updatedLeads = leads.map(lead => {
+      const { score, reasons } = calcularScore(lead);
+      return { ...lead, score, score_reasons: reasons };
+    });
+    const hasChanges = updatedLeads.some((l, i) => l.score !== leads[i]?.score);
+    if (hasChanges) {
+      setLeads(updatedLeads);
+      updatedLeads.forEach((l, i) => {
+        const oldLead = leads[i];
+        if (!oldLead || l.score !== oldLead.score) {
+          updateLeadScore(l.id, l.score || 50, l.score_reasons || []);
+        }
+      });
+    }
+  }, [leads, updateLeadScore]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(pendingScoreUpdates.current).forEach(clearTimeout);
+    };
+  }, []);
   const addAppointment = async (apt: Appointment) => {
     if (!user) return;
     const tempId = crypto.randomUUID();

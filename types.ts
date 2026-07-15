@@ -137,6 +137,9 @@ export interface Lead {
   tags?: string[];
   custom_fields?: Record<string, any>;
   lifecycle_stage?: string;
+  score?: number;
+  score_updated_at?: string;
+  score_reasons?: { action: string; points: number; reason: string }[];
 }
 
 // --- NOVAS ENTRADAS (CRM MULTI-NICHO, SEGMENTAÇÃO, CUSTOM FIELDS) ---
