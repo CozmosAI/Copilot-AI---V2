@@ -668,7 +668,8 @@ const App: React.FC = () => {
         ad_name: lead.adName || null,
         notes: lead.notes || null,
         created_at: lead.created_at || new Date().toISOString(),
-        last_sender: 'me'
+        last_sender: 'me',
+        custom_fields: lead.custom_fields || {}
     };
     const { error } = await supabase!.from('leads').insert([payload]);
     if (error) { console.error("Erro ao salvar lead:", error); setLeads(prev => prev.filter(l => l.id !== tempId)); }
@@ -688,7 +689,8 @@ const App: React.FC = () => {
         source: lead.source || 'Manual',
         procedure: lead.procedure || null,
         objective: lead.objective || null,
-        ad_name: lead.adName || null
+        ad_name: lead.adName || null,
+        custom_fields: lead.custom_fields || {}
     }).eq('id', lead.id);
     if (error) fetchLeads();
   };

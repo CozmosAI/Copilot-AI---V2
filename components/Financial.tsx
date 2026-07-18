@@ -1,23 +1,38 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, 
   ArrowUpCircle, ArrowDownCircle,
   TrendingUp, PiggyBank,
   Bot, Target, Calendar, Filter, X, Save,
-  AlertTriangle, CheckCircle2, AlertCircle, FileText
+  AlertTriangle, CheckCircle2, AlertCircle, FileText, Settings
 } from 'lucide-react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Line
 } from 'recharts';
-import { FinancialSubSection, FinancialEntry, FinancialEntryStatus } from '../types';
+import { FinancialSubSection, FinancialEntry, FinancialEntryStatus, FinancialCategory } from '../types';
 import { useApp } from '../App';
 
 type HistoryPeriod = 'month' | '3months' | '6months' | 'year' | 'custom';
 
+const DEFAULT_RECEIVABLE_CATEGORIES = [
+  { name: 'Consultas', type: 'receivable' as const, color: '#10b981', sort_order: 1 },
+  { name: 'Procedimentos', type: 'receivable' as const, color: '#3b82f6', sort_order: 2 },
+  { name: 'Produtos', type: 'receivable' as const, color: '#f59e0b', sort_order: 3 },
+  { name: 'Outros', type: 'receivable' as const, color: '#6b7280', sort_order: 4 }
+];
+
+const DEFAULT_PAYABLE_CATEGORIES = [
+  { name: 'Colaboradores', type: 'payable' as const, color: '#ef4444', sort_order: 1 },
+  { name: 'Contas Fixas', type: 'payable' as const, color: '#3b82f6', sort_order: 2 },
+  { name: 'Impostos', type: 'payable' as const, color: '#8b5cf6', sort_order: 3 },
+  { name: 'Insumos', type: 'payable' as const, color: '#10b981', sort_order: 4 },
+  { name: 'Marketing', type: 'payable' as const, color: '#ec4899', sort_order: 5 }
+];
+
 const Financial: React.FC = () => {
-  const { dashboardDateFilter, setDashboardDateFilterByLabel, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, metrics } = useApp();
+  const { user, dashboardDateFilter, setDashboardDateFilterByLabel, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, metrics } = useApp();
   const [subSection, setSubSection] = useState<FinancialSubSection>(FinancialSubSection.OVERVIEW);
   const [showForm, setShowForm] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinancialEntry | null>(null);
@@ -33,9 +48,67 @@ const Financial: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const [categories, setCategories] = useState<FinancialCategory[]>([]);
+  const [filterCategory, setFilterCategory] = useState<string>('');
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Partial<FinancialCategory> | null>(null);
+
+  const [categoryForm, setCategoryForm] = useState({
+    name: '',
+    type: 'payable' as 'receivable' | 'payable',
+    color: '#3B82F6',
+    is_active: true
+  });
+
+  const loadCategories = async () => {
+    if (!user?.id) return;
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { data, error } = await supabase
+        .from('financial_categories')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('sort_order');
+        
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        setCategories(data);
+      } else {
+        // Se não há categorias, vamos inseri-las para o usuário
+        const defaults = [
+          ...DEFAULT_RECEIVABLE_CATEGORIES,
+          ...DEFAULT_PAYABLE_CATEGORIES
+        ].map(c => ({ ...c, user_id: user.id, is_active: true }));
+        
+        const { data: inserted, error: insError } = await supabase
+          .from('financial_categories')
+          .insert(defaults)
+          .select();
+          
+        if (!insError && inserted) {
+          setCategories(inserted);
+        } else {
+          setCategories(defaults as any);
+        }
+      }
+    } catch (err) { 
+      console.error(err);
+      const defaults = [
+        ...DEFAULT_RECEIVABLE_CATEGORIES,
+        ...DEFAULT_PAYABLE_CATEGORIES
+      ].map(c => ({ ...c, user_id: user.id, id: c.name, is_active: true }));
+      setCategories(defaults as any);
+    }
+  };
+
+  useEffect(() => {
+    loadCategories();
+  }, [user?.id]);
+
   const [formData, setFormData] = useState<Partial<FinancialEntry>>({
     type: 'receivable',
-    category: 'Consulta Particular',
+    category: 'Consultas',
     name: '',
     unitValue: 0,
     discount: 0,
@@ -89,25 +162,205 @@ const Financial: React.FC = () => {
     });
   }, [financialEntries]);
 
-  // Distribuição de Gastos REAL
+  // Distribuição de Gastos REAL baseado em categorias customizadas
   const distributionData = useMemo(() => {
      const expenses = filteredEntries.filter(e => e.type === 'payable');
-     const categories = ['Colaboradores', 'Contas Fixas', 'Impostos', 'Insumos', 'Marketing'];
-     const data = categories.map(cat => ({
+     const userCategories = categories
+       .filter(c => c.type === 'payable' && c.is_active)
+       .sort((a, b) => a.sort_order - b.sort_order)
+       .map(c => c.name);
+       
+     const data = userCategories.map(cat => ({
          name: cat,
          value: expenses.filter(e => e.category === cat).reduce((acc, curr) => acc + curr.total, 0),
-         fill: cat === 'Marketing' ? '#0f172a' : '#94a3b8' // Exemplo de cores
+         fill: categories.find(c => c.name === cat)?.color || '#94a3b8'
      })).filter(d => d.value > 0);
 
      // Adiciona 'Outros' se houver
-     const otherValue = expenses.filter(e => !categories.includes(e.category)).reduce((acc, curr) => acc + curr.total, 0);
+     const otherValue = expenses.filter(e => !userCategories.includes(e.category)).reduce((acc, curr) => acc + curr.total, 0);
      if (otherValue > 0) data.push({ name: 'Outros', value: otherValue, fill: '#cbd5e1' });
      
-     // Cores dinâmicas para o resto
-     const colors = ['#0f172a', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1'];
-     return data.map((d, i) => ({ ...d, fill: colors[i % colors.length] }));
+     return data;
+  }, [filteredEntries, categories]);
 
-  }, [filteredEntries]);
+  // Comparativo com mês anterior
+  const monthlyComparison = useMemo(() => {
+    const today = new Date();
+    const currentMonthStr = today.toISOString().slice(0, 7); // YYYY-MM
+    
+    const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const prevMonthStr = prevMonthDate.toISOString().slice(0, 7); // YYYY-MM
+    
+    // Filtra transações efetivadas para receita e despesa do mês atual
+    const currentEntries = financialEntries.filter(e => e.date.startsWith(currentMonthStr) && e.status === 'efetuada');
+    const currentReceitas = currentEntries.filter(e => e.type === 'receivable').reduce((acc, curr) => acc + curr.total, 0);
+    const currentDespesas = currentEntries.filter(e => e.type === 'payable').reduce((acc, curr) => acc + curr.total, 0);
+    
+    // Filtra transações efetivadas para receita e despesa do mês anterior
+    const prevEntries = financialEntries.filter(e => e.date.startsWith(prevMonthStr) && e.status === 'efetuada');
+    const prevReceitas = prevEntries.filter(e => e.type === 'receivable').reduce((acc, curr) => acc + curr.total, 0);
+    const prevDespesas = prevEntries.filter(e => e.type === 'payable').reduce((acc, curr) => acc + curr.total, 0);
+    
+    // Calcula as variações percentuais
+    const receitaVar = prevReceitas > 0 ? ((currentReceitas - prevReceitas) / prevReceitas) * 100 : 0;
+    const despesaVar = prevDespesas > 0 ? ((currentDespesas - prevDespesas) / prevDespesas) * 100 : 0;
+    
+    return {
+      receitaVar,
+      despesaVar,
+      currentReceitas,
+      currentDespesas,
+      prevReceitas,
+      prevDespesas
+    };
+  }, [financialEntries]);
+
+  // DRE Simplificado
+  const dreData = useMemo(() => {
+    // 1. Receitas por Categoria
+    const receivableEntries = filteredEntries.filter(e => e.type === 'receivable' && e.status === 'efetuada');
+    const receivableCategories = categories.filter(c => c.type === 'receivable');
+    
+    const receitasByCat = receivableCategories.map(cat => {
+      const total = receivableEntries.filter(e => e.category === cat.name).reduce((acc, curr) => acc + curr.total, 0);
+      return { name: cat.name, total };
+    });
+    
+    const knownReceivableCatNames = receivableCategories.map(c => c.name);
+    const extraReceivablesTotal = receivableEntries.filter(e => !knownReceivableCatNames.includes(e.category)).reduce((acc, curr) => acc + curr.total, 0);
+    if (extraReceivablesTotal > 0) {
+      receitasByCat.push({ name: 'Outras Receitas', total: extraReceivablesTotal });
+    }
+    
+    const totalReceitas = receivableEntries.reduce((acc, curr) => acc + curr.total, 0);
+
+    // 2. Despesas por Categoria
+    const payableEntries = filteredEntries.filter(e => e.type === 'payable' && e.status === 'efetuada');
+    const payableCategories = categories.filter(c => c.type === 'payable');
+    
+    const despesasByCat = payableCategories.map(cat => {
+      const total = payableEntries.filter(e => e.category === cat.name).reduce((acc, curr) => acc + curr.total, 0);
+      return { name: cat.name, total };
+    });
+    
+    const knownPayableCatNames = payableCategories.map(c => c.name);
+    const extraPayablesTotal = payableEntries.filter(e => !knownPayableCatNames.includes(e.category)).reduce((acc, curr) => acc + curr.total, 0);
+    if (extraPayablesTotal > 0) {
+      despesasByCat.push({ name: 'Outras Despesas', total: extraPayablesTotal });
+    }
+    
+    const totalDespesas = payableEntries.reduce((acc, curr) => acc + curr.total, 0);
+
+    // 3. Lucro Líquido & Margem
+    const lucroLiquido = totalReceitas - totalDespesas;
+    const margem = totalReceitas > 0 ? (lucroLiquido / totalReceitas) * 100 : 0;
+
+    return {
+      receitasByCat,
+      totalReceitas,
+      despesasByCat,
+      totalDespesas,
+      lucroLiquido,
+      margem
+    };
+  }, [filteredEntries, categories]);
+
+  // CRUD de Categorias
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id) return;
+    try {
+      const { supabase } = await import('../lib/supabase');
+      if (editingCategory?.id) {
+        // Edit
+        const { error } = await supabase
+          .from('financial_categories')
+          .update({
+            name: categoryForm.name,
+            type: categoryForm.type,
+            color: categoryForm.color,
+            is_active: categoryForm.is_active
+          })
+          .eq('id', editingCategory.id);
+        if (error) throw error;
+        showToast('Categoria atualizada!');
+      } else {
+        // Create
+        const maxSortOrder = categories.reduce((max, c) => c.sort_order > max ? c.sort_order : max, 0);
+        const { error } = await supabase
+          .from('financial_categories')
+          .insert({
+            user_id: user.id,
+            name: categoryForm.name,
+            type: categoryForm.type,
+            color: categoryForm.color || '#3B82F6',
+            sort_order: maxSortOrder + 1,
+            is_active: true
+          });
+        if (error) throw error;
+        showToast('Categoria criada com sucesso!');
+      }
+      loadCategories();
+      setEditingCategory(null);
+      setCategoryForm({ name: '', type: 'payable', color: '#3B82F6', is_active: true });
+    } catch (err: any) {
+      console.error(err);
+      showToast('Erro ao salvar categoria: ' + err.message, 'error');
+    }
+  };
+
+  const handleDeleteCategory = async (catId: string) => {
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { error } = await supabase
+        .from('financial_categories')
+        .delete()
+        .eq('id', catId);
+      if (error) throw error;
+      showToast('Categoria excluída!');
+      loadCategories();
+    } catch (err: any) {
+      console.error(err);
+      showToast('Erro ao excluir categoria: ' + err.message, 'error');
+    }
+  };
+
+  const handleStartEditCategory = (cat: FinancialCategory) => {
+    setEditingCategory(cat);
+    setCategoryForm({
+      name: cat.name,
+      type: cat.type,
+      color: cat.color,
+      is_active: cat.is_active
+    });
+  };
+
+  const handleCancelEditCategory = () => {
+    setEditingCategory(null);
+    setCategoryForm({ name: '', type: 'payable', color: '#3B82F6', is_active: true });
+  };
+
+  const openNewForm = (type: 'receivable' | 'payable') => {
+    const filteredCats = categories.filter(c => c.type === type && c.is_active);
+    const defaultCat = filteredCats.length > 0 ? filteredCats[0].name : '';
+    setFormData({
+      type,
+      category: defaultCat,
+      name: '',
+      unitValue: 0,
+      discount: 0,
+      addition: 0,
+      status: 'efetuada',
+      date: new Date().toISOString().split('T')[0],
+    });
+    setShowForm(true);
+  };
+
+  const handleFormTypeChange = (newType: 'receivable' | 'payable') => {
+    const filteredCats = categories.filter(c => c.type === newType && c.is_active);
+    const defaultCat = filteredCats.length > 0 ? filteredCats[0].name : '';
+    setFormData(prev => ({ ...prev, type: newType, category: defaultCat }));
+  };
 
   const handleEdit = (entry: FinancialEntry) => {
     setEditingEntry(entry);
@@ -156,9 +409,11 @@ const Financial: React.FC = () => {
   const closeForm = () => {
     setShowForm(false);
     setEditingEntry(null);
+    const filteredCats = categories.filter(c => c.type === 'receivable' && c.is_active);
+    const defaultCat = filteredCats.length > 0 ? filteredCats[0].name : 'Consultas';
     setFormData({
       type: 'receivable',
-      category: 'Consulta Particular',
+      category: defaultCat,
       name: '',
       unitValue: 0,
       discount: 0,
@@ -183,37 +438,67 @@ const Financial: React.FC = () => {
           <h2 className="text-2xl font-bold text-navy">Gestão Financeira</h2>
           <p className="text-slate-500 text-sm italic">Controle total de entradas, saídas e fluxo de caixa.</p>
         </div>
-        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 overflow-x-auto shrink-0 max-w-full">
           {[
             { id: FinancialSubSection.OVERVIEW, label: 'Visão Geral' },
             { id: FinancialSubSection.PAYABLE, label: 'Contas a Pagar' },
             { id: FinancialSubSection.RECEIVABLE, label: 'Contas a Receber' },
-            { id: FinancialSubSection.CASHFLOW, label: 'Caixa + Fluxo' }
+            { id: FinancialSubSection.CASHFLOW, label: 'Caixa + Fluxo' },
+            { id: FinancialSubSection.DRE, label: 'DRE' }
           ].map((tab) => (
             <button 
               key={tab.id} 
               onClick={() => setSubSection(tab.id as FinancialSubSection)} 
-              className={`px-4 py-2 text-[10px] font-black uppercase tracking-tighter rounded-lg transition-all ${subSection === tab.id ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              className={`px-4 py-2 text-[10px] font-black uppercase tracking-tighter rounded-lg transition-all whitespace-nowrap ${subSection === tab.id ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
             >
               {tab.label}
             </button>
           ))}
+          <div className="border-l border-slate-200 mx-1 my-1.5"></div>
+          <button 
+            type="button"
+            onClick={() => setShowCategoryManager(true)}
+            className="px-3 py-2 text-[10px] font-black uppercase tracking-tighter text-navy hover:bg-slate-50 rounded-lg transition-all flex items-center gap-1 shrink-0"
+            title="Gerenciar Categorias Customizadas"
+          >
+            <Settings size={12} /> Categorias
+          </button>
         </div>
       </header>
 
       {/* DASHBOARD CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 md:gap-4">
         <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-4 text-[8px] md:text-[9px] font-black text-emerald-500 uppercase tracking-widest truncate">
-            <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-emerald-50 flex items-center justify-center shrink-0"><ArrowUpCircle size={10} className="md:w-3 md:h-3" /></div> RECEITA BRUTA
+          <div className="flex items-center justify-between gap-1.5 md:gap-2 mb-2 md:mb-4">
+            <div className="flex items-center gap-1.5 md:gap-2 text-[8px] md:text-[9px] font-black text-emerald-500 uppercase tracking-widest truncate">
+              <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
+                <ArrowUpCircle size={10} className="md:w-3 md:h-3" />
+              </div> 
+              RECEITA BRUTA
+            </div>
+            {monthlyComparison.receitaVar !== 0 && (
+              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${monthlyComparison.receitaVar >= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                {monthlyComparison.receitaVar >= 0 ? '+' : ''}{monthlyComparison.receitaVar.toFixed(1)}%
+              </span>
+            )}
           </div>
           <p className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.receitaBruta.toLocaleString('pt-BR', { notation: 'compact' })}</p>
           <span className="text-[8px] md:text-[9px] font-bold text-emerald-500 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Saldo Efetivado</span>
         </div>
 
         <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-4 text-[8px] md:text-[9px] font-black text-rose-500 uppercase tracking-widest truncate">
-            <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-rose-50 flex items-center justify-center shrink-0"><ArrowDownCircle size={10} className="md:w-3 md:h-3" /></div> GASTOS TOTAIS
+          <div className="flex items-center justify-between gap-1.5 md:gap-2 mb-2 md:mb-4">
+            <div className="flex items-center gap-1.5 md:gap-2 text-[8px] md:text-[9px] font-black text-rose-500 uppercase tracking-widest truncate">
+              <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <ArrowDownCircle size={10} className="md:w-3 md:h-3" />
+              </div> 
+              GASTOS TOTAIS
+            </div>
+            {monthlyComparison.despesaVar !== 0 && (
+              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${monthlyComparison.despesaVar <= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                {monthlyComparison.despesaVar >= 0 ? '+' : ''}{monthlyComparison.despesaVar.toFixed(1)}%
+              </span>
+            )}
           </div>
           <p className="text-base md:text-2xl font-black text-rose-500 leading-none">R$ {metrics.financeiro.gastosTotais.toLocaleString('pt-BR', { notation: 'compact' })}</p>
           <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Saída Efetivada</span>
@@ -360,16 +645,32 @@ const Financial: React.FC = () => {
 
       {(subSection === FinancialSubSection.PAYABLE || subSection === FinancialSubSection.RECEIVABLE) && (
         <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in">
-          <div className="px-10 py-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-            <h3 className="font-black text-navy uppercase text-xs tracking-[0.2em]">
-              {subSection === 'payable' ? 'CONTAS A PAGAR' : 'CONTAS A RECEBER'} NO PERÍODO
-            </h3>
+          <div className="px-10 py-8 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
+              <h3 className="font-black text-navy uppercase text-xs tracking-[0.2em] whitespace-nowrap">
+                {subSection === 'payable' ? 'CONTAS A PAGAR' : 'CONTAS A RECEBER'} NO PERÍODO
+              </h3>
+              
+              {/* Filtro por Categoria */}
+              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
+                <Filter size={12} className="text-slate-400 shrink-0" />
+                <select 
+                  value={filterCategory} 
+                  onChange={e => setFilterCategory(e.target.value)}
+                  className="bg-transparent border-none text-[10px] font-bold text-slate-600 uppercase tracking-wider focus:outline-none focus:ring-0 cursor-pointer pr-4 w-full sm:w-auto"
+                >
+                  <option value="">Todas as categorias</option>
+                  {categories.filter(c => c.type === subSection).map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
             <button 
-              onClick={() => {
-                setFormData(prev => ({ ...prev, type: subSection as any }));
-                setShowForm(true);
-              }} 
-              className="bg-navy text-white px-6 py-3 rounded-2xl text-[12px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-slate-800 transition-all shadow-xl shadow-navy/20 border-2 border-navy"
+              type="button"
+              onClick={() => openNewForm(subSection as any)} 
+              className="w-full sm:w-auto bg-navy text-white px-6 py-3 rounded-2xl text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-xl shadow-navy/20 border-2 border-navy"
             >
               <Plus size={18} strokeWidth={3} /> NOVO
             </button>
@@ -379,6 +680,7 @@ const Financial: React.FC = () => {
               <thead className="bg-slate-50/50 border-b border-slate-100">
                 <tr>
                   <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">DATA</th>
+                  <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">CATEGORIA</th>
                   <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">NOME</th>
                   <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">STATUS</th>
                   <th className="px-10 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">VALOR</th>
@@ -388,9 +690,22 @@ const Financial: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {filteredEntries
                   .filter(e => e.type === subSection)
+                  .filter(e => !filterCategory || e.category === filterCategory)
                   .map(entry => (
                     <tr key={entry.id} className="hover:bg-slate-50 transition-colors group">
                       <td className="px-10 py-6 text-xs font-bold text-slate-400">{entry.date}</td>
+                      <td className="px-10 py-6 text-xs font-black text-center">
+                        <span 
+                          className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border"
+                          style={{
+                            color: categories.find(c => c.name === entry.category)?.color || '#64748b',
+                            backgroundColor: (categories.find(c => c.name === entry.category)?.color || '#64748b') + '10',
+                            borderColor: (categories.find(c => c.name === entry.category)?.color || '#64748b') + '30'
+                          }}
+                        >
+                          {entry.category}
+                        </span>
+                      </td>
                       <td className="px-10 py-6 text-xs font-bold text-navy uppercase text-center">{entry.name}</td>
                       <td className="px-10 py-6 text-center"><StatusBadge status={entry.status} /></td>
                       <td className="px-10 py-6 text-right text-sm font-black text-navy">R$ {entry.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
@@ -406,10 +721,10 @@ const Financial: React.FC = () => {
                       </td>
                     </tr>
                   ))}
-                {filteredEntries.filter(e => e.type === subSection).length === 0 && (
+                {filteredEntries.filter(e => e.type === subSection).filter(e => !filterCategory || e.category === filterCategory).length === 0 && (
                   financialEntries.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-10 py-20 text-center">
+                      <td colSpan={6} className="px-10 py-20 text-center">
                         <div className="flex flex-col items-center gap-3">
                           <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
                             <FileText size={28} className="text-slate-300" />
@@ -417,20 +732,8 @@ const Financial: React.FC = () => {
                           <p className="text-slate-500 font-bold text-sm">Nenhuma transação cadastrada ainda</p>
                           <p className="text-slate-400 text-xs">Cadastre sua primeira transação para começar a controlar seu fluxo de caixa.</p>
                           <button 
-                            onClick={() => { 
-                              setEditingEntry(null); 
-                              setFormData({
-                                type: subSection as any,
-                                category: 'Consulta Particular',
-                                name: '',
-                                unitValue: 0,
-                                discount: 0,
-                                addition: 0,
-                                status: 'efetuada',
-                                date: new Date().toISOString().split('T')[0],
-                              }); 
-                              setShowForm(true); 
-                            }} 
+                            type="button"
+                            onClick={() => openNewForm(subSection as any)} 
                             className="mt-2 px-4 py-2 bg-navy text-white text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2 mx-auto"
                           >
                             <Plus size={14} /> Adicionar Transação
@@ -440,7 +743,7 @@ const Financial: React.FC = () => {
                     </tr>
                   ) : (
                     <tr>
-                      <td colSpan={5} className="px-10 py-24 text-center text-slate-400 text-xs font-medium italic opacity-50">
+                      <td colSpan={6} className="px-10 py-24 text-center text-slate-400 text-xs font-medium italic opacity-50">
                         Nenhum lançamento encontrado neste período.
                       </td>
                     </tr>
@@ -448,6 +751,89 @@ const Financial: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {subSection === FinancialSubSection.DRE && (
+        <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
+          <div className="px-10 py-8 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="font-black text-navy uppercase text-xs tracking-[0.2em]">DEMONSTRATIVO DE RESULTADO DO EXERCÍCIO (DRE)</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Regime de Caixa • Período Selecionado</p>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Margem Líquida</span>
+              <p className={`text-xl font-black ${dreData.lucroLiquido >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {dreData.margem.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+          
+          <div className="p-10 space-y-8">
+            {/* Tabela Receitas */}
+            <div>
+              <div className="flex justify-between items-center border-b-2 border-slate-100 pb-2 mb-4">
+                <span className="text-xs font-black text-navy uppercase tracking-widest">1. RECEITAS</span>
+                <span className="text-sm font-black text-emerald-600">R$ {dreData.totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <table className="w-full">
+                <tbody>
+                  {dreData.receitasByCat.map((item, idx) => (
+                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50">
+                      <td className="py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{item.name}</td>
+                      <td className="py-3 text-right text-xs font-extrabold text-navy">R$ {item.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                  {dreData.receitasByCat.length === 0 && (
+                    <tr>
+                      <td className="py-3 text-xs text-slate-400 italic">Nenhuma receita efetuada no período.</td>
+                      <td className="py-3 text-right text-xs text-slate-400">R$ 0,00</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Tabela Despesas */}
+            <div>
+              <div className="flex justify-between items-center border-b-2 border-slate-100 pb-2 mb-4">
+                <span className="text-xs font-black text-navy uppercase tracking-widest">2. DESPESAS / GASTOS</span>
+                <span className="text-sm font-black text-rose-600">R$ {dreData.totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <table className="w-full">
+                <tbody>
+                  {dreData.despesasByCat.map((item, idx) => (
+                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50">
+                      <td className="py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{item.name}</td>
+                      <td className="py-3 text-right text-xs font-extrabold text-navy">R$ {item.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                  {dreData.despesasByCat.length === 0 && (
+                    <tr>
+                      <td className="py-3 text-xs text-slate-400 italic">Nenhuma despesa efetuada no período.</td>
+                      <td className="py-3 text-right text-xs text-slate-400">R$ 0,00</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Resultado Final */}
+            <div className="pt-6 border-t-2 border-slate-200">
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">RESULTADO LÍQUIDO DO PERÍODO</span>
+                  <h4 className="text-xl font-black text-navy">LUCRO / PREJUÍZO LÍQUIDO</h4>
+                </div>
+                <div className="text-right">
+                  <p className={`text-2xl font-black ${dreData.lucroLiquido >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    R$ {dreData.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </p>
+                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block mt-1">Margem: {dreData.margem.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -471,14 +857,14 @@ const Financial: React.FC = () => {
                   <div className="flex p-1 bg-slate-100 rounded-xl">
                     <button 
                       type="button"
-                      onClick={() => setFormData({ ...formData, type: 'receivable' })}
+                      onClick={() => handleFormTypeChange('receivable')}
                       className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formData.type === 'receivable' ? 'bg-navy text-white shadow-md' : 'text-slate-500'}`}
                     >
                       Entrada
                     </button>
                     <button 
                       type="button"
-                      onClick={() => setFormData({ ...formData, type: 'payable' })}
+                      onClick={() => handleFormTypeChange('payable')}
                       className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formData.type === 'payable' ? 'bg-navy text-white shadow-md' : 'text-slate-500'}`}
                     >
                       Saída
@@ -498,13 +884,17 @@ const Financial: React.FC = () => {
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</label>
-                  <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy appearance-none">
-                    <option>Consulta Particular</option>
-                    <option>Procedimento Estético X</option>
-                    <option>Marketing</option>
-                    <option>Colaboradores</option>
-                    <option>Contas Fixas</option>
-                    <option>Insumos</option>
+                  <select 
+                    value={formData.category} 
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })} 
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy appearance-none focus:outline-none focus:ring-2 focus:ring-navy"
+                  >
+                    {(formData.type === 'receivable' ? categories.filter(c => c.type === 'receivable' && c.is_active) : categories.filter(c => c.type === 'payable' && c.is_active)).map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                    {categories.filter(c => c.type === formData.type && c.is_active).length === 0 && (
+                      <option value="">Nenhuma categoria cadastrada</option>
+                    )}
                   </select>
                 </div>
 
@@ -536,6 +926,141 @@ const Financial: React.FC = () => {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE GERENCIAMENTO DE CATEGORIAS */}
+      {showCategoryManager && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-navy/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white rounded-[40px] w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h3 className="text-xl font-bold text-navy">Gerenciar Categorias Customizadas</h3>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Crie, edite e organize suas categorias</p>
+              </div>
+              <button type="button" onClick={() => { setShowCategoryManager(false); handleCancelEditCategory(); }} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={24} /></button>
+            </div>
+
+            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 max-h-[60vh] overflow-y-auto">
+              {/* Form de Criação/Edição */}
+              <div className="space-y-4 border-r border-slate-100 pr-0 md:pr-8">
+                <h4 className="text-xs font-black text-navy uppercase tracking-widest">{editingCategory ? 'Editar Categoria' : 'Adicionar Categoria'}</h4>
+                <form onSubmit={handleSaveCategory} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nome da Categoria</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="Ex: Consultas" 
+                      value={categoryForm.name} 
+                      onChange={e => setCategoryForm({ ...categoryForm, name: e.target.value })} 
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy focus:outline-none focus:ring-2 focus:ring-navy" 
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo</label>
+                    <select 
+                      value={categoryForm.type} 
+                      onChange={e => setCategoryForm({ ...categoryForm, type: e.target.value as any })} 
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy appearance-none focus:outline-none focus:ring-2 focus:ring-navy"
+                    >
+                      <option value="receivable">Receita (Entrada)</option>
+                      <option value="payable">Despesa (Saída)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cor de Identificação</label>
+                    <div className="flex gap-2 items-center">
+                      <input 
+                        type="color" 
+                        value={categoryForm.color} 
+                        onChange={e => setCategoryForm({ ...categoryForm, color: e.target.value })} 
+                        className="w-10 h-10 p-0 border border-slate-200 rounded-xl cursor-pointer" 
+                      />
+                      <input 
+                        type="text" 
+                        value={categoryForm.color} 
+                        onChange={e => setCategoryForm({ ...categoryForm, color: e.target.value })} 
+                        className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy focus:outline-none focus:ring-2 focus:ring-navy" 
+                      />
+                    </div>
+                  </div>
+
+                  {editingCategory && (
+                    <div className="flex items-center gap-2 py-2">
+                      <input 
+                        type="checkbox" 
+                        id="cat_active" 
+                        checked={categoryForm.is_active} 
+                        onChange={e => setCategoryForm({ ...categoryForm, is_active: e.target.checked })} 
+                        className="rounded border-slate-300 text-navy focus:ring-navy" 
+                      />
+                      <label htmlFor="cat_active" className="text-xs font-bold text-slate-600 uppercase tracking-wide cursor-pointer">Categoria Ativa</label>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-2">
+                    {editingCategory && (
+                      <button 
+                        type="button" 
+                        onClick={handleCancelEditCategory} 
+                        className="flex-1 py-3 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-100 rounded-xl transition-all border border-slate-200"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <button 
+                      type="submit" 
+                      className="flex-1 bg-navy text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Save size={14} /> {editingCategory ? 'Salvar' : 'Adicionar'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Lista das categorias cadastradas */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black text-navy uppercase tracking-widest">Categorias Ativas</h4>
+                <div className="space-y-2.5">
+                  {categories.map(cat => (
+                    <div key={cat.id} className="flex justify-between items-center p-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl hover:shadow-sm transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4.5 h-4.5 rounded-full border border-black/10" style={{ backgroundColor: cat.color }}></div>
+                        <div>
+                          <p className="text-xs font-extrabold text-navy uppercase tracking-wider">{cat.name}</p>
+                          <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                            {cat.type === 'receivable' ? 'Receita' : 'Despesa'} {!cat.is_active && '• Inativa'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => handleStartEditCategory(cat)} 
+                          className="p-1.5 text-slate-400 hover:text-navy hover:bg-slate-200 rounded-lg transition-all" 
+                          title="Editar"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteCategory(cat.id)} 
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all" 
+                          title="Excluir"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {categories.length === 0 && (
+                    <p className="text-xs italic text-slate-400 text-center py-8">Nenhuma categoria configurada.</p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

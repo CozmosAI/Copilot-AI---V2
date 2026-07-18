@@ -200,7 +200,8 @@ export enum FinancialSubSection {
   OVERVIEW = 'overview',
   PAYABLE = 'payable',
   RECEIVABLE = 'receivable',
-  CASHFLOW = 'cashflow'
+  CASHFLOW = 'cashflow',
+  DRE = 'dre'
 }
 
 export type FinancialEntryStatus = 'efetuada' | 'atrasada' | 'cancelada';
@@ -220,6 +221,16 @@ export interface FinancialEntry {
   paymentMethod?: 'pix' | 'credit_card' | 'boleto' | 'dinheiro';
   installments?: number;
   created_at?: string;
+}
+
+export interface FinancialCategory {
+  id: string;
+  user_id: string;
+  name: string;
+  type: 'receivable' | 'payable';
+  color: string;
+  sort_order: number;
+  is_active: boolean;
 }
 
 // --- TABELA: APPOINTMENTS (Agenda) ---

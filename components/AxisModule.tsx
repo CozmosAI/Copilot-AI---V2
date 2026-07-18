@@ -1,17 +1,17 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Pause, Play, X, Sparkles, Loader2, Lock } from 'lucide-react';
+import { Mic, MicOff, Pause, Play, X, Sparkles, Loader2, Lock, VolumeX } from 'lucide-react';
 import { ParticleEngine, AxisSpeechRecognizer, AxisMode } from '../services/axisLayer';
 import { useApp } from '../App';
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
 
 // --- SUBCOMPONENTS ---
 
-const SphereCore = ({ mode }: { mode: AxisMode }) => {
+const SphereCore = ({ mode, audioError }: { mode: AxisMode, audioError?: boolean }) => {
   const getSphereStyles = () => {
     switch (mode) {
       case 'listening': return 'shadow-[0_0_60px_rgba(36,122,174,0.6)] bg-gradient-to-br from-blue-500 via-[#247AAE] to-black animate-pulse';
-      case 'speaking': return 'shadow-[0_0_80px_rgba(245,158,11,0.7)] bg-gradient-to-br from-amber-400 via-amber-600 to-black scale-110';
+      case 'speaking': return 'shadow-[0_0_80px_rgba(245,158,11,0.7)] bg-gradient-to-br from-amber-400 via-amber-600 to-black animate-speaking-pulse';
       case 'processing': return 'shadow-[0_0_40px_rgba(255,255,255,0.4)] bg-white animate-spin opacity-80 scale-90';
       default: return 'bg-gray-900';
     }
@@ -27,14 +27,26 @@ const SphereCore = ({ mode }: { mode: AxisMode }) => {
 
   return (
     <div className="relative z-10 flex flex-col items-center justify-center transition-all duration-700 ease-in-out">
-      <div className={`w-32 h-32 rounded-full transition-all duration-1000 ease-in-out ${getSphereStyles()}`}>
-        <div className="absolute top-2 left-4 w-8 h-8 bg-white opacity-20 rounded-full blur-md"></div>
+      <div className="relative">
+        <div className={`w-32 h-32 rounded-full transition-all duration-1000 ease-in-out ${getSphereStyles()}`}>
+          <div className="absolute top-2 left-4 w-8 h-8 bg-white opacity-20 rounded-full blur-md"></div>
+        </div>
+        {audioError && mode === 'speaking' && (
+          <div className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-2 shadow-lg animate-bounce border border-slate-950 flex items-center justify-center" title="Áudio indisponível">
+            <VolumeX size={14} />
+          </div>
+        )}
       </div>
-      <div className={`mt-8 text-xs font-bold tracking-[0.3em] uppercase transition-colors duration-500 ${getLabelColor()}`}>
+      <div className={`mt-8 text-xs font-bold tracking-[0.3em] uppercase transition-colors duration-500 text-center ${getLabelColor()}`}>
         {mode === 'listening' && 'Ouvindo Você...'}
         {mode === 'speaking' && 'AXIS Falando...'}
         {mode === 'processing' && 'Processando...'}
       </div>
+      {audioError && mode === 'speaking' && (
+        <span className="text-[10px] text-rose-400 font-medium mt-2 tracking-wide text-center bg-rose-950/40 border border-rose-900/30 px-2.5 py-1 rounded-full flex items-center justify-center gap-1.5 animate-pulse">
+          <VolumeX size={11}/> Modo de Leitura (Sem Áudio)
+        </span>
+      )}
     </div>
   );
 };
@@ -54,7 +66,7 @@ const Controls = ({ isMuted, isPaused, onToggleMute, onTogglePause, onStop }: an
 );
 
 // --- HELPER: AUDIO DECODER & PLAYER (Gemini TTS) ---
-const playGeminiAudio = async (base64Audio: string, onStart: () => void, onEnd: () => void) => {
+const playGeminiAudio = async (base64Audio: string, onStart: () => void, onEnd: () => void, onError: (err: any) => void) => {
     try {
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         const audioContext = new AudioContext({ sampleRate: 24000 });
@@ -91,6 +103,7 @@ const playGeminiAudio = async (base64Audio: string, onStart: () => void, onEnd: 
 
     } catch (e) {
         console.error("Erro ao reproduzir áudio:", e);
+        onError(e);
         onEnd();
     }
 };
@@ -105,10 +118,38 @@ const AxisModule: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<ParticleEngine | null>(null);
   const recognizerRef = useRef<AxisSpeechRecognizer | null>(null);
+
+  const speakNative = (text: string, onStart: () => void, onEnd: () => void) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'pt-BR';
+        utterance.onstart = () => {
+          onStart();
+        };
+        utterance.onend = () => {
+          onEnd();
+        };
+        utterance.onerror = (e) => {
+          console.error("Native speechSynthesis error event:", e);
+          setAudioError(true);
+          onEnd();
+        };
+        window.speechSynthesis.speak(utterance);
+        return true;
+      } catch (err) {
+        console.error("Erro ao chamar window.speechSynthesis.speak:", err);
+        return false;
+      }
+    }
+    return false;
+  };
 
   useEffect(() => {
     if (isActive && canvasRef.current && !engineRef.current) {
@@ -135,12 +176,54 @@ const AxisModule: React.FC = () => {
   }, [mode]);
 
   const speak = async (text: string) => {
+    setAudioError(false);
+
+    const handleFallbackAndTextOnly = () => {
+      // Tenta fallback para speechSynthesis nativa do navegador
+      const nativeSuccess = speakNative(
+        text,
+        () => setMode('speaking'),
+        () => {
+          setMode('listening');
+          setTimeout(() => {
+            if (recognizerRef.current && !isMuted && !isPaused) {
+              try { recognizerRef.current.start(); } catch {}
+            }
+          }, 100);
+        }
+      );
+
+      if (!nativeSuccess) {
+        // Se a nativa também não puder ser usada, entra no modo "Leitura de Texto"
+        setAudioError(true);
+        setMode('speaking');
+        
+        // Calcula tempo de leitura proporcional para dar tempo de o usuário ler na tela
+        const wordCount = text.split(/\s+/).length;
+        const readDuration = Math.min(Math.max(wordCount * 220, 3500), 8000);
+        
+        setTimeout(() => {
+          setMode('listening');
+          setTimeout(() => {
+            if (recognizerRef.current && !isMuted && !isPaused) {
+              try { recognizerRef.current.start(); } catch {}
+            }
+          }, 100);
+        }, readDuration);
+      }
+    };
+
     try {
       const response = await apiFetch('/api/gemini/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       });
+      
+      if (!response.ok) {
+        throw new Error("TTS API returned status " + response.status);
+      }
+
       const data = await safeJsonResponse(response);
       if (data.audio) {
         recognizerRef.current?.stop();
@@ -154,16 +237,19 @@ const AxisModule: React.FC = () => {
                 try { recognizerRef.current.start(); } catch {}
               }
             }, 100);
+          },
+          (err) => {
+            console.error("playGeminiAudio falhou:", err);
+            handleFallbackAndTextOnly();
           }
         );
       } else {
-        console.warn("Sem áudio gerado.");
-        setMode('listening');
+        console.warn("Sem áudio retornado pela API. Usando fallback...");
+        handleFallbackAndTextOnly();
       }
     } catch (e) {
-      console.error("Erro TTS:", e);
-      setMode('listening');
-      if (!isMuted && !isPaused) recognizerRef.current?.start();
+      console.error("Erro no fluxo do Gemini TTS:", e);
+      handleFallbackAndTextOnly();
     }
   };
 
@@ -289,7 +375,7 @@ const AxisModule: React.FC = () => {
             Voltar
           </button>
          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-         <SphereCore mode={mode} />
+         <SphereCore mode={mode} audioError={audioError} />
          <div className="absolute top-1/4 w-full max-w-2xl px-6 text-center z-20">
             <p className={`text-lg md:text-2xl font-light leading-relaxed transition-colors duration-500 ${mode === 'speaking' ? 'text-amber-100/80' : 'text-blue-100/80'}`}>
                "{transcript || '...'}"

@@ -10,7 +10,7 @@ import { analyzeLeadConversation } from '../services/geminiService';
 import { apiFetch, apiUrl, safeJsonResponse } from '../services/apiClient';
 // import { sendMessage } from '../services/whatsappService'; // REMOVIDO
 import { useApp } from '../App';
-import { Lead, ChatMessage, LeadSegment } from '../types';
+import { Lead, ChatMessage, LeadSegment, CustomFieldDefinition } from '../types';
 import { supabase } from '../lib/supabase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
@@ -77,19 +77,28 @@ const Sales: React.FC = () => {
   const { leads, addLead, updateLead, addFinancialEntry, user, aiConfig } = useApp();
   
   const [segments, setSegments] = useState<LeadSegment[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [sortByScore, setSortByScore] = useState(false);
 
   useEffect(() => {
-    const loadSegments = async () => {
+    const loadInitialData = async () => {
       if (!user?.id) return;
       try {
         const { supabase } = await import('../lib/supabase');
-        const { data } = await supabase.from('lead_segments').select('*').eq('user_id', user.id).order('is_system', { ascending: false });
-        if (data) setSegments(data);
-      } catch (err) { console.error('Erro ao carregar segmentos:', err); }
+        
+        // Carrega segmentos
+        const { data: segmentsData } = await supabase.from('lead_segments').select('*').eq('user_id', user.id).order('is_system', { ascending: false });
+        if (segmentsData) setSegments(segmentsData);
+        
+        // Carrega definições de campos customizados
+        const { data: fieldsData } = await supabase.from('custom_field_definitions').select('*').eq('user_id', user.id).order('sort_order', { ascending: true });
+        if (fieldsData) setCustomFields(fieldsData);
+      } catch (err) { 
+        console.error('Erro ao carregar dados iniciais no Sales:', err); 
+      }
     };
-    loadSegments();
+    loadInitialData();
   }, [user?.id]);
 
   const evaluateSegment = (lead: any, rules: any): boolean => {
@@ -214,7 +223,8 @@ const Sales: React.FC = () => {
       adName: '',
       objective: 'Consulta',
       procedure: '',
-      description: ''
+      description: '',
+      custom_fields: {} as Record<string, any>
   });
 
   // Edit Lead Form State
@@ -293,7 +303,39 @@ const Sales: React.FC = () => {
       }
 
       const finalPhone = validation.normalized!;
-      const updatedLead = { ...editingLeadData, phone: finalPhone };
+
+      // Normalizar telefone antigo pra comparar (remover +, espaços, traços)
+      const normalizePhoneForCompare = (phone: string) => phone.replace(/\D/g, '').replace(/^55/, '');
+
+      const oldPhoneNormalized = normalizePhoneForCompare(editingLeadData.phone || '');
+      const newPhoneNormalized = normalizePhoneForCompare(finalPhone);
+
+      // Só limpar conversa se o telefone mudou significativamente (não só formatação)
+      const phoneChangedSignificantly = oldPhoneNormalized !== newPhoneNormalized;
+
+      const updatedLead = { 
+          ...editingLeadData, 
+          phone: finalPhone,
+          // Se telefone mudou, desvincular conversa antiga pra evitar mistura
+          ...(phoneChangedSignificantly ? {
+              conversation_id: undefined,
+              external_chat_id: undefined
+          } : {})
+      };
+
+      if (phoneChangedSignificantly) {
+          try {
+              await supabase
+                  .from('leads')
+                  .update({
+                      conversation_id: null,
+                      external_chat_id: null
+                  })
+                  .eq('id', editingLeadData.id);
+          } catch (dbErr) {
+              console.error("Erro ao desvincular conversa antiga no banco:", dbErr);
+          }
+      }
 
       await updateLead(updatedLead);
       
@@ -1177,10 +1219,11 @@ const Sales: React.FC = () => {
           procedure: newLeadData.procedure,
           adName: newLeadData.adName,
           notes: newLeadData.description,
-          created_at: new Date(newLeadData.entryDate).toISOString()
+          created_at: new Date(newLeadData.entryDate).toISOString(),
+          custom_fields: newLeadData.custom_fields
       });
       setShowAddModal(false); 
-      setNewLeadData({ name: '', phone: '', email: '', entryDate: new Date().toISOString().split('T')[0], value: '', source: 'Manual', adName: '', objective: 'Consulta', procedure: '', description: '' });
+      setNewLeadData({ name: '', phone: '', email: '', entryDate: new Date().toISOString().split('T')[0], value: '', source: 'Manual', adName: '', objective: 'Consulta', procedure: '', description: '', custom_fields: {} });
   };
 
   const filteredLeads = useMemo(() => {
@@ -1324,6 +1367,21 @@ const Sales: React.FC = () => {
                                   </div>
                               </div>
                           </div>
+
+                          {/* Campos Personalizados Populados */}
+                          {customFields.some(f => lead.custom_fields?.[f.field_key]) && (
+                            <div className="pl-2 mt-2 pt-2 border-t border-slate-50 flex flex-wrap gap-1">
+                              {customFields.map(f => {
+                                const val = lead.custom_fields?.[f.field_key];
+                                if (!val) return null;
+                                return (
+                                  <span key={f.id} className="text-[9px] font-semibold px-2 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-100" title={`${f.field_label}: ${val}`}>
+                                    <span className="text-slate-400">{f.field_label}:</span> {val}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                       </div>
                   ))}
               </div>
@@ -2024,6 +2082,98 @@ const Sales: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* PAINEL DE DETALHES DO LEAD (Tarefa 4) */}
+            {activeLead && (
+              <div className="w-80 border-l border-slate-200 bg-white flex flex-col h-full shrink-0 hidden lg:flex">
+                <div className="h-16 px-6 border-b border-slate-200 bg-slate-50/50 flex items-center shrink-0">
+                  <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
+                    <Activity size={14} className="text-blue-600" /> Detalhes do Lead
+                  </h3>
+                </div>
+                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6">
+                  {/* Informações básicas do lead */}
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nome</span>
+                      <p className="text-sm font-semibold text-slate-700">{activeLead.name}</p>
+                    </div>
+                    {activeLead.email && (
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mail</span>
+                        <p className="text-xs font-medium text-slate-600 break-all">{activeLead.email}</p>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Telefone</span>
+                      <p className="text-xs font-semibold text-slate-700 font-mono">{activeLead.phone}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Origem</span>
+                        <span className="text-xs font-semibold text-slate-600 block truncate" title={activeLead.source || 'Manual'}>{activeLead.source || 'Manual'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Temperatura</span>
+                        <span className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded uppercase mt-0.5 ${
+                          activeLead.temperature === 'Hot' ? 'bg-rose-100 text-rose-700' :
+                          activeLead.temperature === 'Warm' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>{activeLead.temperature || 'Cold'}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Objetivo</span>
+                        <span className="text-xs font-semibold text-slate-600 block truncate" title={activeLead.objective || '-'}>{activeLead.objective || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Valor Estimado</span>
+                        <span className="text-xs font-bold text-emerald-600 block truncate">R$ {activeLead.potentialValue || 0}</span>
+                      </div>
+                    </div>
+                    {activeLead.procedure && (
+                      <div className="pt-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Procedimento</span>
+                        <p className="text-xs font-semibold text-slate-600">{activeLead.procedure}</p>
+                      </div>
+                    )}
+                    {activeLead.notes && (
+                      <div className="pt-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Descrição / Observações</span>
+                        <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap">{activeLead.notes}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Campos personalizados preenchidos */}
+                  <div className="pt-4 border-t border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <Tag size={14} className="text-blue-600" />
+                      Campos Personalizados
+                    </h4>
+                    {customFields.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Sem definições de campos customizados.</p>
+                    ) : !customFields.some(f => activeLead.custom_fields?.[f.field_key]) ? (
+                      <p className="text-xs text-slate-400 italic">Nenhum campo personalizado preenchido para este lead.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {customFields.map(f => {
+                          const val = activeLead.custom_fields?.[f.field_key];
+                          if (!val) return null;
+                          return (
+                            <div key={f.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-150 shadow-xs">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block leading-tight">{f.field_label}</span>
+                              <span className="text-xs text-slate-700 font-semibold mt-0.5 block break-words">{val}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
       )}
 
@@ -2038,6 +2188,9 @@ const Sales: React.FC = () => {
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Origem</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Objetivo</th>
+                              {customFields.length > 0 && (
+                                  <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Campos Personalizados</th>
+                              )}
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Valor</th>
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                           </tr>
@@ -2055,6 +2208,21 @@ const Sales: React.FC = () => {
                                       {lead.adName && <span className="text-[9px] text-slate-400 italic">Anúncio: {lead.adName}</span>}
                                   </td>
                                   <td className="px-6 py-4"><span className="text-xs text-slate-500">{lead.objective || '-'}</span></td>
+                                  {customFields.length > 0 && (
+                                      <td className="px-6 py-4">
+                                          <div className="flex flex-col gap-1 max-w-[200px]">
+                                              {customFields.map(f => {
+                                                  const val = lead.custom_fields?.[f.field_key];
+                                                  if (!val) return null;
+                                                  return (
+                                                      <span key={f.id} className="text-[10px] truncate" title={`${f.field_label}: ${val}`}>
+                                                          <strong className="text-slate-500">{f.field_label}:</strong> <span className="text-slate-700 font-medium">{val}</span>
+                                                      </span>
+                                                  );
+                                              })}
+                                          </div>
+                                      </td>
+                                  )}
                                   <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-600">R$ {lead.potentialValue}</td>
                                   <td className="px-6 py-4 text-right">
                                       <div className="flex items-center justify-end gap-1">
@@ -2169,6 +2337,72 @@ const Sales: React.FC = () => {
                                   </div>
                               </div>
                           </div>
+
+                          {/* SEÇÃO: CAMPOS PERSONALIZADOS */}
+                          {customFields.length > 0 && (
+                            <div className="pt-4 border-t border-slate-100">
+                                <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Campos Personalizados</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {customFields.map(field => {
+                                        const value = newLeadData.custom_fields?.[field.field_key] || '';
+                                        const setVal = (v: any) => {
+                                            setNewLeadData({
+                                                ...newLeadData,
+                                                custom_fields: {
+                                                    ...(newLeadData.custom_fields || {}),
+                                                    [field.field_key]: v
+                                                }
+                                            });
+                                        };
+                                        return (
+                                            <div key={field.id} className="space-y-1.5">
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                    {field.field_label} {field.is_required && '*'}
+                                                </label>
+                                                {field.field_type === 'select' ? (
+                                                    <select 
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
+                                                    >
+                                                        <option value="">Selecione...</option>
+                                                        {(field.field_options || []).map(opt => (
+                                                            <option key={opt} value={opt}>{opt}</option>
+                                                        ))}
+                                                    </select>
+                                                ) : field.field_type === 'date' ? (
+                                                    <input 
+                                                        type="date"
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                    />
+                                                ) : field.field_type === 'number' ? (
+                                                    <input 
+                                                        type="number"
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                    />
+                                                ) : (
+                                                    <input 
+                                                        type="text"
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                        placeholder={`Insira ${field.field_label.toLowerCase()}`}
+                                                    />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                          )}
 
                       </form>
                   </div>
@@ -2286,6 +2520,72 @@ const Sales: React.FC = () => {
                                   </div>
                               </div>
                           </div>
+
+                          {/* SEÇÃO: CAMPOS PERSONALIZADOS */}
+                          {customFields.length > 0 && (
+                            <div className="pt-4 border-t border-slate-100">
+                                <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Campos Personalizados</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {customFields.map(field => {
+                                        const value = editingLeadData.custom_fields?.[field.field_key] || '';
+                                        const setVal = (v: any) => {
+                                            setEditingLeadData({
+                                                ...editingLeadData,
+                                                custom_fields: {
+                                                    ...(editingLeadData.custom_fields || {}),
+                                                    [field.field_key]: v
+                                                }
+                                            });
+                                        };
+                                        return (
+                                            <div key={field.id} className="space-y-1.5">
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                    {field.field_label} {field.is_required && '*'}
+                                                </label>
+                                                {field.field_type === 'select' ? (
+                                                    <select 
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
+                                                    >
+                                                        <option value="">Selecione...</option>
+                                                        {(field.field_options || []).map(opt => (
+                                                            <option key={opt} value={opt}>{opt}</option>
+                                                        ))}
+                                                    </select>
+                                                ) : field.field_type === 'date' ? (
+                                                    <input 
+                                                        type="date"
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                    />
+                                                ) : field.field_type === 'number' ? (
+                                                    <input 
+                                                        type="number"
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                    />
+                                                ) : (
+                                                    <input 
+                                                        type="text"
+                                                        required={field.is_required}
+                                                        value={value}
+                                                        onChange={e => setVal(e.target.value)}
+                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                        placeholder={`Insira ${field.field_label.toLowerCase()}`}
+                                                    />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                          )}
 
                       </form>
                   </div>

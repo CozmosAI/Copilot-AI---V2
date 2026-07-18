@@ -315,3 +315,64 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS score_updated_at timestamp with time 
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS score_reasons jsonb DEFAULT '{}'::jsonb;
 CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score DESC);
 
+
+-- Categorias financeiras customizáveis (multi-nicho)
+CREATE TABLE IF NOT EXISTS financial_categories (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  type text NOT NULL, -- 'receivable' ou 'payable'
+  color text DEFAULT '#3B82F6',
+  sort_order integer DEFAULT 0,
+  is_active boolean DEFAULT true,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, name, type)
+);
+ALTER TABLE financial_categories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_manage_own_financial_categories ON financial_categories FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Inserir categorias padrão para usuários existentes (multi-nicho)
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Consultas', 'receivable', '#10b981', 1 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Procedimentos', 'receivable', '#3b82f6', 2 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Produtos', 'receivable', '#f59e0b', 3 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Outros', 'receivable', '#6b7280', 4 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Colaboradores', 'payable', '#ef4444', 1 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Contas Fixas', 'payable', '#3b82f6', 2 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Impostos', 'payable', '#8b5cf6', 3 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Insumos', 'payable', '#10b981', 4 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+INSERT INTO financial_categories (user_id, name, type, color, sort_order)
+SELECT id, 'Marketing', 'payable', '#ec4899', 5 FROM auth.users
+ON CONFLICT DO NOTHING;
+
+-- Adiciona ao realtime
+do $$
+begin
+  begin alter publication supabase_realtime add table financial_categories; exception when duplicate_object then null; end;
+end;
+$$;
+
+

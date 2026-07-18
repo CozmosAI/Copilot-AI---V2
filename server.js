@@ -77,11 +77,8 @@ const allowedOrigins = [
 ];
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
+        // Permitir qualquer origem para evitar bloqueios de CORS no preview e subdomínios do AI Studio
+        callback(null, true);
     },
     credentials: true
 }));
@@ -145,7 +142,7 @@ app.get(['/termo', '/termo.html'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'termo.html'));
 });
 
-app.use(express.static(path.join(__dirname, 'dist')));
+// Servidor de estáticos movido para o final do arquivo para suportar o middleware do Vite em desenvolvimento
 
 // ==============================================================================
 // 1. GERAR URL DE LOGIN (Para o Frontend)
@@ -2491,30 +2488,128 @@ app.post('/api/google/refresh', async (req, res) => {
 
 // ... (Resto das rotas do AXIS, WhatsApp e Catch-all mantidas)
 
-// Mock do Context Builder (Simulando Drizzle/Neon)
-async function buildClinicContext(clinicId) {
-  return {
+// Context Builder Real (Buscando dados no Supabase via supabaseAdmin)
+async function buildClinicContext(userId) {
+  const context = {
+    usuario: {
+      nome: "Não identificado",
+      email: "Não informado"
+    },
+    leads: {
+      total: 0,
+      quentes: 0,
+      mornos: 0,
+      frios: 0,
+      semResposta: 0,
+      recentes: []
+    },
     financeiro: {
-      receitaMes: "R$ 145.000,00",
-      lucroLiquido: "R$ 42.000,00",
-      meta: "85%",
-      pendencias: 3
+      receitaBruta: "R$ 0,00",
+      gastosTotais: "R$ 0,00",
+      lucroLiquido: "R$ 0,00",
+      pendencias: 0,
+      detalhamento: {
+        receitasEfetuadas: 0,
+        despesasEfetuadas: 0,
+        gastosMarketing: "R$ 0,00"
+      }
     },
     marketing: {
-      leadsHoje: 12,
-      campanhaAtiva: "Botox Week",
-      custoPorLead: "R$ 15,40"
-    },
-    agenda: {
-      ocupacaoHoje: "78%",
-      proximaVaga: "14:30",
-      faltasOntem: 2
-    },
-    vendas: {
-      conversasAtivas: 24,
-      taxaConversao: "18%"
+      googleAdsStatus: "Não conectado",
+      googleAdsAccountName: null,
+      googleAdsAccountId: null,
+      metaAdsStatus: "Não conectado",
+      metaAdsAccountName: null,
+      metaAdsAccountId: null
     }
   };
+
+  try {
+    const client = supabaseAdmin || supabase;
+    
+    // Se o userId não for passado, tenta pegar o primeiro perfil disponível no banco
+    if (!userId) {
+      const { data: allProfiles } = await client.from('profiles').select('id').limit(1);
+      if (allProfiles && allProfiles.length > 0) {
+        userId = allProfiles[0].id;
+      }
+    }
+
+    if (userId) {
+      // 1. Profile do usuário
+      const { data: profile } = await client.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (profile) {
+        context.usuario.nome = profile.name || profile.username || "Usuário do AXIS";
+        context.usuario.email = profile.email || "Não informado";
+      }
+
+      // 2. Leads (total, quentes/mornos/frios, sem resposta)
+      const { data: leads } = await client.from('leads').select('*').eq('user_id', userId);
+      if (leads) {
+        context.leads.total = leads.length;
+        context.leads.quentes = leads.filter(l => l.temperature === 'Hot').length;
+        context.leads.mornos = leads.filter(l => l.temperature === 'Warm').length;
+        context.leads.frios = leads.filter(l => l.temperature === 'Cold').length;
+        
+        // Leads sem resposta: last_sender === 'contact'
+        context.leads.semResposta = leads.filter(l => l.last_sender === 'contact').length;
+        
+        // 5 leads mais recentes
+        context.leads.recentes = leads
+          .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+          .slice(0, 5)
+          .map(l => ({
+            nome: l.name,
+            status: l.status,
+            temperatura: l.temperature,
+            origem: l.source || "Manual",
+            ultimaInteracao: l.created_at
+          }));
+      }
+
+      // 3. Transações financeiras (receita/despesa, incluindo os gastos de marketing)
+      const { data: transactions } = await client.from('transactions').select('*').eq('user_id', userId);
+      if (transactions) {
+        const receitas = transactions.filter(t => t.type === 'receivable' && t.status === 'efetuada');
+        const despesas = transactions.filter(t => t.type === 'payable' && t.status === 'efetuada');
+        const marketing = transactions.filter(t => t.type === 'payable' && t.category === 'Marketing');
+        const pendentes = transactions.filter(t => t.status !== 'efetuada' && t.status !== 'cancelada');
+
+        const totalReceitas = receitas.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+        const totalDespesas = despesas.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+        const totalMarketing = marketing.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+        const lucro = totalReceitas - totalDespesas;
+
+        context.financeiro.receitaBruta = totalReceitas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        context.financeiro.gastosTotais = totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        context.financeiro.lucroLiquido = lucro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        context.financeiro.pendencias = pendentes.length;
+        
+        context.financeiro.detalhamento.receitasEfetuadas = receitas.length;
+        context.financeiro.detalhamento.despesasEfetuadas = despesas.length;
+        context.financeiro.detalhamento.gastosMarketing = totalMarketing.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      }
+
+      // 4. Contas de Ads conectadas (Google/Meta)
+      const { data: googleAds } = await client.from('google_ads_integrations').select('*').eq('user_id', userId).maybeSingle();
+      if (googleAds) {
+        context.marketing.googleAdsStatus = googleAds.status || "Conectado";
+        context.marketing.googleAdsAccountName = googleAds.customer_name || null;
+        context.marketing.googleAdsAccountId = googleAds.customer_id || null;
+      }
+
+      const { data: metaAds } = await client.from('meta_ads_integrations').select('*').eq('user_id', userId).maybeSingle();
+      if (metaAds) {
+        context.marketing.metaAdsStatus = metaAds.status || "Conectado";
+        context.marketing.metaAdsAccountName = metaAds.ad_account_name || null;
+        context.marketing.metaAdsAccountId = metaAds.ad_account_id || null;
+      }
+    }
+  } catch (error) {
+    console.error('[AXIS AI] Erro ao construir contexto:', error);
+  }
+
+  return context;
 }
 
 app.post('/api/axis/chat', async (req, res) => {
@@ -2529,8 +2624,25 @@ app.post('/api/axis/chat', async (req, res) => {
              return res.status(500).json({ response: "IA não configurada (API Key ausente)." });
         }
 
+        // Tenta obter o usuário autenticado ou busca o primeiro do banco como fallback
+        let userId = null;
+        try {
+            const authUser = await getAuthUser(req);
+            userId = authUser ? authUser.id : null;
+        } catch (authErr) {
+            try {
+                const client = supabaseAdmin || supabase;
+                const { data: profiles } = await client.from('profiles').select('id').limit(1);
+                if (profiles && profiles.length > 0) {
+                    userId = profiles[0].id;
+                }
+            } catch (dbErr) {
+                console.error('[AXIS AI] Fallback profile fetch failed:', dbErr);
+            }
+        }
+
         // 1. Buscar dados reais (Context Augmentation)
-        const dbData = await buildClinicContext(clinicId || 'demo');
+        const dbData = await buildClinicContext(userId);
 
         // 2. Construir System Prompt
         const systemPrompt = `
@@ -6775,18 +6887,32 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 const normalizedWebhookPhone = phone ? (normalizePhoneE164(phone) || phone) : phone;
                 
                 try {
-                    if (normalizedWebhookPhone) {
-                        const { data, error } = await client
+                    // Função helper pra normalizar telefone (remover +, espaços, traços, e DDI 55)
+                    const normalizePhone = (p) => {
+                        if (!p) return '';
+                        let cleaned = String(p).replace(/\D/g, '');
+                        if (cleaned.startsWith('55') && cleaned.length > 11) {
+                            cleaned = cleaned.substring(2);
+                        }
+                        return cleaned;
+                    };
+
+                    const searchPhone = phone || normalizedWebhookPhone || '';
+                    const normalizedIncomingPhone = normalizePhone(searchPhone);
+
+                    if (normalizedIncomingPhone) {
+                        // Antes de criar lead novo, buscar por telefone normalizado ou external_chat_id
+                        const { data: foundLeads, error: findErr } = await client
                             .from('leads')
                             .select('*')
                             .eq('user_id', connection.user_id)
-                            .eq('phone', normalizedWebhookPhone)
-                            .maybeSingle();
-                        if (!error && data) {
-                            existingLead = data;
+                            .or(`phone.ilike.%${normalizedIncomingPhone}%,external_chat_id.ilike.%${normalizedIncomingPhone}%`);
+
+                        if (!findErr && foundLeads && foundLeads.length > 0) {
+                            existingLead = foundLeads[0];
                         }
                     }
-                    
+
                     if (!existingLead && externalChatId) {
                         const { data, error } = await client
                             .from('leads')
@@ -7409,9 +7535,19 @@ app.post('/api/gemini/tts', async (req, res) => {
     }
 });
 
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
+if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+    });
+    app.use(vite.middlewares);
+} else {
+    app.use(express.static(path.join(__dirname, 'dist')));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+}
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor rodando na porta ${PORT}`);

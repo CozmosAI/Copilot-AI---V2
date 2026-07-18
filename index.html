@@ -53,6 +53,21 @@
         from { opacity: 0; }
         to { opacity: 1; }
       }
+
+      /* Animação de pulsação suave da AXIS IA falando */
+      @keyframes speakingPulse {
+        0%, 100% {
+          transform: scale(1.1);
+          box-shadow: 0 0 60px rgba(245, 158, 11, 0.6);
+        }
+        50% {
+          transform: scale(1.18);
+          box-shadow: 0 0 90px rgba(245, 158, 11, 0.9);
+        }
+      }
+      .animate-speaking-pulse {
+        animation: speakingPulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
       
       /* Input Autofill Fix - Garante cor de fundo correta e texto legível */
       input:-webkit-autofill,
