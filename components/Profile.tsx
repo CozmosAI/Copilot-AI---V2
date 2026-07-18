@@ -8,6 +8,16 @@ import {
 import { useApp } from '../App';
 import { UserRole, CustomFieldDefinition, LifecycleStage } from '../types';
 
+const generateKeyFromLabel = (label: string) => {
+  return label
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .replace(/[^a-z0-9_]/g, '_') // replace non-alphanumeric with underscores
+    .replace(/_+/g, '_') // collapse consecutive underscores
+    .replace(/^_+|_+$/g, ''); // trim leading/trailing underscores
+};
+
 const Profile: React.FC = () => {
   const { user, updateUser, teamMembers, addTeamMember, removeTeamMember, aiConfig, updateAiConfig } = useApp();
 
@@ -37,6 +47,7 @@ const Profile: React.FC = () => {
   const [fieldOptions, setFieldOptions] = useState('');
   const [fieldIsRequired, setFieldIsRequired] = useState(false);
   const [fieldSortOrder, setFieldSortOrder] = useState(0);
+  const [showAdvancedField, setShowAdvancedField] = useState(false);
 
   const loadStages = async () => {
     if (!user?.id) return;
@@ -80,6 +91,7 @@ const Profile: React.FC = () => {
     setFieldOptions('');
     setFieldIsRequired(false);
     setFieldSortOrder(customFields.length);
+    setShowAdvancedField(false);
   };
 
   const handleEditStage = (stage: LifecycleStage) => {
@@ -845,7 +857,7 @@ const Profile: React.FC = () => {
                   className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4 animate-in slide-in-from-top-4"
                 >
                   <div className="flex justify-between items-center border-b border-slate-200/60 pb-3">
-                    <h4 className="font-bold text-navy text-sm">{editingField ? 'Editar Campo' : 'Novo Campo'}</h4>
+                    <h4 className="font-bold text-navy text-sm">{editingField ? 'Editar Campo Personalizado' : 'Novo Campo Personalizado'}</h4>
                     <button
                       type="button"
                       onClick={() => { setIsAddingField(false); setEditingField(null); }}
@@ -854,76 +866,72 @@ const Profile: React.FC = () => {
                       <X size={16} className="text-slate-400"/>
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Identificador (Unique Key)</label>
-                      <input
-                        required
-                        disabled={!!editingField}
-                        type="text"
-                        placeholder="Ex: data_nascimento, convenio"
-                        value={fieldKey}
-                        onChange={e => setFieldKey(e.target.value)}
-                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white disabled:bg-slate-100 disabled:text-slate-400 font-mono"
-                      />
+
+                  {/* Guia explicativo super simples para o cliente */}
+                  <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 text-xs text-blue-900 leading-relaxed space-y-1.5">
+                    <p className="font-bold text-blue-950 flex items-center gap-1.5 text-sm">
+                      💡 Para que serve isso?
+                    </p>
+                    <p className="text-blue-900">
+                      Imagine que você quer salvar o <strong>CPF</strong> do cliente, o <strong>Plano de Saúde</strong> dele ou <strong>Quem o indicou</strong>, mas o sistema não tem esses campos por padrão.
+                    </p>
+                    <p className="text-blue-900 font-medium">
+                      Aqui você cria essas perguntas personalizadas para sua equipe preencher na ficha de cada cliente!
+                    </p>
+                    <div className="pt-1 mt-1 border-t border-blue-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-blue-950/80">
+                      <div>
+                        <strong>1. Nome do Campo:</strong> O nome da pergunta (Ex: <em>Qual o Convênio?</em>).
+                      </div>
+                      <div>
+                        <strong>2. Formato:</strong> Como o usuário vai responder (Ex: escrevendo, escolhendo de uma lista, etc.).
+                      </div>
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Rótulo / Label</label>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">O que você quer perguntar/salvar? (Nome do Campo)</label>
+                      <p className="text-[11px] text-slate-400 mb-2">Este será o nome exibido na ficha do cliente. Exemplo: <strong>CPF</strong>, <strong>Plano de Saúde</strong>, <strong>Como nos conheceu?</strong></p>
                       <input
                         required
                         type="text"
-                        placeholder="Ex: Data de Nascimento, Convênio"
+                        placeholder="Ex: CPF, Plano de Saúde, Indicação"
                         value={fieldLabel}
-                        onChange={e => setFieldLabel(e.target.value)}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setFieldLabel(val);
+                          if (!editingField) {
+                            setFieldKey(generateKeyFromLabel(val));
+                          }
+                        }}
                         className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
                       />
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tipo de Campo</label>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Como essa resposta deve ser preenchida?</label>
+                      <p className="text-[11px] text-slate-400 mb-2">Escolha o formato ideal para as respostas da sua equipe</p>
                       <select
                         value={fieldType}
                         onChange={e => setFieldType(e.target.value as any)}
                         className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
                       >
-                        <option value="text">Texto livre (text)</option>
-                        <option value="number">Numérico (number)</option>
-                        <option value="date">Data (date)</option>
-                        <option value="select">Seleção (select)</option>
+                        <option value="text">✍️ Texto simples (Ex: nome de convênio, observação curta)</option>
+                        <option value="number">🔢 Apenas Números (Ex: idade, quantidade, número do plano)</option>
+                        <option value="date">📅 Data / Calendário (Ex: data de nascimento, início de contrato)</option>
+                        <option value="select">📋 Lista com Opções (Para escolher uma das opções prontas)</option>
                       </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ordem</label>
-                      <input
-                        required
-                        type="number"
-                        placeholder="0"
-                        value={fieldSortOrder}
-                        onChange={e => setFieldSortOrder(Number(e.target.value))}
-                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
-                      />
-                    </div>
-                    <div className="flex items-center pt-6">
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={fieldIsRequired}
-                          onChange={e => setFieldIsRequired(e.target.checked)}
-                          className="w-4.5 h-4.5 text-navy border-slate-300 rounded focus:ring-navy"
-                        />
-                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Obrigatório</span>
-                      </label>
                     </div>
                   </div>
 
                   {fieldType === 'select' && (
-                    <div className="animate-in fade-in duration-200">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Opções de Seleção (separadas por vírgula)</label>
+                    <div className="animate-in fade-in duration-200 bg-slate-100/50 p-4 rounded-2xl border border-slate-200/60">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Quais opções estarão disponíveis para escolha?</label>
+                      <p className="text-[11px] text-slate-400 mb-2.5">Escreva as opções separadas por vírgula para sua equipe clicar e escolher.</p>
                       <input
                         required
                         type="text"
-                        placeholder="Ex: Unimed, Bradesco, Particular"
+                        placeholder="Ex: Particular, Bradesco, Unimed, SulAmérica"
                         value={fieldOptions}
                         onChange={e => setFieldOptions(e.target.value)}
                         className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
@@ -931,11 +939,68 @@ const Profile: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Collapsible advanced options */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedField(!showAdvancedField)}
+                      className="text-xs text-[#247AAE] hover:text-blue-700 font-bold flex items-center gap-1.5 focus:outline-none active:scale-95 transition-all"
+                    >
+                      {showAdvancedField ? '⚙️ Ocultar configurações avançadas' : '⚙️ Mostrar configurações avançadas (Opcional)'}
+                    </button>
+
+                    {showAdvancedField && (
+                      <div className="mt-4 p-5 bg-slate-100/60 rounded-2xl border border-slate-200/50 grid grid-cols-1 md:grid-cols-3 gap-5 animate-in slide-in-from-top-2 duration-200">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Código interno (Chave do Banco)</label>
+                          <p className="text-[11px] text-slate-400 mb-2">Usado pelo sistema. Evite alterar.</p>
+                          <input
+                            required
+                            disabled={!!editingField}
+                            type="text"
+                            placeholder="Gerado automaticamente..."
+                            value={fieldKey}
+                            onChange={e => setFieldKey(generateKeyFromLabel(e.target.value))}
+                            className="w-full p-2.5 rounded-xl text-xs border border-slate-300 focus:outline-none focus:border-navy bg-white disabled:bg-slate-200 disabled:text-slate-500 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Ordem / Posição</label>
+                          <p className="text-[11px] text-slate-400 mb-2">Número menor aparece antes na tela</p>
+                          <input
+                            required
+                            type="number"
+                            placeholder="0"
+                            value={fieldSortOrder}
+                            onChange={e => setFieldSortOrder(Number(e.target.value))}
+                            className="w-full p-2.5 rounded-xl text-xs border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                          />
+                        </div>
+
+                        <div className="flex flex-col justify-end pb-2">
+                          <label className="flex items-start gap-2.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={fieldIsRequired}
+                              onChange={e => setFieldIsRequired(e.target.checked)}
+                              className="w-4.5 h-4.5 mt-0.5 text-[#247AAE] border-slate-300 rounded focus:ring-[#247AAE]"
+                            />
+                            <div>
+                              <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Tornar Obrigatório</span>
+                              <span className="block text-[10px] text-slate-400">Impede salvar o lead sem preencher</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex justify-end gap-3 pt-4 border-t border-slate-200/60">
                     <button
                       type="button"
                       onClick={() => { setIsAddingField(false); setEditingField(null); }}
-                      className="px-5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-colors"
+                      className="px-5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-colors"
                     >
                       Cancelar
                     </button>
