@@ -277,7 +277,7 @@ const AxisModule: React.FC = () => {
       }
 
       const data = await safeJsonResponse(response);
-      if (data.audio) {
+      if (data.audio && !data.fallback) {
         recognizerRef.current?.stop();
         playGeminiAudio(
           data.audio,
@@ -296,7 +296,7 @@ const AxisModule: React.FC = () => {
           }
         );
       } else {
-        console.warn("Sem áudio retornado pela API. Usando fallback...");
+        console.warn("Sem áudio retornado pela API ou fallback ativo. Usando fallback...");
         handleFallbackAndTextOnly();
       }
     } catch (e) {
@@ -432,7 +432,11 @@ const AxisModule: React.FC = () => {
       
       try {
           recognizer.start();
-          speak("Axis online.");
+          if (!isTextMode) {
+              speak("Axis online.").catch(e => {
+                  console.warn('TTS falhou, continuando sem voz', e);
+              });
+          }
       } catch (e) {
           setErrorMsg("Erro ao iniciar.");
           setIsActive(false);

@@ -110,7 +110,7 @@ const Profile: React.FC = () => {
     setFieldKey(field.field_key);
     setFieldLabel(field.field_label);
     setFieldType(field.field_type);
-    setFieldOptions(Array.isArray(field.field_options) ? field.field_options.join(', ') : '');
+    setFieldOptions(Array.isArray(field.field_options) ? field.field_options.join('\n') : '');
     setFieldIsRequired(field.is_required);
     setFieldSortOrder(field.sort_order);
   };
@@ -795,225 +795,172 @@ const Profile: React.FC = () => {
             <div className="p-8 md:p-10 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold text-navy flex items-center gap-3">
-                  <Sliders size={24} className="text-slate-400"/> Campos Customizados (Leads)
+                  <Sliders size={24} className="text-slate-400"/> Campos Personalizados
                 </h3>
                 <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 ml-1">
-                  Adicione dados extras personalizados na ficha do lead
+                  Adicione perguntas ou informações específicas para preencher na ficha de cada lead
                 </p>
               </div>
-              {!isAddingField && (
-                <button
-                  onClick={() => { resetFieldForm(); setEditingField(null); setIsAddingField(true); }}
-                  className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2 self-start md:self-auto"
-                >
-                  <Plus size={16}/> Adicionar Campo
-                </button>
-              )}
+              <button
+                onClick={() => { resetFieldForm(); setEditingField(null); setIsAddingField(true); }}
+                className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2 self-start md:self-auto"
+              >
+                <Plus size={16}/> Adicionar Campo
+              </button>
             </div>
 
             <div className="p-8 md:p-10">
+              {/* MODAL DE CRIAÇÃO / EDIÇÃO DE CAMPO (OVERLAY REAL) */}
               {isAddingField && (
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!fieldKey || !fieldLabel) return;
-                    try {
-                      const { supabase } = await import('../lib/supabase');
-                      let optionsArray = null;
-                      if (fieldType === 'select') {
-                        optionsArray = fieldOptions.split(',').map(o => o.trim()).filter(o => o.length > 0);
-                      }
-                      
-                      const payload = {
-                        user_id: user?.id,
-                        field_key: fieldKey.trim().toLowerCase(),
-                        field_label: fieldLabel.trim(),
-                        field_type: fieldType,
-                        field_options: optionsArray,
-                        is_required: fieldIsRequired,
-                        sort_order: fieldSortOrder
-                      };
-                      
-                      let err;
-                      if (editingField) {
-                        const { error } = await supabase.from('custom_field_definitions').update(payload).eq('id', editingField.id);
-                        err = error;
-                      } else {
-                        const { error } = await supabase.from('custom_field_definitions').insert([payload]);
-                        err = error;
-                      }
-                      
-                      if (err) throw err;
-                      alert(editingField ? 'Campo atualizado!' : 'Campo personalizado adicionado com sucesso!');
-                      setIsAddingField(false);
-                      setEditingField(null);
-                      resetFieldForm();
-                      loadFields();
-                    } catch (error: any) {
-                      console.error(error);
-                      alert('Erro ao salvar campo: ' + (error.message || error));
-                    }
-                  }}
-                  className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4 animate-in slide-in-from-top-4"
-                >
-                  <div className="flex justify-between items-center border-b border-slate-200/60 pb-3">
-                    <h4 className="font-bold text-navy text-sm">{editingField ? 'Editar Campo Personalizado' : 'Novo Campo Personalizado'}</h4>
-                    <button
-                      type="button"
-                      onClick={() => { setIsAddingField(false); setEditingField(null); }}
-                      className="p-1 hover:bg-slate-200 rounded-full transition-colors"
-                    >
-                      <X size={16} className="text-slate-400"/>
-                    </button>
-                  </div>
-
-                  {/* Guia explicativo super simples para o cliente */}
-                  <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 text-xs text-blue-900 leading-relaxed space-y-1.5">
-                    <p className="font-bold text-blue-950 flex items-center gap-1.5 text-sm">
-                      💡 Para que serve isso?
-                    </p>
-                    <p className="text-blue-900">
-                      Imagine que você quer salvar o <strong>CPF</strong> do cliente, o <strong>Plano de Saúde</strong> dele ou <strong>Quem o indicou</strong>, mas o sistema não tem esses campos por padrão.
-                    </p>
-                    <p className="text-blue-900 font-medium">
-                      Aqui você cria essas perguntas personalizadas para sua equipe preencher na ficha de cada cliente!
-                    </p>
-                    <div className="pt-1 mt-1 border-t border-blue-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-blue-950/80">
-                      <div>
-                        <strong>1. Nome do Campo:</strong> O nome da pergunta (Ex: <em>Qual o Convênio?</em>).
-                      </div>
-                      <div>
-                        <strong>2. Formato:</strong> Como o usuário vai responder (Ex: escrevendo, escolhendo de uma lista, etc.).
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">O que você quer perguntar/salvar? (Nome do Campo)</label>
-                      <p className="text-[11px] text-slate-400 mb-2">Este será o nome exibido na ficha do cliente. Exemplo: <strong>CPF</strong>, <strong>Plano de Saúde</strong>, <strong>Como nos conheceu?</strong></p>
-                      <input
-                        required
-                        type="text"
-                        placeholder="Ex: CPF, Plano de Saúde, Indicação"
-                        value={fieldLabel}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setFieldLabel(val);
-                          if (!editingField) {
-                            setFieldKey(generateKeyFromLabel(val));
-                          }
-                        }}
-                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Como essa resposta deve ser preenchida?</label>
-                      <p className="text-[11px] text-slate-400 mb-2">Escolha o formato ideal para as respostas da sua equipe</p>
-                      <select
-                        value={fieldType}
-                        onChange={e => setFieldType(e.target.value as any)}
-                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                  <div className="bg-white w-full max-w-lg rounded-[32px] border border-slate-100 shadow-2xl p-8 space-y-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+                    <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+                      <h4 className="font-extrabold text-2xl text-navy">
+                        {editingField ? 'Editar Campo' : 'Novo Campo Personalizado'}
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => { setIsAddingField(false); setEditingField(null); }}
+                        className="p-2 hover:bg-slate-100 rounded-full transition-colors"
                       >
-                        <option value="text">✍️ Texto simples (Ex: nome de convênio, observação curta)</option>
-                        <option value="number">🔢 Apenas Números (Ex: idade, quantidade, número do plano)</option>
-                        <option value="date">📅 Data / Calendário (Ex: data de nascimento, início de contrato)</option>
-                        <option value="select">📋 Lista com Opções (Para escolher uma das opções prontas)</option>
-                      </select>
+                        <X size={18} className="text-slate-400"/>
+                      </button>
                     </div>
-                  </div>
 
-                  {fieldType === 'select' && (
-                    <div className="animate-in fade-in duration-200 bg-slate-100/50 p-4 rounded-2xl border border-slate-200/60">
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Quais opções estarão disponíveis para escolha?</label>
-                      <p className="text-[11px] text-slate-400 mb-2.5">Escreva as opções separadas por vírgula para sua equipe clicar e escolher.</p>
-                      <input
-                        required
-                        type="text"
-                        placeholder="Ex: Particular, Bradesco, Unimed, SulAmérica"
-                        value={fieldOptions}
-                        onChange={e => setFieldOptions(e.target.value)}
-                        className="w-full p-3 rounded-xl text-sm border border-slate-300 focus:outline-none focus:border-navy bg-white"
-                      />
-                    </div>
-                  )}
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!fieldLabel) return;
+                        try {
+                          const { supabase } = await import('../lib/supabase');
+                          let optionsArray = null;
+                          if (fieldType === 'select') {
+                            optionsArray = fieldOptions.split(/[\n,]+/).map(o => o.trim()).filter(o => o.length > 0);
+                          }
+                          
+                          // Use standard snake_case field_key
+                          const computedKey = editingField ? fieldKey : generateKeyFromLabel(fieldLabel);
 
-                  {/* Collapsible advanced options */}
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowAdvancedField(!showAdvancedField)}
-                      className="text-xs text-[#247AAE] hover:text-blue-700 font-bold flex items-center gap-1.5 focus:outline-none active:scale-95 transition-all"
+                          const payload = {
+                            user_id: user?.id,
+                            field_key: computedKey,
+                            field_label: fieldLabel.trim(),
+                            field_type: fieldType,
+                            field_options: optionsArray,
+                            is_required: fieldIsRequired,
+                            sort_order: fieldSortOrder
+                          };
+                          
+                          let err;
+                          if (editingField) {
+                            const { error } = await supabase.from('custom_field_definitions').update(payload).eq('id', editingField.id);
+                            err = error;
+                          } else {
+                            const { error } = await supabase.from('custom_field_definitions').insert([payload]);
+                            err = error;
+                          }
+                          
+                          if (err) throw err;
+                          alert(editingField ? 'Campo atualizado!' : 'Campo personalizado adicionado com sucesso!');
+                          setIsAddingField(false);
+                          setEditingField(null);
+                          resetFieldForm();
+                          loadFields();
+                        } catch (error: any) {
+                          console.error(error);
+                          alert('Erro ao salvar campo: ' + (error.message || error));
+                        }
+                      }}
+                      className="space-y-6"
                     >
-                      {showAdvancedField ? '⚙️ Ocultar configurações avançadas' : '⚙️ Mostrar configurações avançadas (Opcional)'}
-                    </button>
-
-                    {showAdvancedField && (
-                      <div className="mt-4 p-5 bg-slate-100/60 rounded-2xl border border-slate-200/50 grid grid-cols-1 md:grid-cols-3 gap-5 animate-in slide-in-from-top-2 duration-200">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Código interno (Chave do Banco)</label>
-                          <p className="text-[11px] text-slate-400 mb-2">Usado pelo sistema. Evite alterar.</p>
-                          <input
-                            required
-                            disabled={!!editingField}
-                            type="text"
-                            placeholder="Gerado automaticamente..."
-                            value={fieldKey}
-                            onChange={e => setFieldKey(generateKeyFromLabel(e.target.value))}
-                            className="w-full p-2.5 rounded-xl text-xs border border-slate-300 focus:outline-none focus:border-navy bg-white disabled:bg-slate-200 disabled:text-slate-500 font-mono"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Ordem / Posição</label>
-                          <p className="text-[11px] text-slate-400 mb-2">Número menor aparece antes na tela</p>
-                          <input
-                            required
-                            type="number"
-                            placeholder="0"
-                            value={fieldSortOrder}
-                            onChange={e => setFieldSortOrder(Number(e.target.value))}
-                            className="w-full p-2.5 rounded-xl text-xs border border-slate-300 focus:outline-none focus:border-navy bg-white"
-                          />
-                        </div>
-
-                        <div className="flex flex-col justify-end pb-2">
-                          <label className="flex items-start gap-2.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={fieldIsRequired}
-                              onChange={e => setFieldIsRequired(e.target.checked)}
-                              className="w-4.5 h-4.5 mt-0.5 text-[#247AAE] border-slate-300 rounded focus:ring-[#247AAE]"
-                            />
-                            <div>
-                              <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Tornar Obrigatório</span>
-                              <span className="block text-[10px] text-slate-400">Impede salvar o lead sem preencher</span>
-                            </div>
-                          </label>
-                        </div>
+                      {/* Nome do Campo */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-black text-navy uppercase tracking-wider pl-1">Nome do Campo</label>
+                        <input
+                          required
+                          type="text"
+                          placeholder="Ex: CPF, Plano de Saúde, Convênio"
+                          value={fieldLabel}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFieldLabel(val);
+                            if (!editingField) {
+                              setFieldKey(generateKeyFromLabel(val));
+                            }
+                          }}
+                          className="w-full p-4 rounded-2xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-navy focus:border-transparent outline-none text-sm font-semibold text-navy transition-all"
+                        />
                       </div>
-                    )}
-                  </div>
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => { setIsAddingField(false); setEditingField(null); }}
-                      className="px-5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="bg-navy text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-colors"
-                    >
-                      Salvar Campo
-                    </button>
+                      {/* Tipo de Resposta */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-black text-navy uppercase tracking-wider pl-1">Tipo de Resposta</label>
+                        <select
+                          value={fieldType}
+                          onChange={e => setFieldType(e.target.value as any)}
+                          className="w-full p-4 rounded-2xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-navy focus:border-transparent outline-none text-sm font-semibold text-navy transition-all"
+                        >
+                          <option value="text">✍️ Texto simples</option>
+                          <option value="number">🔢 Número</option>
+                          <option value="date">📅 Data</option>
+                          <option value="select">📋 Lista de Opções</option>
+                        </select>
+                      </div>
+
+                      {/* Se Lista de Opções, mostrar campo para adicionar opções */}
+                      {fieldType === 'select' && (
+                        <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200 bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                          <label className="block text-xs font-black text-navy uppercase tracking-wider">Opções da Lista</label>
+                          <p className="text-[11px] text-slate-400 font-medium mb-1">Escreva uma opção por linha para sua equipe escolher na ficha do lead.</p>
+                          <textarea
+                            required
+                            rows={4}
+                            placeholder="Particular&#10;Bradesco&#10;Unimed&#10;SulAmérica"
+                            value={fieldOptions}
+                            onChange={e => setFieldOptions(e.target.value)}
+                            className="w-full p-4 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-navy focus:border-transparent outline-none text-sm font-semibold text-navy transition-all resize-none"
+                          />
+                        </div>
+                      )}
+
+                      {/* Campo Obrigatório? Checkbox */}
+                      <div className="flex items-center pt-2">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={fieldIsRequired}
+                            onChange={e => setFieldIsRequired(e.target.checked)}
+                            className="w-5 h-5 text-navy border-slate-300 rounded focus:ring-navy cursor-pointer transition-all"
+                          />
+                          <div>
+                            <span className="block text-xs font-black text-navy uppercase tracking-wider">Campo obrigatório?</span>
+                            <span className="block text-[10px] text-slate-400 font-medium">Impede salvar o lead se este campo estiver em branco</span>
+                          </div>
+                        </label>
+                      </div>
+
+                      {/* Ações */}
+                      <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => { setIsAddingField(false); setEditingField(null); }}
+                          className="px-5 py-3 rounded-2xl border border-slate-300 text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          className="bg-navy text-white px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-colors"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                    </form>
                   </div>
-                </form>
+                </div>
               )}
 
+              {/* LISTA DE CAMPOS CADASTRADOS */}
               <div className="space-y-3">
                 {customFields.map(field => (
                   <div key={field.id} className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 hover:border-slate-300 transition-all bg-white shadow-sm">
@@ -1022,10 +969,20 @@ const Profile: React.FC = () => {
                         <FileText size={18} />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-navy">{field.field_label}</p>
-                        <p className="text-xs text-slate-400 font-mono">
-                          key: {field.field_key} • tipo: {field.field_type} {field.is_required && '• obrigatório'}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-navy">{field.field_label}</p>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                            {field.field_type === 'text' && 'Texto simples'}
+                            {field.field_type === 'number' && 'Número'}
+                            {field.field_type === 'date' && 'Data'}
+                            {field.field_type === 'select' && 'Lista de Opções'}
+                          </span>
+                          {field.is_required && (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded bg-rose-50 text-rose-500 border border-rose-100">
+                              Obrigatório
+                            </span>
+                          )}
+                        </div>
                         {field.field_type === 'select' && Array.isArray(field.field_options) && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
                             {field.field_options.map(opt => (
@@ -1067,7 +1024,9 @@ const Profile: React.FC = () => {
 
                 {customFields.length === 0 && (
                   <div className="text-center py-12 text-slate-300 border-2 border-dashed border-slate-100 rounded-3xl">
-                    <p className="text-xs font-bold uppercase tracking-widest">Nenhum campo personalizado definido</p>
+                    <p className="text-xs font-bold uppercase tracking-widest">
+                      Nenhum campo personalizado. Crie campos como CPF, Convênio, Procedimento...
+                    </p>
                   </div>
                 )}
               </div>

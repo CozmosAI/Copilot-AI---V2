@@ -7512,26 +7512,32 @@ app.post('/api/gemini/soap', async (req, res) => {
 
 app.post('/api/gemini/tts', async (req, res) => {
     try {
-        if (!aiClient) return res.status(500).json({ error: "Gemini não configurado." });
+        if (!aiClient) return res.json({ audio: null, fallback: true });
         const { text } = req.body;
         
-        const response = await aiClient.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: `Diga de forma profissional e encorajadora: ${text}` }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Kore' },
+        try {
+            const response = await aiClient.models.generateContent({
+                model: "gemini-2.5-flash-preview-tts",
+                contents: [{ parts: [{ text: `Diga de forma profissional e encorajadora: ${text}` }] }],
+                config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: 'Kore' },
+                        },
                     },
                 },
-            },
-        });
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        res.json({ audio: base64Audio || null });
+            });
+            const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            res.json({ audio: base64Audio || null, fallback: !base64Audio });
+        } catch (innerError) {
+            console.error("Erro interno ao chamar modelo Gemini TTS:", innerError);
+            res.json({ audio: null, fallback: true });
+        }
     } catch (error) {
         console.error("Erro /api/gemini/tts:", error);
-        res.status(500).json({ error: "Erro ao gerar TTS." });
+        // Retornar audio null em vez de erro 500 — frontend usa speechSynthesis nativo como fallback
+        res.json({ audio: null, fallback: true });
     }
 });
 
