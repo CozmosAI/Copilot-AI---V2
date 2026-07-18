@@ -1209,7 +1209,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             { label: 'Conversões', value: formatNumber(periodTotals.conversions), icon: Zap, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.conversions, periodTotalsComparison.conversions) },
                             { label: 'Custo/Conv.', value: formatCurrency(periodTotals.costPerConv), icon: DollarSign, color: 'text-slate-600', bg: 'bg-slate-100', variation: renderVariation(periodTotals.costPerConv, periodTotalsComparison.costPerConv, true) },
                         ].map((kpi, idx) => (
-                            <div key={idx} className="bg-white p-3 md:p-5 rounded-xl md:rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between h-[84px] md:h-28 hover:shadow-md transition-shadow">
+                            <div key={kpi.label} className="bg-white p-3 md:p-5 rounded-xl md:rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between h-[84px] md:h-28 hover:shadow-md transition-shadow">
                                 <div className="flex justify-between items-start">
                                     <span className="text-[8px] md:text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate mr-1">{kpi.label}</span>
                                     <div className={`p-1 md:p-1.5 rounded-lg shrink-0 ${kpi.bg} ${kpi.color}`}><kpi.icon size={12} className="md:w-3.5 md:h-3.5" /></div>
@@ -1344,7 +1344,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                 const prevVal = currentItem[`${key}_prev`];
                                                                 
                                                                 return (
-                                                                    <div key={index} className="flex items-center justify-between gap-6 text-sm">
+                                                                    <div key={`tooltip-${entry.name || index}`} className="flex items-center justify-between gap-6 text-sm">
                                                                         <div className="flex items-center gap-2">
                                                                             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
                                                                             <span className="text-slate-600 font-medium">{entry.name}</span>
@@ -1449,7 +1449,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
                                         {sortData(filteredCampaigns).map((c, i) => {
                                             return (
-                                                <tr key={i} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
+                                                <tr key={c.id} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
                                                     <td className="px-2 py-1.5 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5" defaultChecked />
                                                     </td>
@@ -1571,7 +1571,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             <div className="hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredCampaigns).map((c, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`mobile-campaign-${c.id}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="flex items-start gap-2.5 min-w-0">
                                                     <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-4 h-4 mt-0.5 shrink-0" defaultChecked />
@@ -1712,7 +1712,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             const prev = getPrevCampaign(c.id);
                                             const isPMax = c.type?.includes('PERFORMANCE_MAX');
                                             return (
-                                                <tr key={i} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
+                                                <tr key={`row-google-${c.id}`} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
                                                     {/* Checkbox */}
                                                     <td className="px-3 py-2 text-center w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" />
@@ -2027,7 +2027,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                 {sortData(filteredCampaigns).map((c, i) => {
                                     const isPMax = c.type?.includes('PERFORMANCE_MAX');
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`mobile-google-${c.id}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="flex items-start gap-2.5 min-w-0">
                                                     <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-4 h-4 mt-0.5 shrink-0" />
@@ -2113,7 +2113,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {sortData(assetGroups).map((ag, i) => (
-                                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                    <tr key={`ag-${ag.id || ag.name}`} className="hover:bg-slate-50 transition-colors">
                                         <td className="px-6 py-4 text-sm font-medium text-slate-900">{ag.name}</td>
                                         <td className="px-6 py-4">{renderStatusBadge(ag.status)}</td>
                                         <td className="px-6 py-4 text-sm text-slate-600">{formatNumber(ag.impressions)}</td>
@@ -2156,7 +2156,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     {/* Mobile Asset Groups */}
                     <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                         {sortData(assetGroups).map((ag, i) => (
-                            <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                            <div key={`mobile-ag-${ag.id || ag.name}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                 <div className="flex items-start justify-between gap-2.5">
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2249,7 +2249,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             const agCpc = ag.clicks > 0 ? ag.spend / ag.clicks : 0;
                                             const agCostPerConv = ag.conversions > 0 ? ag.spend / ag.conversions : 0;
                                             return (
-                                                <tr key={i} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-12 divide-x divide-slate-200">
+                                                <tr key={ag.id} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-12 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
                                                     </td>
@@ -2378,7 +2378,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     const agCpc = ag.clicks > 0 ? ag.spend / ag.clicks : 0;
                                     const agCostPerConv = ag.conversions > 0 ? ag.spend / ag.conversions : 0;
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`mobile-meta-adgroup-${ag.id}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -2504,7 +2504,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
                                         {sortData(filteredAdGroups).map((ag, i) => {
                                             return (
-                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
+                                                <tr key={ag.id} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
                                                     </td>
@@ -2728,7 +2728,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredAdGroups).map((ag, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`mobile-google-adgroup-${ag.id}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -2848,7 +2848,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
                                         {sortData(filteredKeywords).map((kw, i) => {
                                             return (
-                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
+                                                <tr key={kw.id} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
                                                     </td>
@@ -3045,7 +3045,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredKeywords).map((kw, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`mobile-keyword-${kw.id}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -3224,7 +3224,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     {metaAds.map((ad, i) => {
                                         return (
                                             <div 
-                                                key={i} 
+                                                key={ad.id?.toString() || `meta-ad-${i}`} 
                                                 onClick={() => setSelectedMetaAdIdForPreview(ad.id?.toString())}
                                                 className={`bg-white p-2.5 rounded-xl border transition-all shadow-sm space-y-2 cursor-pointer ${selectedMetaAdIdForPreview === ad.id?.toString() ? 'border-[#0866ff] ring-2 ring-[#0866ff]/10' : 'border-slate-200 hover:border-slate-300'}`}
                                             >
@@ -3537,7 +3537,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                     <p className="text-sm text-slate-400 italic">Nenhum recurso encontrado.</p>
                                                 ) : (
                                                     assets.map((asset, i) => (
-                                                        <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-4 hover:bg-slate-100/50 transition-colors">
+                                                        <div key={`pmax-asset-${asset.id || asset.name || i}`} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-4 hover:bg-slate-100/50 transition-colors">
                                                             {category.title === 'Imagens' && asset.imageUrl && (
                                                                 <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-slate-200 border border-slate-200">
                                                                     <img src={asset.imageUrl} alt={asset.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -3610,7 +3610,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
                                         {sortData(filteredAds).map((ad, i) => {
                                             return (
-                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-11 divide-x divide-slate-200">
+                                                <tr key={ad.id?.toString() || `ad-row-${i}`} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-11 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
                                                     </td>
@@ -3775,7 +3775,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             <div className="block md:hidden space-y-2 p-2 bg-slate-50">
                                 {sortData(filteredAds).map((ad, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`ad-mob-${ad.id?.toString() || i}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -4021,7 +4021,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
                                         .map((term, i) => {
                                             return (
-                                                <tr key={i} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
+                                                <tr key={term.searchTerm || `term-${i}`} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200">
                                                         <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
                                                     </td>
@@ -4141,7 +4141,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                 .filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()))
                                 .map((term, i) => {
                                     return (
-                                        <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                                        <div key={`term-mob-${term.searchTerm || i}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1.5 flex-wrap">

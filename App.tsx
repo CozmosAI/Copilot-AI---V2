@@ -55,6 +55,8 @@ interface AppContextType {
   googleAdsToken: string | null;
   googleSheetsToken: string | null;
   metaAdsStatus: string | null;
+  calendarAccounts: { email: string, token: string }[];
+  setCalendarAccounts: React.Dispatch<React.SetStateAction<{ email: string, token: string }[]>>;
   
   setGoogleCalendarToken: (token: string | null) => void;
   setGoogleAdsToken: (token: string | null) => void;
@@ -360,6 +362,24 @@ const App: React.FC = () => {
   
   // Tokens & Configs
   const [googleCalendarToken, setGoogleCalendarToken] = useState<string | null>(null);
+  const [calendarAccounts, setCalendarAccounts] = useState<{email: string, token: string}[]>(() => {
+    try {
+      const saved = localStorage.getItem('calendar_accounts');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('calendar_accounts', JSON.stringify(calendarAccounts));
+  }, [calendarAccounts]);
+
+  useEffect(() => {
+    if (googleCalendarToken && calendarAccounts.length === 0 && user?.email) {
+      setCalendarAccounts([{ email: user.email, token: googleCalendarToken }]);
+    }
+  }, [googleCalendarToken, user?.email]);
   const [googleAdsToken, setGoogleAdsToken] = useState<string | null>(localStorage.getItem('google_ads_token'));
   const [googleSheetsToken, setGoogleSheetsToken] = useState<string | null>(localStorage.getItem('google_sheets_token'));
   const [metaAdsStatus, setMetaAdsStatusState] = useState<string | null>(localStorage.getItem('meta_ads_connected'));
@@ -512,6 +532,13 @@ const App: React.FC = () => {
                 localStorage.removeItem('auth_intent');
              } else if (authIntent === 'google_calendar') {
                 setGoogleCalendarToken(session.provider_token);
+                if (session.user?.email) {
+                   const connectedEmail = session.user.email;
+                   setCalendarAccounts(prev => {
+                      const filtered = prev.filter(acc => acc.email !== connectedEmail);
+                      return [...filtered, { email: connectedEmail, token: session.provider_token }];
+                   });
+                }
                 const updates: any = { google_calendar_token: session.provider_token };
                 if (session.provider_refresh_token) updates.google_calendar_refresh_token = session.provider_refresh_token;
                 await supabase.from('profiles').update(updates).eq('id', userId);
@@ -591,10 +618,12 @@ const App: React.FC = () => {
     finally { 
       localStorage.removeItem('google_ads_token');
       localStorage.removeItem('google_sheets_token');
+      localStorage.removeItem('calendar_accounts');
       localStorage.removeItem('auth_intent');
       localStorage.removeItem('whatsapp_config');
       setGoogleAdsToken(null); 
       setGoogleCalendarToken(null); 
+      setCalendarAccounts([]);
       setGoogleSheetsToken(null); 
       /* setWhatsappConfig(null); */ 
       setUser(null); 
@@ -1072,6 +1101,7 @@ const App: React.FC = () => {
         user, updateUser, isAuthenticated, login, signUp, logout, integrations, 
         googleCalendarToken, setGoogleCalendarToken, googleAdsToken, setGoogleAdsToken, googleSheetsToken, setGoogleSheetsToken, 
         metaAdsStatus, setMetaAdsStatus,
+        calendarAccounts, setCalendarAccounts,
         /* whatsappConfig, setWhatsappConfig, */ toggleIntegration, refreshGoogleCredentials, 
         adsData, preloadAdsData,
         dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange,

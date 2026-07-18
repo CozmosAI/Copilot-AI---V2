@@ -1,19 +1,50 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle, Loader2, CheckCircle2, Users, UserPlus, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../App';
 import { getUpcomingEvents, GoogleCalendarEvent, signInWithGoogleCalendar, createCalendarEvent } from '../services/googleCalendarService';
 import { Appointment } from '../types';
 
 type ViewMode = 'month' | 'week';
 
+interface ExtendedGoogleEvent extends GoogleCalendarEvent {
+  calendarName?: string;
+}
+
 const Agenda: React.FC = () => {
-  const { appointments, googleCalendarToken, addAppointment, updateAppointment, user, refreshGoogleCredentials } = useApp();
+  const { appointments, googleCalendarToken, calendarAccounts, setCalendarAccounts, addAppointment, updateAppointment, user, refreshGoogleCredentials } = useApp();
   const [viewDate, setViewDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [googleEvents, setGoogleEvents] = useState<ExtendedGoogleEvent[]>([]);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
   const [calendarError, setCalendarError] = useState(false);
+  
+  const [teamCalendars, setTeamCalendars] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('team_calendars');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
+  });
+
+  const [activeCalendarEmails, setActiveCalendarEmails] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('active_calendar_emails');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [user?.email || 'Minha Agenda'];
+  });
+
+  const [showAddTeamModal, setShowAddTeamModal] = useState(false);
+  const [subordinateEmail, setSubordinateEmail] = useState('');
+  const [addTeamError, setAddTeamError] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem('team_calendars', JSON.stringify(teamCalendars));
+  }, [teamCalendars]);
+
+  useEffect(() => {
+    localStorage.setItem('active_calendar_emails', JSON.stringify(activeCalendarEmails));
+  }, [activeCalendarEmails]);
   
   const [tokenExpiryWarning, setTokenExpiryWarning] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
@@ -45,8 +76,15 @@ const Agenda: React.FC = () => {
 
   const today = new Date();
 
-  // Busca eventos do Google Calendar se estiver conectado
+  // Busca eventos de múltiplas agendas do Google se conectado
   useEffect(() => {
+    // Sincronizar seleção ativa de agendas com e-mail do usuário se estiver vazia
+    if (activeCalendarEmails.length === 0) {
+      const defaultEmail = user?.email || 'Minha Agenda';
+      setActiveCalendarEmails([defaultEmail]);
+      return;
+    }
+
     if (googleCalendarToken) {
       // Verificar dias até expirar
       const days = getTokenExpiryDays(googleCalendarToken);
@@ -59,29 +97,81 @@ const Agenda: React.FC = () => {
           setTokenExpiryWarning(null);
         }
       }
-      
-      setLoadingCalendar(true);
-      setCalendarError(false);
-      // Passa o ID do usuário para o serviço tentar o refresh se necessário
-      getUpcomingEvents(googleCalendarToken, user?.id)
-        .then(events => {
-          setGoogleEvents(events);
-          setLoadingCalendar(false);
-          // Se o serviço fez refresh interno e retornou sucesso, atualiza o estado global
-          // para garantir consistência e evitar múltiplos refreshes desnecessários.
-          refreshGoogleCredentials();
-        })
-        .catch((err) => {
-          setLoadingCalendar(false);
-          if (err.message === 'AUTH_EXPIRED') {
-             setCalendarError(true);
-          }
-        });
     } else {
       setTokenExpiryWarning(null);
-      setGoogleEvents([]);
     }
-  }, [googleCalendarToken, user?.id]);
+
+    const fetchAllEvents = async () => {
+      // Se não há contas configuradas e nenhum token principal, limpa os eventos e retorna
+      if (calendarAccounts.length === 0 && !googleCalendarToken) {
+        setGoogleEvents([]);
+        return;
+      }
+
+      setLoadingCalendar(true);
+      setCalendarError(false);
+
+      const allEvents: ExtendedGoogleEvent[] = [];
+      const nowStr = new Date().toISOString();
+
+      for (const email of activeCalendarEmails) {
+        // 1. Tenta achar uma conta autenticada via OAuth correspondente
+        const oauthAcc = calendarAccounts.find(acc => acc.email === email);
+        if (oauthAcc) {
+          try {
+            const events = await getUpcomingEvents(oauthAcc.token, user?.id);
+            allEvents.push(...events.map(ev => ({ ...ev, calendarName: oauthAcc.email })));
+          } catch (err) {
+            console.error('Erro ao buscar eventos OAuth de:', oauthAcc.email, err);
+          }
+        } else {
+          // 2. Verifica se é uma agenda da equipe (subordinado)
+          const isTeam = teamCalendars.includes(email);
+          if (isTeam) {
+            try {
+              // Usa o token do gestor (token ativo) para chamar a API e ler a agenda do subordinado
+              const gestorToken = googleCalendarToken || (calendarAccounts.length > 0 ? calendarAccounts[0].token : null);
+              if (gestorToken) {
+                const response = await fetch(
+                  `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(email)}/events?timeMin=${nowStr}&maxResults=20&singleEvents=true&orderBy=startTime`,
+                  {
+                    headers: {
+                      'Authorization': `Bearer ${gestorToken}`,
+                      'Content-Type': 'application/json'
+                    }
+                  }
+                );
+                if (response.ok) {
+                  const data = await response.json();
+                  const events = data.items || [];
+                  allEvents.push(...events.map((ev: any) => ({ ...ev, calendarName: email })));
+                } else {
+                  console.error('Erro da API Google Calendar ao buscar subordinado:', email, response.statusText);
+                }
+              }
+            } catch (err) {
+              console.error('Erro ao buscar agenda da equipe:', email, err);
+            }
+          } else {
+            // 3. Fallback para a conta primária se calendarAccounts estiver vazio mas houver token geral
+            if (googleCalendarToken && (email === user?.email || email === 'Minha Agenda')) {
+              try {
+                const events = await getUpcomingEvents(googleCalendarToken, user?.id);
+                allEvents.push(...events.map(ev => ({ ...ev, calendarName: email })));
+              } catch (err) {
+                console.error('Erro ao buscar agenda primária:', err);
+              }
+            }
+          }
+        }
+      }
+
+      setGoogleEvents(allEvents);
+      setLoadingCalendar(false);
+    };
+
+    fetchAllEvents();
+  }, [googleCalendarToken, calendarAccounts, activeCalendarEmails, teamCalendars, user?.id]);
 
   // Sincroniza agendamentos locais não sincronizados para o Google Calendar automaticamente
   useEffect(() => {
@@ -159,11 +249,12 @@ const Agenda: React.FC = () => {
      const mappedGoogleEvents = googleEvents.map(ev => {
         const dateStr = ev.start.dateTime ? ev.start.dateTime.split('T')[0] : (ev.start.date || '');
         const timeStr = ev.start.dateTime ? ev.start.dateTime.split('T')[1].slice(0, 5) : 'Dia Inteiro';
+        const calLabel = ev.calendarName ? ` (${ev.calendarName.split('@')[0]})` : '';
         return {
            id: ev.id,
            date: dateStr,
            time: timeStr,
-           patientName: ev.summary || 'Evento Google',
+           patientName: `${ev.summary || 'Evento Google'}${calLabel}`,
            type: 'Google Calendar',
            status: 'Confirmado' as const,
            isGoogle: true
@@ -424,10 +515,151 @@ const Agenda: React.FC = () => {
         </div>
       )}
 
+      {/* Seletor de Agendas e Equipe */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-black text-navy uppercase tracking-wider flex items-center gap-2">
+              <Users size={16} className="text-blue-600" />
+              Gerenciamento de Agendas
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">Selecione quais agendas exibir na visualização consolidada.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleReconnectCalendar}
+              className="px-3 py-1.5 bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 shadow-sm"
+            >
+              <Plus size={14} />
+              Conectar Outra Conta
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAddTeamModal(true)}
+              className="px-3 py-1.5 bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-100 text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 shadow-sm"
+            >
+              <UserPlus size={14} />
+              Adicionar Agenda da Equipe
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Minhas Agendas / Contas Google */}
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Minhas Contas Google</h4>
+            <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
+              {/* Se não houver nenhuma conectada formalmente */}
+              {calendarAccounts.length === 0 && (
+                <label className="flex items-center gap-3 p-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer text-sm">
+                  <input
+                    type="checkbox"
+                    checked={activeCalendarEmails.includes(user?.email || 'Minha Agenda')}
+                    onChange={(e) => {
+                      const email = user?.email || 'Minha Agenda';
+                      if (e.target.checked) {
+                        setActiveCalendarEmails(prev => [...prev, email]);
+                      } else {
+                        setActiveCalendarEmails(prev => prev.filter(x => x !== email));
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-slate-700 truncate">Minha Agenda</p>
+                    <p className="text-[10px] text-slate-400 truncate">{user?.email || ''}</p>
+                  </div>
+                </label>
+              )}
+              {calendarAccounts.map((account) => (
+                <label key={account.email} className="flex items-center gap-3 p-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer text-sm">
+                  <input
+                    type="checkbox"
+                    checked={activeCalendarEmails.includes(account.email)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setActiveCalendarEmails(prev => [...prev, account.email]);
+                      } else {
+                        setActiveCalendarEmails(prev => prev.filter(x => x !== account.email));
+                      }
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-slate-700 truncate">{account.email === user?.email ? 'Minha Agenda Principal' : 'Agenda Conectada'}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{account.email}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setCalendarAccounts(prev => prev.filter(acc => acc.email !== account.email));
+                      setActiveCalendarEmails(prev => prev.filter(x => x !== account.email));
+                    }}
+                    className="text-slate-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
+                    title="Remover conta conectada"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Agendas de Equipe */}
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Equipe / Subordinados</h4>
+            {teamCalendars.length === 0 ? (
+              <div className="p-6 text-center rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs flex flex-col items-center justify-center gap-1 bg-slate-50/50">
+                <Users size={20} className="text-slate-300 mb-1" />
+                <span className="font-bold">Nenhuma agenda de equipe cadastrada</span>
+                <span>Adicione agendas de seus subordinados para visualizar de forma consolidada</span>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
+                {teamCalendars.map((email) => (
+                  <label key={email} className="flex items-center gap-3 p-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={activeCalendarEmails.includes(email)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setActiveCalendarEmails(prev => [...prev, email]);
+                        } else {
+                          setActiveCalendarEmails(prev => prev.filter(x => x !== email));
+                        }
+                      }}
+                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-700 truncate">Equipe: {email.split('@')[0]}</p>
+                      <p className="text-[10px] text-slate-400 truncate">{email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setTeamCalendars(prev => prev.filter(x => x !== email));
+                        setActiveCalendarEmails(prev => prev.filter(x => x !== email));
+                      }}
+                      className="text-slate-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
+                      title="Remover agenda de equipe"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* KPI GRID */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-4">
         {stats.map((stat, i) => (
-          <div key={i} className="bg-white p-3 md:p-5 rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition-all">
+          <div key={`stat-kpi-${stat.label}-${i}`} className="bg-white p-3 md:p-5 rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition-all">
             <div className="flex justify-between items-start mb-1 md:mb-2">
               <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate mr-1">{stat.label}</span>
               <div className="p-1.5 md:p-2 bg-slate-50 rounded-lg shrink-0">{stat.icon}</div>
@@ -568,7 +800,7 @@ const Agenda: React.FC = () => {
                   
                   return (
                     <div 
-                      key={idx}
+                      key={`weekly-col-${dateStr}-${idx}`}
                       className={`flex flex-col min-h-[400px] rounded-2xl border transition-all ${currentIsToday ? 'bg-white ring-2 ring-navy border-navy shadow-xl' : 'bg-slate-50/50 border-slate-100'}`}
                     >
                       <div className={`p-4 border-b text-center rounded-t-2xl ${currentIsToday ? 'bg-navy text-white' : 'border-slate-100 bg-white'}`}>
@@ -580,7 +812,7 @@ const Agenda: React.FC = () => {
                         {isOccupied ? (
                            <div className="space-y-1">
                               {dayAppointments.map((app, i) => (
-                                <div key={i} className={`p-2 rounded-lg border shadow-sm ${ (app as any).isGoogle ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-100'}`}>
+                                <div key={app.id ? `apt-item-${app.id}` : `apt-item-g-${dateStr}-${i}-${app.time}`} className={`p-2 rounded-lg border shadow-sm ${ (app as any).isGoogle ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-100'}`}>
                                   <div className="flex items-center justify-between gap-1 mb-1">
                                     <span className={`text-[8px] font-black uppercase ${ (app as any).isGoogle ? 'text-amber-600' : 'text-slate-400'}`}>{app.time.slice(0, 5)}</span>
                                     <div className={`w-1.5 h-1.5 rounded-full ${ (app as any).isGoogle ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
@@ -620,7 +852,7 @@ const Agenda: React.FC = () => {
               {todaySlots.length === 0 ? (
                   <p className="text-xs text-slate-400 italic text-center py-4">Nenhum agendamento para este dia.</p>
               ) : todaySlots.map((slot, i) => (
-                <div key={i} className={`flex items-center gap-4 p-4 rounded-xl border transition-all hover:shadow-md ${ (slot as any).isGoogle ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-100'}`}>
+                <div key={slot.id ? `slot-today-${slot.id}` : `slot-today-g-${i}-${slot.time}`} className={`flex items-center gap-4 p-4 rounded-xl border transition-all hover:shadow-md ${ (slot as any).isGoogle ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-100'}`}>
                   <div className="flex flex-col items-center min-w-[40px]">
                     <span className="text-[10px] font-black text-navy">{slot.time.slice(0, 5)}</span>
                   </div>
@@ -737,6 +969,76 @@ const Agenda: React.FC = () => {
                  </div>
               </form>
            </div>
+        </div>
+      )}
+
+      {/* Modal para Adicionar Agenda de Subordinado */}
+      {showAddTeamModal && (
+        <div className="fixed inset-0 bg-navy/80 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[40px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (!subordinateEmail) return;
+              if (!subordinateEmail.includes('@')) {
+                setAddTeamError('Por favor, insira um e-mail válido.');
+                return;
+              }
+              if (teamCalendars.includes(subordinateEmail)) {
+                setAddTeamError('Esta agenda já foi adicionada.');
+                return;
+              }
+              
+              setTeamCalendars(prev => [...prev, subordinateEmail]);
+              setActiveCalendarEmails(prev => [...prev, subordinateEmail]);
+              setShowAddTeamModal(false);
+              setSubordinateEmail('');
+              setAddTeamError('');
+            }}>
+              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-bold text-navy">Adicionar Agenda da Equipe</h3>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Conecte agendas de subordinados</p>
+                </div>
+                <button type="button" onClick={() => { setShowAddTeamModal(false); setSubordinateEmail(''); setAddTeamError(''); }} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400">
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">E-mail do Subordinado</label>
+                  <input
+                    required
+                    type="email"
+                    value={subordinateEmail}
+                    onChange={(e) => { setSubordinateEmail(e.target.value); setAddTeamError(''); }}
+                    placeholder="Ex: dr.joao@gmail.com"
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy focus:outline-none focus:ring-2 focus:ring-navy"
+                  />
+                  {addTeamError && <p className="text-rose-500 text-xs mt-1 font-semibold">{addTeamError}</p>}
+                </div>
+                <p className="text-[10px] text-slate-400 font-bold uppercase leading-relaxed">
+                  Nota: O AXIS utilizará a API do Google Calendar com o token do gestor para acessar a agenda do subordinado. O subordinado precisa compartilhar a agenda dele com você (permissão de visualização ou edição).
+                </p>
+              </div>
+
+              <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddTeamModal(false); setSubordinateEmail(''); setAddTeamError(''); }}
+                  className="px-6 py-3 text-[10px] font-black uppercase text-slate-400 hover:bg-slate-200 rounded-2xl transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-navy text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-navy/30 hover:bg-slate-800 transition-all flex items-center gap-2"
+                >
+                  <Save size={16} /> Confirmar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

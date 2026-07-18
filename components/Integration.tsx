@@ -10,7 +10,6 @@ import { initiateGoogleAdsAuth, exchangeCodeForToken, selectGoogleAdsAccount, ch
 import { initiateMetaAdsAuth, exchangeMetaCode, selectMetaAccount, getMetaAdsStatus, disconnectMetaAds } from '../services/metaAdsService';
 import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
-// import { initInstance, logoutInstance, checkStatus, configureInstance } from '../services/whatsappService'; // REMOVIDO
 import { supabase } from '../lib/supabase';
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
 
@@ -34,7 +33,6 @@ const Integration: React.FC = () => {
     googleCalendarToken, googleAdsToken, setGoogleAdsToken, setGoogleCalendarToken, 
     googleSheetsToken, setGoogleSheetsToken, 
     metaAdsStatus, setMetaAdsStatus,
-    // whatsappConfig, setWhatsappConfig, // REMOVIDO
     user 
   } = useApp();
   
@@ -119,19 +117,6 @@ const Integration: React.FC = () => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 7000); // 7 seconds duration for detailed explanations
   };
-
-  // States WhatsApp (REMOVIDO)
-  /*
-  const [wppQr, setWppQr] = useState<string | null>(null);
-  const [wppPairingCode, setWppPairingCode] = useState<string | null>(null);
-  const [wppStatus, setWppStatus] = useState<'IDLE' | 'CONNECTING' | 'CONNECTED' | 'QRCODE' | 'PAIRING' | 'DISCONNECTED'>('IDLE');
-  const [wppError, setWppError] = useState('');
-  const [wppPhone, setWppPhone] = useState(''); 
-  const [tempInstanceName, setTempInstanceName] = useState<string>(''); 
-
-  // Polling Ref
-  const pollingIntervalRef = useRef<any>(null);
-  */
 
   // Sheets States
   const [spreadsheets, setSpreadsheets] = useState<any[]>([]);
@@ -882,80 +867,6 @@ const Integration: React.FC = () => {
       }
   };
 
-  // Restante dos useEffects (WhatsApp, etc) - REMOVIDO
-  /*
-  useEffect(() => {
-     if (whatsappConfig?.isConnected) {
-         setWppStatus('CONNECTED');
-         setWppQr(null);
-         setWppPairingCode(null);
-         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-     }
-  }, [whatsappConfig]);
-
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-    };
-  }, []);
-
-  // Polling WhatsApp
-  useEffect(() => {
-    if (wppStatus === 'QRCODE' && tempInstanceName) {
-      pollingIntervalRef.current = setInterval(async () => {
-        try {
-          const result = await checkStatus(tempInstanceName);
-          if (result.status === 'connected') {
-             clearInterval(pollingIntervalRef.current);
-             if (user) await configureInstance(tempInstanceName, user.id);
-             setWppStatus('CONNECTED');
-             setWhatsappConfig({ instanceName: tempInstanceName, isConnected: true, apiKey: '', baseUrl: '' });
-             setWppQr(null);
-          }
-        } catch (e) { console.error("Polling error", e); }
-      }, 3000);
-    } else {
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-    }
-  }, [wppStatus, tempInstanceName, user, setWhatsappConfig]);
-  */
-
-  // Handlers
-  /* REMOVIDO
-  const handleWppConnect = async () => { 
-    if (!user) return;
-    setWppStatus('CONNECTING'); setLoading('wpp'); setWppError(''); setWppQr(null); setWppPairingCode(null);
-    try {
-        const result = await initInstance(user.id, user.clinic, wppPhone || undefined);
-        if (result.error) throw new Error(result.error);
-        const instanceName = result.instanceName;
-        if (!instanceName) throw new Error("Erro: Nome da instância não retornado.");
-        setTempInstanceName(instanceName);
-        if (result.qrCodeBase64) {
-            setWppQr(result.qrCodeBase64.startsWith('data:') ? result.qrCodeBase64 : `data:image/png;base64,${result.qrCodeBase64}`);
-            setWppStatus('QRCODE');
-        } else if (result.pairingCode) {
-            setWppPairingCode(result.pairingCode);
-            setWppStatus('PAIRING');
-        } else if (result.status === 'CONNECTED' || result.instance?.state === 'open') {
-             await configureInstance(instanceName, user.id);
-             setWppStatus('CONNECTED');
-             setWhatsappConfig({ instanceName: instanceName, isConnected: true, apiKey: '', baseUrl: '' });
-        } else {
-             throw new Error("Não foi possível obter o código de conexão.");
-        }
-    } catch (err: any) {
-        setWppStatus('DISCONNECTED'); setWppError(err.message || "Erro ao conectar via N8N.");
-    } finally { setLoading(null); }
-  };
-
-  const handleWppDisconnect = async () => {
-      if (user) await logoutInstance(user.id, whatsappConfig?.instanceName);
-      setWhatsappConfig(null); setWppStatus('IDLE'); setWppQr(null); setWppPairingCode(null); setWppPhone('');
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-  };
-  */
-  
   const handleGoogleLogin = async () => { 
       setLoading('google-ads'); 
       try { 
@@ -1218,38 +1129,6 @@ const Integration: React.FC = () => {
       <div className="h-px bg-slate-200 w-full"></div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        
-        {/* WHATSAPP CARD (REMOVIDO) */}
-        {/*
-        <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all relative overflow-hidden ${whatsappConfig?.isConnected ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MessageCircle size={24} className="text-emerald-600"/></div>
-              {whatsappConfig?.isConnected ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Ativo</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
-            </div>
-            <h3 className="font-black text-navy text-sm uppercase tracking-widest">WhatsApp Business</h3>
-            <p className="text-[10px] text-slate-400 mt-1 mb-4">Conecte seu número para ativar a IA.</p>
-            
-            {whatsappConfig?.isConnected ? (
-               <div className="mt-auto space-y-3">
-                   <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl"><p className="text-[10px] font-bold text-emerald-800 flex items-center gap-2"><Smartphone size={12}/> Online: {whatsappConfig.instanceName}</p></div>
-                   <button onClick={handleWppDisconnect} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><LogOut size={12} /> Desconectar</button>
-               </div>
-            ) : (
-               <div className="mt-auto space-y-3">
-                   {(wppStatus === 'IDLE' || wppStatus === 'DISCONNECTED') && (
-                       <div className="space-y-3 animate-in fade-in">
-                          {wppError && <div className="text-[9px] text-rose-500 font-bold bg-rose-50 p-3 rounded-xl flex items-start gap-2 leading-tight mb-2"><AlertCircle size={14} className="shrink-0"/> {wppError}</div>}
-                          <div className="space-y-1"><label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Seu Número WhatsApp (Opcional)</label><div className="relative"><Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input type="tel" value={wppPhone} onChange={(e) => setWppPhone(e.target.value.replace(/\D/g, ''))} placeholder="11999999999" className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-navy focus:outline-none focus:border-navy" /></div><p className="text-[9px] text-slate-400 px-1">Deixe vazio para escanear QR Code.</p></div>
-                          <button onClick={handleWppConnect} className="w-full py-3 bg-navy text-white rounded-xl text-[10px] font-black uppercase flex justify-center items-center gap-2 hover:bg-slate-800 shadow-lg shadow-navy/20">{loading === 'wpp' ? <Loader2 size={14} className="animate-spin" /> : (wppPhone ? 'Conectar via N8N' : 'Gerar QR via N8N')}</button>
-                       </div>
-                   )}
-                   {wppStatus === 'CONNECTING' && <div className="flex flex-col items-center py-4 text-slate-400 animate-in fade-in"><Loader2 size={24} className="animate-spin mb-2 text-navy" /><p className="text-[10px] font-bold uppercase">Solicitando N8N...</p></div>}
-                   {wppStatus === 'PAIRING' && wppPairingCode && <div className="text-center space-y-4 animate-in zoom-in bg-white p-4 rounded-xl border-2 border-dashed border-navy/20"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Código de Pareamento</p><div className="flex items-center justify-center gap-3"><h2 className="text-3xl font-black text-navy tracking-widest">{wppPairingCode.slice(0,4)}-{wppPairingCode.slice(4)}</h2><button onClick={() => navigator.clipboard.writeText(wppPairingCode)} className="p-2 text-slate-400 hover:text-navy hover:bg-slate-50 rounded-lg" title="Copiar"><Copy size={16} /></button></div><div className="text-[10px] text-left space-y-1.5 text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100 leading-tight"><p>1. No seu WhatsApp, vá em <strong>Aparelhos Conectados</strong>.</p><p>2. Toque em <strong>Conectar Aparelho</strong>.</p><p>3. Escolha <strong>"Conectar com número de telefone"</strong>.</p><p>4. Digite o código acima.</p></div><button onClick={() => setWppStatus('IDLE')} className="text-[9px] underline text-slate-400 hover:text-rose-400">Cancelar</button></div>}
-                   {wppStatus === 'QRCODE' && wppQr && <div className="text-center space-y-3 animate-in zoom-in"><div className="bg-white p-2 rounded-xl border border-slate-200 inline-block shadow-sm"><img src={wppQr} alt="QR Code" className="w-48 h-48 object-contain" /></div><div className="flex flex-col items-center gap-1"><p className="text-[10px] font-bold text-navy uppercase animate-pulse">Escaneie com seu WhatsApp</p><p className="text-[9px] text-slate-400">Verificando conexão automaticamente...</p></div><button onClick={() => setWppStatus('IDLE')} className="text-[9px] underline text-slate-400 hover:text-rose-400">Cancelar</button></div>}
-               </div>
-            )}
-        </div>
-        */}
         
         {/* GOOGLE ADS CARD */}
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleAdsToken ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>

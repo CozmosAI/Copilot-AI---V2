@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, 
   ArrowUpCircle, ArrowDownCircle,
-  TrendingUp, PiggyBank,
+  TrendingUp, TrendingDown, PiggyBank,
   Bot, Target, Calendar, Filter, X, Save,
   AlertTriangle, CheckCircle2, AlertCircle, FileText, Settings
 } from 'lucide-react';
@@ -214,6 +214,37 @@ const Financial: React.FC = () => {
       prevDespesas
     };
   }, [financialEntries]);
+
+  const lastMonthEntries = useMemo(() => {
+    // Calcular período do mês anterior equivalente
+    const startDate = new Date(dashboardDateFilter.start);
+    const endDate = new Date(dashboardDateFilter.end);
+    const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    const lastMonthStart = new Date(startDate);
+    lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+    
+    const lastMonthEnd = new Date(lastMonthStart);
+    lastMonthEnd.setDate(lastMonthEnd.getDate() + diffDays);
+    
+    const startStr = lastMonthStart.toISOString().split('T')[0];
+    const endStr = lastMonthEnd.toISOString().split('T')[0];
+    
+    return financialEntries.filter(e => 
+      e.date >= startStr && e.date <= endStr && e.status !== 'cancelada'
+    );
+  }, [financialEntries, dashboardDateFilter.start, dashboardDateFilter.end]);
+
+  const lastMonthReceita = lastMonthEntries.filter(e => e.type === 'receivable' && e.status === 'efetuada').reduce((acc, curr) => acc + curr.total, 0);
+  const lastMonthDespesas = lastMonthEntries.filter(e => e.type === 'payable').reduce((acc, curr) => acc + curr.total, 0);
+
+  const calcVariation = (current: number, previous: number) => {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return ((current - previous) / previous) * 100;
+  };
+
+  const receitaVariation = calcVariation(metrics.financeiro.receitaBruta, lastMonthReceita);
+  const despesasVariation = calcVariation(metrics.financeiro.gastosTotais, lastMonthDespesas);
 
   // DRE Simplificado
   const dreData = useMemo(() => {
@@ -476,13 +507,15 @@ const Financial: React.FC = () => {
               </div> 
               RECEITA BRUTA
             </div>
-            {monthlyComparison.receitaVar !== 0 && (
-              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${monthlyComparison.receitaVar >= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
-                {monthlyComparison.receitaVar >= 0 ? '+' : ''}{monthlyComparison.receitaVar.toFixed(1)}%
-              </span>
-            )}
           </div>
           <p className="text-base md:text-2xl font-black text-navy leading-none">R$ {metrics.financeiro.receitaBruta.toLocaleString('pt-BR', { notation: 'compact' })}</p>
+          <div className="flex items-center gap-1 mt-1">
+            <span className={`text-[10px] font-bold flex items-center gap-0.5 ${receitaVariation >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+              {receitaVariation >= 0 ? <TrendingUp size={12}/> : <TrendingDown size={12}/>}
+              {receitaVariation >= 0 ? '+' : ''}{receitaVariation.toFixed(1)}%
+            </span>
+            <span className="text-[9px] text-slate-400">vs mês anterior</span>
+          </div>
           <span className="text-[8px] md:text-[9px] font-bold text-emerald-500 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Saldo Efetivado</span>
         </div>
 
@@ -494,13 +527,15 @@ const Financial: React.FC = () => {
               </div> 
               GASTOS TOTAIS
             </div>
-            {monthlyComparison.despesaVar !== 0 && (
-              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${monthlyComparison.despesaVar <= 0 ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
-                {monthlyComparison.despesaVar >= 0 ? '+' : ''}{monthlyComparison.despesaVar.toFixed(1)}%
-              </span>
-            )}
           </div>
           <p className="text-base md:text-2xl font-black text-rose-500 leading-none">R$ {metrics.financeiro.gastosTotais.toLocaleString('pt-BR', { notation: 'compact' })}</p>
+          <div className="flex items-center gap-1 mt-1">
+            <span className={`text-[10px] font-bold flex items-center gap-0.5 ${despesasVariation <= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+              {despesasVariation <= 0 ? <TrendingDown size={12}/> : <TrendingUp size={12}/>}
+              {despesasVariation >= 0 ? '+' : ''}{despesasVariation.toFixed(1)}%
+            </span>
+            <span className="text-[9px] text-slate-400">vs mês anterior</span>
+          </div>
           <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-1.5 md:mt-2 block italic uppercase tracking-widest truncate">Saída Efetivada</span>
         </div>
 
@@ -780,7 +815,7 @@ const Financial: React.FC = () => {
               <table className="w-full">
                 <tbody>
                   {dreData.receitasByCat.map((item, idx) => (
-                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <tr key={`dre-receitas-${item.name}`} className="border-b border-slate-50 hover:bg-slate-50/50">
                       <td className="py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{item.name}</td>
                       <td className="py-3 text-right text-xs font-extrabold text-navy">R$ {item.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     </tr>
@@ -804,7 +839,7 @@ const Financial: React.FC = () => {
               <table className="w-full">
                 <tbody>
                   {dreData.despesasByCat.map((item, idx) => (
-                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <tr key={`dre-despesas-${item.name}`} className="border-b border-slate-50 hover:bg-slate-50/50">
                       <td className="py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{item.name}</td>
                       <td className="py-3 text-right text-xs font-extrabold text-navy">R$ {item.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     </tr>

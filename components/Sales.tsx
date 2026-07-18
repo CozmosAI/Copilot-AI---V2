@@ -18,6 +18,46 @@ import {
 
 type ViewMode = 'kanban' | 'chat' | 'list' | 'metrics';
 
+interface ConversationData {
+  id: string;
+  lead_id?: string | null;
+  unread_count?: number;
+  last_message_text?: string | null;
+  last_message_type?: string | null;
+  last_message_at?: string | null;
+  last_sender?: string | null;
+}
+
+export interface MessageAttachment {
+  id?: string;
+  source_url?: string;
+  filename?: string;
+  file_name?: string;
+  message_id?: string;
+  mime_type?: string;
+  [key: string]: unknown;
+}
+
+interface SalesMessage {
+  id: string;
+  conversation_id?: string;
+  lead_id?: string;
+  message_direction?: string;
+  sender_type?: string;
+  message_type?: string;
+  message_text?: string;
+  caption?: string;
+  media_url?: string;
+  media_mime_type?: string;
+  media_filename?: string;
+  message_status?: string;
+  from_me?: boolean;
+  created_at?: string;
+  sent_at?: string;
+  attachments?: MessageAttachment[];
+  raw_metadata?: { mediaUrlPending?: boolean };
+}
+
 const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -26,7 +66,7 @@ const formatBytes = (bytes: number) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-const formatConversationPreview = (conv: any, leadLastMessage?: string) => {
+const formatConversationPreview = (conv: { last_message_type?: string | null; last_message_text?: string | null; last_sender?: string | null } | null | undefined, leadLastMessage?: string) => {
     const type = conv?.last_message_type?.toLowerCase() || '';
     const text = conv?.last_message_text || leadLastMessage;
     const isOutbound = conv?.last_sender === 'me' || conv?.last_sender === 'ai';
@@ -101,10 +141,10 @@ const Sales: React.FC = () => {
     loadInitialData();
   }, [user?.id]);
 
-  const evaluateSegment = (lead: any, rules: any): boolean => {
+  const evaluateSegment = (lead: Lead & { last_interaction?: string }, rules: LeadSegment['rules'] | null | undefined): boolean => {
     if (!rules || !rules.conditions) return true;
-    const results = rules.conditions.map((cond: any) => {
-      let fieldValue: any;
+    const results = rules.conditions.map((cond) => {
+      let fieldValue: unknown;
       if (cond.field.startsWith('custom_field.')) {
         const customKey = cond.field.replace('custom_field.', '');
         fieldValue = lead.custom_fields?.[customKey];
@@ -113,36 +153,36 @@ const Sales: React.FC = () => {
         if (field === 'potential_value') field = 'potentialValue';
         if (field === 'last_interaction') field = 'lastInteraction';
         if (field === 'last_sender') field = 'lastSender';
-        fieldValue = lead[field];
+        fieldValue = lead[field as keyof Lead] || (lead as unknown as Record<string, unknown>)[field];
       }
       
       switch (cond.op) {
         case 'eq': return fieldValue === cond.value;
         case 'neq': return fieldValue !== cond.value;
         case 'in': return Array.isArray(cond.value) && cond.value.includes(fieldValue);
-        case 'gt': return Number(fieldValue) > Number(cond.value);
-        case 'gte': return Number(fieldValue) >= Number(cond.value);
-        case 'lt': return Number(fieldValue) < Number(cond.value);
-        case 'lte': return Number(fieldValue) <= Number(cond.value);
+        case 'gt': return Number(fieldValue as string | number) > Number(cond.value);
+        case 'gte': return Number(fieldValue as string | number) >= Number(cond.value);
+        case 'lt': return Number(fieldValue as string | number) < Number(cond.value);
+        case 'lte': return Number(fieldValue as string | number) <= Number(cond.value);
         case 'contains': {
           if (Array.isArray(fieldValue)) {
-            return fieldValue.includes(cond.value);
+            return (fieldValue as unknown[]).includes(cond.value);
           }
           if (typeof fieldValue === 'string') {
-            return fieldValue.includes(cond.value);
+            return fieldValue.includes(cond.value as string);
           }
           return false;
         }
         case 'older_than_hours': {
           if (!lead.lastInteraction && !lead.last_interaction) return false;
           const dateVal = lead.lastInteraction || lead.last_interaction;
-          const hoursAgo = (Date.now() - new Date(dateVal).getTime()) / (1000 * 60 * 60);
+          const hoursAgo = (Date.now() - new Date(dateVal as string).getTime()) / (1000 * 60 * 60);
           return hoursAgo > Number(cond.value);
         }
         case 'older_than_days': {
           if (!lead.lastInteraction && !lead.last_interaction) return false;
           const dateVal = lead.lastInteraction || lead.last_interaction;
-          const daysAgo = (Date.now() - new Date(dateVal).getTime()) / (1000 * 60 * 60 * 24);
+          const daysAgo = (Date.now() - new Date(dateVal as string).getTime()) / (1000 * 60 * 60 * 24);
           return daysAgo > Number(cond.value);
         }
         default: return true;
@@ -181,7 +221,7 @@ const Sales: React.FC = () => {
 
   // CRM Integration States
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  const [selectedConversation, setSelectedConversation] = useState<any | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationData | null>(null);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatSendError, setChatSendError] = useState<string | null>(null);
@@ -190,10 +230,10 @@ const Sales: React.FC = () => {
   const [editLeadPhoneError, setEditLeadPhoneError] = useState<string | null>(null);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
-  const [conversationsMap, setConversationsMap] = useState<Record<string, any>>({});
+  const [conversationsMap, setConversationsMap] = useState<Record<string, ConversationData>>({});
 
   // Image Preview Modal state and esc listener
-  const [selectedImagePreview, setSelectedImagePreview] = useState<{ src: string; attachment?: any; msg?: any } | null>(null);
+  const [selectedImagePreview, setSelectedImagePreview] = useState<{ src: string; attachment?: Record<string, unknown>; msg?: SalesMessage } | null>(null);
   const [showClearChatModal, setShowClearChatModal] = useState(false);
   const [isClearingChat, setIsClearingChat] = useState(false);
 
@@ -371,7 +411,10 @@ const Sales: React.FC = () => {
   };
 
   // SECURE PROXY ATTACHMENT DOWNLOAD HELPER
-  const downloadAttachment = async (attachment: any, msg: any) => {
+  const downloadAttachment = async (
+      attachment: { id?: string; source_url?: string; filename?: string } | null | undefined, 
+      msg: SalesMessage | null | undefined
+  ) => {
       if (!attachment || !attachment.id) {
           const directUrl = attachment?.source_url || msg?.media_url;
           if (directUrl) {
@@ -416,7 +459,7 @@ const Sales: React.FC = () => {
           a.click();
           window.URL.revokeObjectURL(url);
           document.body.removeChild(a);
-      } catch (err: any) {
+      } catch (err: unknown) {
           console.error("Erro no download do anexo:", err);
           alert("Falha ao realizar o download do arquivo.");
       }
@@ -456,8 +499,8 @@ const Sales: React.FC = () => {
           .select('*')
           .eq('conversation_id', conversationId);
         
-         const mergedMessages = (messages as any[]).map(m => {
-           const msgAttachs = attachments ? attachments.filter((a: any) => a.message_id === m.id) : [];
+         const mergedMessages = (messages as Array<Record<string, unknown>>).map(m => {
+           const msgAttachs = attachments ? attachments.filter((a: Record<string, unknown>) => a.message_id === m.id) : [];
            const parsedAttach = msgAttachs[0];
            
            let cleanUrl = m.media_url || parsedAttach?.source_url || null;
@@ -569,7 +612,7 @@ const Sales: React.FC = () => {
                     };
                 });
                 if (selectedConversation) {
-                    setSelectedConversation((prev: any) => prev ? { ...prev, unread_count: 0 } : null);
+                    setSelectedConversation((prev) => prev ? { ...prev, unread_count: 0 } : null);
                 }
             } catch (err) {
                 console.error("Erro ao marcar conversa como lida:", err);
@@ -636,7 +679,7 @@ const Sales: React.FC = () => {
       });
 
       if (selectedConversation) {
-        setSelectedConversation((prev: any) => prev ? {
+        setSelectedConversation((prev) => prev ? {
           ...prev,
           last_message_text: null,
           last_message_type: null,
@@ -659,9 +702,10 @@ const Sales: React.FC = () => {
       // Fechar modal e avisar sucesso
       setShowClearChatModal(false);
       alert("Histórico de mensagens apagado com sucesso!");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Erro ao apagar histórico de mensagens:", err);
-      alert("Falha ao apagar histórico de mensagens: " + (err.message || err));
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert("Falha ao apagar histórico de mensagens: " + errMsg);
     } finally {
       setIsClearingChat(false);
     }
@@ -685,9 +729,10 @@ const Sales: React.FC = () => {
 
         alert("Lead apagado com sucesso");
         setActiveLead(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error("Erro ao deletar lead:", err);
-        alert(err.message || "Erro ao deletar lead.");
+        const errMsg = err instanceof Error ? err.message : "Erro ao deletar lead.";
+        alert(errMsg);
     }
   };
 
@@ -709,8 +754,8 @@ const Sales: React.FC = () => {
         .from('crm_conversations')
         .select('*');
       if (data) {
-        const map: Record<string, any> = {};
-        data.forEach((c: any) => {
+        const map: Record<string, ConversationData> = {};
+        data.forEach((c: ConversationData) => {
           map[c.id] = c;
           if (c.lead_id) {
             map[`lead_${c.lead_id}`] = c;
@@ -731,7 +776,7 @@ const Sales: React.FC = () => {
         },
         (payload) => {
           if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-            const updatedConv = payload.new;
+            const updatedConv = payload.new as ConversationData;
             setConversationsMap((prev) => ({
               ...prev,
               [updatedConv.id]: updatedConv,
@@ -805,15 +850,15 @@ const Sales: React.FC = () => {
           filter: `conversation_id=eq.${selectedConversationId}`
         },
         (payload) => {
-          const changedAttachment = payload.new as any;
+          const changedAttachment = payload.new as MessageAttachment;
           if (!changedAttachment) return;
           setChatMessages((prev) => {
             return prev.map((m) => {
               if (m.id === changedAttachment.message_id) {
                 const existingAttachments = m.attachments || [];
-                const hasMatch = existingAttachments.some((a: any) => a.id === changedAttachment.id);
+                const hasMatch = existingAttachments.some((a: MessageAttachment) => a.id === changedAttachment.id);
                 const updatedAttachs = hasMatch
-                  ? existingAttachments.map((a: any) => a.id === changedAttachment.id ? changedAttachment : a)
+                  ? existingAttachments.map((a: MessageAttachment) => a.id === changedAttachment.id ? changedAttachment : a)
                   : [...existingAttachments, changedAttachment];
                 
                 return {
@@ -907,7 +952,7 @@ const Sales: React.FC = () => {
       const lead = leads.find(l => l.id === leadId);
       
       if (lead && lead.status !== newStatus) {
-          await updateLead({ ...lead, status: newStatus as any });
+          await updateLead({ ...lead, status: newStatus });
           if (newStatus === 'Venda') {
              if(confirm(`Confirmar venda para ${lead.name}?`)) {
                 await addFinancialEntry({ id: crypto.randomUUID(), type: 'receivable', category: 'Consulta Particular', name: `Consulta - ${lead.name}`, unitValue: user?.ticketValue || 450, total: user?.ticketValue || 450, status: 'efetuada', date: new Date().toISOString().split('T')[0], discount: 0, addition: 0 });
@@ -970,7 +1015,7 @@ const Sales: React.FC = () => {
                   alert(`Erro ao salvar/enviar mídia: ${result.error || "Ocorreu um erro desconhecido."}`);
               }
           }
-      } catch (err: any) {
+      } catch (err: unknown) {
           console.error("Erro ao enviar mídia do CRM:", err);
           alert(`Erro ao salvar/enviar mídia: Ocorreu uma falha de conexão.`);
       } finally {
@@ -1104,10 +1149,11 @@ const Sales: React.FC = () => {
                   setPhoneValidationError(result.error);
               }
           }
-      } catch (err: any) {
+      } catch (err: unknown) {
           console.error("Erro ao iniciar conversa:", err);
-          setChatError(err?.message || 'Falha ao conectar com o servidor e iniciar a conversa.');
-          setPhoneValidationError(err?.message || 'Falha ao conectar com o servidor e iniciar a conversa.');
+          const errMsg = err instanceof Error ? err.message : 'Falha ao conectar com o servidor e iniciar a conversa.';
+          setChatError(errMsg);
+          setPhoneValidationError(errMsg);
       } finally {
           setIsStartingConversation(false);
       }
@@ -1243,7 +1289,7 @@ const Sales: React.FC = () => {
   const activeLeadsCount = filteredLeads.filter(l => l.status !== 'Venda' && l.status !== 'Perdido').length;
 
   const sourceData = useMemo(() => {
-    const sources: any = {};
+    const sources: Record<string, number> = {};
     filteredLeads.forEach(l => {
         const s = l.source || 'Outros';
         sources[s] = (sources[s] || 0) + 1;
@@ -1577,8 +1623,8 @@ const Sales: React.FC = () => {
                        const convA = conversationsMap[a.conversation_id || ''] || conversationsMap[`lead_${a.id}`];
                        const convB = conversationsMap[b.conversation_id || ''] || conversationsMap[`lead_${b.id}`];
                        
-                       const timeA = convA?.last_message_at ? new Date(convA.last_message_at).getTime() : new Date(a.created_at || 0).getTime();
-                       const timeB = convB?.last_message_at ? new Date(convB.last_message_at).getTime() : new Date(b.created_at || 0).getTime();
+                       const timeA = convA?.last_message_at ? new Date(convA.last_message_at as string).getTime() : new Date(a.created_at || 0).getTime();
+                       const timeB = convB?.last_message_at ? new Date(convB.last_message_at as string).getTime() : new Date(b.created_at || 0).getTime();
                        
                        return timeB - timeA; // Descending
                    })
@@ -1586,7 +1632,7 @@ const Sales: React.FC = () => {
                        const conv = conversationsMap[lead.conversation_id || ''] || conversationsMap[`lead_${lead.id}`];
                        const displayLastMessage = formatConversationPreview(conv, lead.lastMessage);
                        const displayLastInteraction = conv?.last_message_at 
-                         ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                         ? new Date(conv.last_message_at as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
                          : (lead.lastInteraction || '');
                        const unreadCount = conv?.unread_count || 0;
                        
@@ -2345,7 +2391,7 @@ const Sales: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {customFields.map(field => {
                                         const value = newLeadData.custom_fields?.[field.field_key] || '';
-                                        const setVal = (v: any) => {
+                                        const setVal = (v: string | number | boolean) => {
                                             setNewLeadData({
                                                 ...newLeadData,
                                                 custom_fields: {
@@ -2528,7 +2574,7 @@ const Sales: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {customFields.map(field => {
                                         const value = editingLeadData.custom_fields?.[field.field_key] || '';
-                                        const setVal = (v: any) => {
+                                        const setVal = (v: string | number | boolean) => {
                                             setEditingLeadData({
                                                 ...editingLeadData,
                                                 custom_fields: {

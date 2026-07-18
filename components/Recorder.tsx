@@ -8,6 +8,8 @@ import {
 import { useApp } from '../App';
 import { ConsultationRecording } from '../types';
 import { generateSOAPFromTranscript } from '../services/geminiService';
+import { supabase } from '../lib/supabase';
+import { apiFetch, safeJsonResponse } from '../services/apiClient';
 
 declare global {
   interface Window {
@@ -17,9 +19,14 @@ declare global {
 }
 
 const Recorder: React.FC = () => {
-  const { recordings, addRecording, updateRecording, deleteRecording } = useApp();
+  const { user, recordings, addRecording, updateRecording, deleteRecording } = useApp();
   
   // State: Recording Logic
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [permissionError, setPermissionError] = useState(false);
@@ -32,6 +39,7 @@ const Recorder: React.FC = () => {
 
   // State: Processing
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingText, setProcessingText] = useState('');
   const [activeRecording, setActiveRecording] = useState<ConsultationRecording | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -52,6 +60,13 @@ const Recorder: React.FC = () => {
     }
     return () => clearInterval(timerRef.current);
   }, [isRecording]);
+
+  useEffect(() => {
+    if (recordingTime >= 300 && isRecording) {
+      stopRecording();
+      alert("Limite de 5 minutos atingido. Parando gravação...");
+    }
+  }, [recordingTime, isRecording]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -89,151 +104,302 @@ const Recorder: React.FC = () => {
   useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
   useEffect(() => { permissionErrorRef.current = permissionError; }, [permissionError]);
 
-  const startRecording = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Seu navegador não suporta transcrição de voz. Use Chrome, Edge ou Safari.");
-      return;
-    }
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = (reader.result as string).split(',')[1];
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
 
-    // Reset States
-    setPermissionError(false);
-    setTranscript('');
-    finalTranscriptRef.current = ''; 
-    setRecordingTime(0);
-    setActiveRecording(null); 
-    setSoapData({ s: '', o: '', a: '', p: '' }); 
-    setPatientName('Paciente Novo');
-
-    // Abort existing instance aggressively
-    if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch {}
-        recognitionRef.current = null;
-    }
-
+  const startRecording = async () => {
     try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true; 
-      recognition.interimResults = true;
-      recognition.lang = 'pt-BR'; 
+      // 1. Pedir permissão de microfone
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Reset States
+      setPermissionError(false);
+      setTranscript('');
+      finalTranscriptRef.current = ''; 
+      setRecordingTime(0);
+      setActiveRecording(null); 
+      setSoapData({ s: '', o: '', a: '', p: '' }); 
+      setPatientName(patientName || 'Paciente Novo');
+      setAudioChunks([]);
+      audioChunksRef.current = [];
 
-      recognition.onstart = () => {
-          console.log("Gravador: Iniciado");
-          setIsRecording(true);
-          setPermissionError(false);
+      // 2. Criar MediaRecorder com mimeType 'audio/webm' ou fallback
+      let options = { mimeType: 'audio/webm' };
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/ogg' };
+      }
+      
+      const recorder = new MediaRecorder(stream, options);
+      setMediaRecorder(recorder);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          setAudioChunks(prev => {
+            const updated = [...prev, event.data];
+            audioChunksRef.current = updated;
+            return updated;
+          });
+        }
       };
 
-      recognition.onend = () => {
-          console.log("Gravador: Parou");
-          if (isRecordingRef.current && !permissionErrorRef.current) {
-             try { 
-                 recognition.start(); 
-             } catch {
-                 setIsRecording(false);
-             }
-          } else {
-             setIsRecording(false);
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+        stream.getTracks().forEach(track => track.stop());
+        await processRecording(audioBlob);
+      };
+
+      // Iniciar MediaRecorder
+      recorder.start(1000);
+      setIsRecording(true);
+
+      // Iniciar SpeechRecognition em paralelo para suporte offline/fallback e tempo real
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.abort(); } catch {}
+          recognitionRef.current = null;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true; 
+        recognition.interimResults = true;
+        recognition.lang = 'pt-BR'; 
+
+        recognition.onstart = () => {
+            console.log("SpeechRecognition ao vivo iniciado");
+        };
+
+        recognition.onresult = (event: any) => {
+          let interimTranscript = '';
+          let newFinalTranscript = '';
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              newFinalTranscript += event.results[i][0].transcript + ' ';
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
           }
-      };
 
-      recognition.onresult = (event: any) => {
-        let interimTranscript = '';
-        let newFinalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            newFinalTranscript += event.results[i][0].transcript + ' ';
-          } else {
-            interimTranscript += event.results[i][0].transcript;
+          if (newFinalTranscript) {
+              finalTranscriptRef.current += newFinalTranscript;
           }
-        }
+          setTranscript(finalTranscriptRef.current + interimTranscript);
+        };
 
-        if (newFinalTranscript) {
-            finalTranscriptRef.current += newFinalTranscript;
-        }
-        setTranscript(finalTranscriptRef.current + interimTranscript);
-      };
+        recognition.onerror = (event: any) => {
+          console.error("Erro na transcrição ao vivo:", event.error);
+        };
 
-      recognition.onerror = (event: any) => {
-        console.error("Speech Recognition Error (Gravador):", event.error);
-        
-        if (event.error === 'not-allowed') {
-            setPermissionError(true);
-            setIsRecording(false);
-        } else if (event.error === 'no-speech') {
-            // Ignora silenciosamente, onend vai reiniciar se continuous
-        } else if (event.error === 'aborted') {
-            // Ignora
-        } else {
-            // Outros erros param a gravação
-            setIsRecording(false);
-        }
-      };
+        recognition.onend = () => {
+          if (isRecordingRef.current) {
+            try { recognition.start(); } catch {}
+          }
+        };
 
-      recognition.start();
-      recognitionRef.current = recognition;
+        recognition.start();
+        recognitionRef.current = recognition;
+      }
 
     } catch (err) {
-      console.error(err);
-      alert("Erro ao inicializar microfone. Verifique as permissões.");
+      console.error("Erro de microfone:", err);
+      setPermissionError(true);
+      alert("Não foi possível acessar o microfone. Verifique as permissões do seu navegador.");
     }
   };
 
   const stopRecording = () => {
-    // Flag manual stop
     setIsRecording(false);
+    
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.error("Erro ao parar gravador:", e);
+      }
+    }
     
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
-      // Não anulamos imediatamente para deixar o onend rodar, mas o isRecording false impede o restart
     }
-    
-    // Delay para processar o último buffer de áudio
-    setTimeout(() => {
-        if (finalTranscriptRef.current.trim() || transcript.trim()) {
-            handleProcessing();
-        }
-    }, 500);
   };
 
-  // --- PROCESSING ---
-  const handleProcessing = async () => {
-    const textToProcess = finalTranscriptRef.current || transcript;
-
-    if (!textToProcess.trim()) {
-        if (!permissionError) {
-            // Feedback discreto
-            console.log("Nenhum áudio capturado para processar.");
-        }
-        return;
-    }
-
+  const processRecording = async (blob: Blob) => {
     setIsProcessing(true);
+    setProcessingText('Fazendo upload do áudio...');
+
+    let audioUrl = '';
+    const userId = user?.id || 'default_user';
+    const timestamp = Date.now();
+    const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
+    const filePath = `${userId}/${timestamp}.${ext}`;
 
     try {
-      const soapResult = await generateSOAPFromTranscript(textToProcess);
-      
+      // Upload do áudio pro bucket "recordings" no Supabase
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('recordings')
+        .upload(filePath, blob, {
+          contentType: blob.type,
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadErr) {
+        console.error("Erro no upload do Supabase Storage:", uploadErr);
+      } else {
+        console.log("Upload realizado com sucesso:", uploadData);
+        // Tenta obter signed URL ( bucket privado )
+        try {
+          const { data: signedData } = await supabase.storage
+            .from('recordings')
+            .createSignedUrl(filePath, 60 * 60 * 24 * 365); // 1 ano de validade
+          if (signedData?.signedUrl) {
+            audioUrl = signedData.signedUrl;
+          }
+        } catch (signedErr) {
+          console.error("Erro ao gerar signed URL:", signedErr);
+        }
+
+        // Se não conseguir signed URL, tenta publicUrl
+        if (!audioUrl) {
+          const { data: publicUrlData } = supabase.storage
+            .from('recordings')
+            .getPublicUrl(filePath);
+          audioUrl = publicUrlData?.publicUrl || '';
+        }
+      }
+    } catch (err) {
+      console.error("Falha geral no upload de áudio:", err);
+    }
+
+    // Transcrição com Gemini
+    setProcessingText('Transcrevendo áudio...');
+    let transcribedText = '';
+
+    try {
+      const base64Audio = await blobToBase64(blob);
+
+      // Tenta chamar /api/gemini/transcribe se houver
+      try {
+        const response = await apiFetch('/api/gemini/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio: base64Audio, mimeType: blob.type })
+        });
+        if (response.ok) {
+          const result = await safeJsonResponse(response);
+          if (result.text) {
+            transcribedText = result.text;
+          }
+        }
+      } catch (e) {
+        console.log("Endpoint /api/gemini/transcribe não disponível, tentando SOAP direto com áudio.");
+      }
+
+      // Se não transcreveu por /api/gemini/transcribe, tenta SOAP direto com áudio
+      if (!transcribedText) {
+        try {
+          const response = await apiFetch('/api/gemini/soap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio: base64Audio, mimeType: blob.type, transcript: '' })
+          });
+          if (response.ok) {
+            const result = await safeJsonResponse(response);
+            if (result.s || result.o || result.a || result.p) {
+              setProcessingText('Gerando SOAP...');
+              const soapResult = {
+                s: result.s || '',
+                o: result.o || '',
+                a: result.a || '',
+                p: result.p || ''
+              };
+
+              const newRecording: ConsultationRecording = {
+                id: crypto.randomUUID(),
+                patientName: patientName || `Consulta ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+                date: new Date().toISOString().split('T')[0],
+                duration: formatTime(recordingTime),
+                transcript: transcript || 'Áudio enviado para processamento.',
+                soap: soapResult,
+                audioUrl: audioUrl || undefined
+              };
+
+              addRecording(newRecording);
+              setActiveRecording(newRecording);
+              setSoapData(soapResult);
+              setPatientName(newRecording.patientName);
+              setIsProcessing(false);
+              return;
+            }
+          }
+        } catch (e) {
+          console.log("Falha na chamada direta SOAP com áudio:", e);
+        }
+      }
+
+    } catch (err) {
+      console.error("Erro ao converter ou enviar áudio:", err);
+    }
+
+    // Fallback para transcrição local obtida pelo SpeechRecognition
+    if (!transcribedText) {
+      transcribedText = transcript || finalTranscriptRef.current;
+    }
+
+    if (!transcribedText.trim()) {
+      setIsProcessing(false);
+      alert("Erro ao transcrever áudio. Certifique-se de que o microfone está captando som.");
+      return;
+    }
+
+    setTranscript(transcribedText);
+
+    // Gerar SOAP
+    setProcessingText('Gerando SOAP...');
+    try {
+      const soapResult = await generateSOAPFromTranscript(transcribedText);
+
+      // Salvar gravação no estado
       const newRecording: ConsultationRecording = {
         id: crypto.randomUUID(),
         patientName: patientName || `Consulta ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
         date: new Date().toISOString().split('T')[0],
         duration: formatTime(recordingTime),
-        transcript: textToProcess, 
-        soap: soapResult
+        transcript: transcribedText,
+        soap: soapResult,
+        audioUrl: audioUrl || undefined
       };
 
       addRecording(newRecording);
       setActiveRecording(newRecording);
       setSoapData(soapResult);
       setPatientName(newRecording.patientName);
-      setTranscript(textToProcess); 
 
     } catch (e) {
-      console.error("Erro SOAP:", e);
-      alert("Erro ao gerar SOAP com IA. Tente novamente.");
+      console.error("Erro ao gerar SOAP:", e);
+      alert("Erro ao gerar SOAP");
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleNewRecording = () => {
+    setActiveRecording(null);
+    setSoapData({ s: '', o: '', a: '', p: '' });
+    setTranscript('');
+    setPatientName('');
+    setRecordingTime(0);
   };
 
   const handleDelete = (id: string) => {
@@ -278,7 +444,7 @@ const Recorder: React.FC = () => {
                         </span>
                     )}
                     <div className={`w-24 h-24 rounded-[30px] flex items-center justify-center transition-all duration-500 ${isRecording ? 'bg-red-50 text-red-500 scale-110 shadow-xl shadow-red-100' : 'bg-slate-50 text-slate-400'}`}>
-                        <Mic size={40} />
+                        <Mic size={40} className={isRecording ? 'animate-pulse text-red-500' : ''} />
                     </div>
                 </div>
 
@@ -286,22 +452,22 @@ const Recorder: React.FC = () => {
                     {formatTime(recordingTime)}
                 </div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mb-8">
-                    {isRecording ? 'Gravando Áudio...' : 'Pronto para Iniciar'}
+                    {isRecording ? `Gravando... (${recordingTime}s)` : 'Pronto para Iniciar'}
                 </p>
 
                 {!isRecording ? (
                     <button 
                         onClick={startRecording}
-                        className="w-full bg-[#0f172a] text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-navy/20 flex items-center justify-center gap-3 active:scale-95"
+                        className="w-full bg-red-500 hover:bg-red-600 text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-xl shadow-red-100 flex items-center justify-center gap-3 active:scale-95"
                     >
-                        <Play size={16} fill="currentColor" /> Iniciar Consulta
+                        <Play size={16} fill="currentColor" className="text-white" /> Iniciar Gravação
                     </button>
                 ) : (
                     <button 
                         onClick={stopRecording}
-                        className="w-full bg-red-500 text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-red-600 transition-all shadow-xl shadow-red-200 flex items-center justify-center gap-3 active:scale-95"
+                        className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-xl shadow-red-200 flex items-center justify-center gap-3 active:scale-95 animate-pulse"
                     >
-                        <Square size={16} fill="currentColor" /> Finalizar & Processar
+                        <Square size={16} fill="currentColor" /> Parar & Processar
                     </button>
                 )}
             </div>
@@ -363,13 +529,13 @@ const Recorder: React.FC = () => {
                 </div>
             </div>
 
-            {/* SOAP RESULT CARD */}
-            {activeRecording && (
+            {/* SOAP RESULT CARD / LOADER */}
+            {(activeRecording || isProcessing) ? (
                 <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden animate-in slide-in-from-bottom-4 relative">
                     {isProcessing && (
-                        <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
-                            <Loader2 size={32} className="text-blue-600 animate-spin mb-3"/>
-                            <p className="text-xs font-bold text-blue-800 uppercase tracking-widest animate-pulse">Gerando SOAP com IA...</p>
+                        <div className="absolute inset-0 bg-white/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center min-h-[400px]">
+                            <Loader2 size={36} className="text-blue-600 animate-spin mb-4"/>
+                            <p className="text-sm font-bold text-slate-800 uppercase tracking-widest animate-pulse">{processingText}</p>
                         </div>
                     )}
 
@@ -384,8 +550,9 @@ const Recorder: React.FC = () => {
                                     value={patientName} 
                                     onChange={(e) => setPatientName(e.target.value)} 
                                     className="bg-transparent border-b border-white/20 text-xl font-bold text-white focus:outline-none focus:border-white w-48 placeholder-white/50" 
+                                    placeholder="Nome do Paciente"
                                 />
-                                <button onClick={() => updateRecording({...activeRecording, patientName})} className="text-white/50 hover:text-white"><Edit3 size={14}/></button>
+                                <button onClick={() => activeRecording && updateRecording({...activeRecording, patientName})} className="text-white/50 hover:text-white"><Edit3 size={14}/></button>
                             </div>
                         </div>
                         <button onClick={handleCopyFullReport} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-white" title="Copiar Tudo">
@@ -394,6 +561,16 @@ const Recorder: React.FC = () => {
                     </div>
 
                     <div className="p-6 space-y-6">
+                        {/* Audio Player if audioUrl is available */}
+                        {activeRecording?.audioUrl && (
+                            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-inner">
+                                <div className="flex items-center gap-2 text-slate-600 text-xs font-bold uppercase tracking-wider">
+                                    <Mic size={14} className="text-red-500 animate-pulse" /> Áudio Original
+                                </div>
+                                <audio src={activeRecording.audioUrl} controls className="h-8 max-w-full rounded-lg" />
+                            </div>
+                        )}
+
                         {/* SOAP GRID */}
                         <div className="grid grid-cols-1 gap-4">
                             {[
@@ -409,11 +586,11 @@ const Recorder: React.FC = () => {
                                     </div>
                                     <textarea 
                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium leading-relaxed resize-none h-24 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                                        value={(soapData as any)[section.id]}
+                                        value={(soapData as any)[section.id] || ''}
                                         onChange={(e) => setSoapData({...soapData, [section.id]: e.target.value})}
                                     />
                                     <button 
-                                        onClick={() => handleCopy((soapData as any)[section.id], section.id)}
+                                        onClick={() => handleCopy((soapData as any)[section.id] || '', section.id)}
                                         className="absolute top-8 right-2 p-1.5 bg-white shadow-sm border border-slate-100 rounded-lg text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"
                                     >
                                         {copiedSection === section.id ? <Check size={12}/> : <Copy size={12}/>}
@@ -423,14 +600,26 @@ const Recorder: React.FC = () => {
                         </div>
                     </div>
                     
-                    <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                    <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between gap-2">
                         <button 
-                            onClick={() => { updateRecording({...activeRecording, patientName, soap: soapData}); alert('Salvo!'); }}
+                            onClick={handleNewRecording}
+                            className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2"
+                        >
+                            <Trash2 size={14}/> Nova Gravação
+                        </button>
+                        <button 
+                            onClick={() => { activeRecording && updateRecording({...activeRecording, patientName, soap: soapData}); alert('Salvo!'); }}
                             className="bg-navy text-white px-6 py-2 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2"
                         >
                             <Save size={14}/> Salvar Alterações
                         </button>
                     </div>
+                </div>
+            ) : (
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 flex flex-col items-center justify-center h-[400px]">
+                    <Bot size={40} className="mb-3 text-slate-300"/>
+                    <h4 className="text-sm font-bold text-navy uppercase tracking-widest mb-1">Visualização do SOAP</h4>
+                    <p className="text-xs text-slate-400 max-w-xs leading-relaxed">Inicie uma gravação ou selecione uma consulta do histórico ao lado para gerar o prontuário automatizado.</p>
                 </div>
             )}
 
