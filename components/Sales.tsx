@@ -861,8 +861,8 @@ const Sales: React.FC = () => {
 
   useEffect(() => { 
     const timer = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
-    }, 100);
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' }); 
+    }, 300);
     return () => clearTimeout(timer);
   }, [chatMessages, selectedConversationId]);
 
