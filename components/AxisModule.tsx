@@ -155,6 +155,23 @@ const AxisModule: React.FC = () => {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'pt-BR';
+        
+        // Tentativa de selecionar voz feminina pt-BR
+        const voices = window.speechSynthesis.getVoices();
+        const ptVoices = voices.filter(v => v.lang.startsWith('pt'));
+        const femaleVoice = ptVoices.find(v => 
+          v.name.toLowerCase().includes('female') || 
+          v.name.toLowerCase().includes('feminina') || 
+          v.name.toLowerCase().includes('luciana') || 
+          v.name.toLowerCase().includes('vitoria') || 
+          v.name.includes('Google português')
+        );
+        if (femaleVoice) {
+          utterance.voice = femaleVoice;
+        } else if (ptVoices.length > 0) {
+          utterance.voice = ptVoices[0];
+        }
+
         utterance.onstart = () => {
           onStart();
         };
@@ -421,9 +438,10 @@ const AxisModule: React.FC = () => {
           },
           (error) => {
               if (error === 'not-allowed' || error === 'service-not-allowed') {
-                  setErrorMsg("Microfone bloqueado. Permita o acesso.");
-                  setIsActive(false); 
+                  setIsTextMode(true);
                   setMode('idle');
+                  setErrorMsg("Microfone não disponível. Modo texto ativado automaticamente.");
+                  setTimeout(() => setErrorMsg(null), 5000);
               }
           }
       );
@@ -463,9 +481,10 @@ const AxisModule: React.FC = () => {
           },
           (error) => {
               if (error === 'not-allowed' || error === 'service-not-allowed') {
-                  setErrorMsg("Microfone bloqueado. Permita o acesso.");
-                  setIsActive(false); 
+                  setIsTextMode(true);
                   setMode('idle');
+                  setErrorMsg("Microfone não disponível. Modo texto ativado automaticamente.");
+                  setTimeout(() => setErrorMsg(null), 5000);
               }
           }
       );

@@ -562,28 +562,6 @@ const Sales: React.FC = () => {
         }
       }
 
-      if (!convId && lead.phone) {
-        // 2. buscar em crm_conversations por contact.phone = lead.phone se necessário
-        const { data: contact } = await supabase
-          .from('crm_contacts')
-          .select('id')
-          .eq('phone', lead.phone)
-          .maybeSingle();
-
-        if (contact) {
-          const { data: convByContact } = await supabase
-            .from('crm_conversations')
-            .select('*')
-            .eq('contact_id', contact.id)
-            .maybeSingle();
-
-          if (convByContact) {
-            convId = convByContact.id;
-            setSelectedConversation(convByContact);
-          }
-        }
-      }
-
       if (convId) {
         setSelectedConversationId(convId);
         await fetchCrmMessages(convId);
@@ -881,7 +859,12 @@ const Sales: React.FC = () => {
     };
   }, [selectedConversationId]);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+  useEffect(() => { 
+    const timer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [chatMessages, selectedConversationId]);
 
   // --- LÓGICA DE COLUNAS (CRUD + DnD) ---
   
@@ -1747,7 +1730,7 @@ const Sales: React.FC = () => {
                                     <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm text-center">Este lead não possui telefone para iniciar WhatsApp.</p>
                                 ) : (
                                     <>
-                                        <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm mb-2">Este lead ainda não possui conversa no WhatsApp.</p>
+                                        <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm mb-2">Nenhuma conversa vinculada a este lead.</p>
                                         <button 
                                             onClick={handleStartWhatsAppConversation} 
                                             disabled={isStartingConversation}
@@ -1775,7 +1758,9 @@ const Sales: React.FC = () => {
                               </div>
                             ) : chatMessages.length === 0 ? (
                               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 z-10 gap-2">
-                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">Conversa iniciada. Envie a primeira mensagem.</p>
+                                <p className="text-sm font-medium bg-white/80 px-4 py-2 rounded-lg border shadow-sm">
+                                  {selectedConversationId ? 'Conversa iniciada. Envie a primeira mensagem.' : 'Nenhuma conversa vinculada a este lead'}
+                                </p>
                               </div>
                             ) : (
                               chatMessages.map(msg => {

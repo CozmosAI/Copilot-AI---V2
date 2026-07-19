@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle, Loader2, CheckCircle2, Users, UserPlus, Trash2, Plus } from 'lucide-react';
+import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Target, LayoutGrid, List, RefreshCw, X, Save, Edit2, AlertCircle, Loader2, CheckCircle2, Users, UserPlus, Trash2, Plus, Filter } from 'lucide-react';
 import { useApp } from '../App';
 import { getUpcomingEvents, GoogleCalendarEvent, signInWithGoogleCalendar, createCalendarEvent } from '../services/googleCalendarService';
 import { Appointment } from '../types';
@@ -49,6 +49,7 @@ const Agenda: React.FC = () => {
   const [tokenExpiryWarning, setTokenExpiryWarning] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncCount, setSyncCount] = useState(0);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
   const getTokenExpiryDays = (token: string | null): number | null => {
     if (!token) return null;
@@ -442,11 +443,91 @@ const Agenda: React.FC = () => {
              )}
           </div>
         </div>
-        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
-          <Clock size={16} className="text-blue-500" />
-          <span className="text-sm font-bold text-navy">
-            {today.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <button 
+              onClick={() => setShowFilterDropdown(!showFilterDropdown)} 
+              className="bg-white px-3 py-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 hover:bg-slate-50 transition-colors"
+            >
+              <Calendar size={16} className="text-slate-500" />
+              <span className="text-sm font-bold text-slate-700">Filtrar</span>
+              <Filter size={14} className="text-slate-400" />
+            </button>
+            
+            {showFilterDropdown && (
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-lg border border-slate-100 p-3 z-50">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Agendas Conectadas</h4>
+                
+                <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                  {/* Minha Agenda (se nenhuma conectada formalmente) */}
+                  {calendarAccounts.length === 0 && (
+                    <label className="flex items-center gap-3 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeCalendarEmails.includes(user?.email || 'Minha Agenda')}
+                        onChange={(e) => {
+                          const email = user?.email || 'Minha Agenda';
+                          if (e.target.checked) setActiveCalendarEmails(prev => [...prev, email]);
+                          else setActiveCalendarEmails(prev => prev.filter(x => x !== email));
+                        }}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-700 truncate">Minha Agenda</p>
+                        <p className="text-[10px] text-slate-400 truncate">{user?.email || ''}</p>
+                      </div>
+                    </label>
+                  )}
+                  
+                  {/* Contas Google */}
+                  {calendarAccounts.map((account) => (
+                    <label key={account.email} className="flex items-center gap-3 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeCalendarEmails.includes(account.email)}
+                        onChange={(e) => {
+                          if (e.target.checked) setActiveCalendarEmails(prev => [...prev, account.email]);
+                          else setActiveCalendarEmails(prev => prev.filter(x => x !== account.email));
+                        }}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-700 truncate">{account.email === user?.email ? 'Minha Agenda' : 'Agenda Conectada'}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{account.email}</p>
+                      </div>
+                    </label>
+                  ))}
+                  
+                  {/* Agendas de Equipe */}
+                  {teamCalendars.length > 0 && <div className="pt-2 border-t border-slate-100 mt-2"></div>}
+                  {teamCalendars.map((email) => (
+                    <label key={email} className="flex items-center gap-3 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeCalendarEmails.includes(email)}
+                        onChange={(e) => {
+                          if (e.target.checked) setActiveCalendarEmails(prev => [...prev, email]);
+                          else setActiveCalendarEmails(prev => prev.filter(x => x !== email));
+                        }}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-700 truncate">Equipe: {email.split('@')[0]}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{email}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
+            <Clock size={16} className="text-blue-500" />
+            <span className="text-sm font-bold text-navy">
+              {today.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -515,146 +596,7 @@ const Agenda: React.FC = () => {
         </div>
       )}
 
-      {/* Seletor de Agendas e Equipe */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
-          <div>
-            <h3 className="text-sm font-black text-navy uppercase tracking-wider flex items-center gap-2">
-              <Users size={16} className="text-blue-600" />
-              Gerenciamento de Agendas
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">Selecione quais agendas exibir na visualização consolidada.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handleReconnectCalendar}
-              className="px-3 py-1.5 bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 shadow-sm"
-            >
-              <Plus size={14} />
-              Conectar Outra Conta
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAddTeamModal(true)}
-              className="px-3 py-1.5 bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-100 text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1 shadow-sm"
-            >
-              <UserPlus size={14} />
-              Adicionar Agenda da Equipe
-            </button>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Minhas Agendas / Contas Google */}
-          <div className="space-y-2">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Minhas Contas Google</h4>
-            <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
-              {/* Se não houver nenhuma conectada formalmente */}
-              {calendarAccounts.length === 0 && (
-                <label className="flex items-center gap-3 p-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer text-sm">
-                  <input
-                    type="checkbox"
-                    checked={activeCalendarEmails.includes(user?.email || 'Minha Agenda')}
-                    onChange={(e) => {
-                      const email = user?.email || 'Minha Agenda';
-                      if (e.target.checked) {
-                        setActiveCalendarEmails(prev => [...prev, email]);
-                      } else {
-                        setActiveCalendarEmails(prev => prev.filter(x => x !== email));
-                      }
-                    }}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-700 truncate">Minha Agenda</p>
-                    <p className="text-[10px] text-slate-400 truncate">{user?.email || ''}</p>
-                  </div>
-                </label>
-              )}
-              {calendarAccounts.map((account) => (
-                <label key={account.email} className="flex items-center gap-3 p-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer text-sm">
-                  <input
-                    type="checkbox"
-                    checked={activeCalendarEmails.includes(account.email)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setActiveCalendarEmails(prev => [...prev, account.email]);
-                      } else {
-                        setActiveCalendarEmails(prev => prev.filter(x => x !== account.email));
-                      }
-                    }}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-700 truncate">{account.email === user?.email ? 'Minha Agenda Principal' : 'Agenda Conectada'}</p>
-                    <p className="text-[10px] text-slate-400 truncate">{account.email}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setCalendarAccounts(prev => prev.filter(acc => acc.email !== account.email));
-                      setActiveCalendarEmails(prev => prev.filter(x => x !== account.email));
-                    }}
-                    className="text-slate-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
-                    title="Remover conta conectada"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Agendas de Equipe */}
-          <div className="space-y-2">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Equipe / Subordinados</h4>
-            {teamCalendars.length === 0 ? (
-              <div className="p-6 text-center rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs flex flex-col items-center justify-center gap-1 bg-slate-50/50">
-                <Users size={20} className="text-slate-300 mb-1" />
-                <span className="font-bold">Nenhuma agenda de equipe cadastrada</span>
-                <span>Adicione agendas de seus subordinados para visualizar de forma consolidada</span>
-              </div>
-            ) : (
-              <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
-                {teamCalendars.map((email) => (
-                  <label key={email} className="flex items-center gap-3 p-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={activeCalendarEmails.includes(email)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setActiveCalendarEmails(prev => [...prev, email]);
-                        } else {
-                          setActiveCalendarEmails(prev => prev.filter(x => x !== email));
-                        }
-                      }}
-                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-slate-700 truncate">Equipe: {email.split('@')[0]}</p>
-                      <p className="text-[10px] text-slate-400 truncate">{email}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setTeamCalendars(prev => prev.filter(x => x !== email));
-                        setActiveCalendarEmails(prev => prev.filter(x => x !== email));
-                      }}
-                      className="text-slate-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-all"
-                      title="Remover agenda de equipe"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* KPI GRID */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-4">
