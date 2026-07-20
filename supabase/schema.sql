@@ -376,3 +376,9 @@ end;
 $$;
 
 
+-- ==============================================================================
+-- 9. MCP SERVER SUPPORT
+-- ==============================================================================
+ALTER TABLE meta_ads_integrations ADD COLUMN IF NOT EXISTS mcp_enabled boolean DEFAULT false;
+
+

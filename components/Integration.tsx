@@ -49,6 +49,7 @@ const Integration: React.FC = () => {
   const [availableMetaAccounts, setAvailableMetaAccounts] = useState<any[]>(() => JSON.parse(localStorage.getItem('pending_meta_accounts') || '[]'));
   const [metaAccountName, setMetaAccountName] = useState<string>('');
   const [metaConnectionError, setMetaConnectionError] = useState<{ type: string; title: string; desc: string } | null>(null);
+  const [mcpEnabled, setMcpEnabled] = useState<boolean>(false);
   const oauthProcessedRef = useRef(false);
   const userRef = useRef(user);
   useEffect(() => {
@@ -631,7 +632,7 @@ const Integration: React.FC = () => {
         
         const [googleRes, metaRes] = await Promise.allSettled([
           supabase.from('google_ads_integrations').select('customer_id, customer_name, status').eq('user_id', user.id).maybeSingle(),
-          supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status').eq('user_id', user.id).maybeSingle()
+          supabase.from('meta_ads_integrations').select('ad_account_id, ad_account_name, status, mcp_enabled').eq('user_id', user.id).maybeSingle()
         ]);
         
         // Google Ads
@@ -654,12 +655,15 @@ const Integration: React.FC = () => {
           if (m.status === 'active' || m.status === 'connected') {
             setMetaAdsStatus('backend-connected');
             setMetaAccountName(m.ad_account_name || '');
+            setMcpEnabled(!!m.mcp_enabled);
           } else {
             setMetaAdsStatus(null);
             setMetaAccountName('');
+            setMcpEnabled(false);
           }
         } else {
           setMetaAdsStatus(null);
+          setMcpEnabled(false);
         }
       } catch (err) {
         console.error('Erro ao buscar conexões do Supabase:', err);
@@ -722,6 +726,18 @@ const Integration: React.FC = () => {
                           setMetaAdsStatus('backend-connected'); 
                           localStorage.setItem('meta_ads_connected', 'backend-connected');
                           setMetaAccountName(result.account?.name || '');
+                          
+                          // Buscar mcp_enabled atualizado do Supabase
+                          try {
+                              const { supabase: sb } = await import('../lib/supabase');
+                              const { data: m } = await sb.from('meta_ads_integrations').select('mcp_enabled').eq('user_id', currentUser.id).maybeSingle();
+                              if (m) {
+                                  setMcpEnabled(!!m.mcp_enabled);
+                              }
+                          } catch (mcpFetchErr) {
+                              console.error('Erro ao buscar mcp_enabled após exchange:', mcpFetchErr);
+                          }
+
                           setAvailableMetaAccounts([]);
                           localStorage.removeItem('pending_meta_accounts');
                           localStorage.removeItem('show_meta_modal');
@@ -923,6 +939,7 @@ const Integration: React.FC = () => {
               setMetaAdsStatus(null); 
               localStorage.removeItem('meta_ads_connected');
               setMetaAccountName('');
+              setMcpEnabled(false);
               setMetaConnectionError(null);
               setAvailableMetaAccounts([]);
               setShowMetaAccountSelector(false);
@@ -948,6 +965,18 @@ const Integration: React.FC = () => {
           setMetaAdsStatus('backend-connected');
           localStorage.setItem('meta_ads_connected', 'backend-connected');
           setMetaAccountName(accName);
+          
+          // Buscar mcp_enabled atualizado do Supabase
+          try {
+              const { supabase: sb } = await import('../lib/supabase');
+              const { data: m } = await sb.from('meta_ads_integrations').select('mcp_enabled').eq('user_id', user.id).maybeSingle();
+              if (m) {
+                  setMcpEnabled(!!m.mcp_enabled);
+              }
+          } catch (mcpFetchErr) {
+              console.error('Erro ao buscar mcp_enabled após seleção:', mcpFetchErr);
+          }
+
           setShowMetaAccountSelector(false);
           setAvailableMetaAccounts([]);
           localStorage.removeItem('pending_meta_accounts');
@@ -1160,7 +1189,14 @@ const Integration: React.FC = () => {
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${metaAdsStatus ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
             <div className="flex justify-between items-start mb-4">
               <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MetaIcon size={24} /></div>
-              {metaAdsStatus ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
+              {metaAdsStatus ? (
+                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5">
+                  <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span>
+                  {mcpEnabled && <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-200">✨ IA Avançada</span>}
+                </div>
+              ) : (
+                <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>
+              )}
             </div>
             <h3 className="font-black text-navy text-sm uppercase tracking-widest">Meta Ads</h3>
             <p className="text-[10px] text-slate-400 mt-1 mb-4">Conexão segura (OAuth 2.0) com salvamento de tokens e listagem de contas.</p>
