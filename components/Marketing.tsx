@@ -20,6 +20,7 @@ import {
   getMetaOverview, getMetaCampaigns, getMetaAdGroups, getMetaAds, getMetaSearchTerms,
   toggleMetaCampaignStatus, updateMetaCampaignBudget
 } from '../services/metaAdsService';
+import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
 
 // --- TYPES ---
 type BaseMetricType = 'clicks' | 'impressions' | 'spend' | 'conversions' | 'conversionsValue';
@@ -951,7 +952,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
-                <Grid size={14} className="md:w-4 md:h-4" />
+                <GoogleAdsLogo size={24} />
                 <span>Google Ads</span>
             </button>
             <button
@@ -965,7 +966,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
-                <Instagram size={14} className="md:w-4 md:h-4" />
+                <MetaAdsLogo size={24} />
                 <span>Meta Ads</span>
             </button>
         </div>

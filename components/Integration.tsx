@@ -13,21 +13,11 @@ import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getShe
 import { supabase } from '../lib/supabase';
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
 import { MercadoLivreCard } from './connections/MercadoLivreCard';
+import { GoogleCalendarLogo, GoogleAdsLogo, MetaAdsLogo, UazapiLogo } from './icons/CustomLogos';
 
-const GoogleIcon = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-    <path d="M12 23c3.11 0 5.71-1.03 7.61-2.81l-3.57-2.77c-.99.66-2.26 1.06-4.04 1.06-3.41 0-6.3-2.3-7.34-5.41H1.04v2.81C3.12 19.38 7.3 23 12 23z" fill="#34A853"/>
-    <path d="M4.66 14.07c-.26-.77-.41-1.6-.41-2.47s.15-1.7.41-2.47V6.32H1.04C.38 7.64 0 9.13 0 10.7c0 1.57.38 3.06 1.04 4.38l3.62-2.81z" fill="#FBBC05"/>
-    <path d="M12 4.19c1.69 0 3.21.58 4.4 1.72l3.3-3.3C17.71 1.03 15.11 0 12 0 7.3 0 3.12 3.62 1.04 8.07l3.62 2.81c1.04-3.11 3.93-5.41 7.34-5.41z" fill="#EA4335"/>
-  </svg>
-);
+const GoogleIcon = ({ size = 20 }: { size?: number }) => <GoogleAdsLogo size={size} />;
 
-const MetaIcon = ({ size = 24 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="text-blue-500">
-    <path d="M16.5 6C14.58 6 12.92 7.07 12 8.66 11.08 7.07 9.42 6 7.5 6 4.46 6 2 8.46 2 11.5S4.46 17 7.5 17c1.92 0 3.58-1.07 4.5-2.66.92 1.59 2.58 2.66 4.5 2.66 3.04 0 5.5-2.46 5.5-5.5S19.54 6 16.5 6zm-9 9C5.57 15 4 13.43 4 11.5S5.57 8 7.5 8c1.33 0 2.47.74 3.07 1.84A4.954 4.954 0 0 0 10 11.5c0 .64.12 1.25.33 1.81C9.72 14.36 8.65 15 7.5 15zm9 0c-1.15 0-2.22-.64-2.83-1.69.21-.56.33-1.17.33-1.81 0-.64-.12-1.25-.33-1.81C14.28 8.74 15.42 8 16.5 8c1.93 0 3.5 1.57 3.5 3.5S18.43 15 16.5 15z"/>
-  </svg>
-);
+const MetaIcon = ({ size = 24 }: { size?: number }) => <MetaAdsLogo size={size} />;
 
 const Integration: React.FC = () => {
   const { 
@@ -1147,7 +1137,7 @@ const Integration: React.FC = () => {
         {[
             { id: 'google-ads', label: 'Google Ads', active: !!googleAdsToken, icon: <GoogleIcon size={18} /> },
             { id: 'meta-ads', label: 'Meta Ads', active: !!metaAdsStatus, icon: <MetaIcon size={18} /> },
-            { id: 'calendar', label: 'G. Calendar', active: !!googleCalendarToken, icon: <Calendar size={18} className={!!googleCalendarToken ? 'text-amber-500' : ''} /> },
+            { id: 'calendar', label: 'G. Calendar', active: !!googleCalendarToken, icon: <GoogleCalendarLogo size={18} /> },
             { id: 'sheets', label: 'G. Sheets', active: !!googleSheetsToken, icon: <FileSpreadsheet size={18} className={!!googleSheetsToken ? 'text-emerald-500' : ''} /> },
         ].map((item) => (
             <div key={item.id} className={`p-4 rounded-2xl border flex items-center justify-between transition-all ${item.active ? 'bg-emerald-50/50 border-emerald-100 shadow-sm' : 'bg-white border-slate-100 opacity-60 grayscale-[0.5]'}`}>
@@ -1163,7 +1153,7 @@ const Integration: React.FC = () => {
         {/* GOOGLE ADS CARD */}
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleAdsToken ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
             <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><GoogleIcon size={24} /></div>
+              <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-2xl group-hover:bg-navy group-hover:border-navy group-hover:text-white transition-colors flex items-center justify-center shrink-0"><GoogleIcon size={36} /></div>
               {googleAdsToken ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}
             </div>
             <h3 className="font-black text-navy text-sm uppercase tracking-widest">Google Ads</h3>
@@ -1189,7 +1179,7 @@ const Integration: React.FC = () => {
         {/* META ADS CARD */}
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${metaAdsStatus ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
             <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><MetaIcon size={24} /></div>
+              <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-2xl group-hover:bg-navy group-hover:border-navy group-hover:text-white transition-colors flex items-center justify-center shrink-0"><MetaIcon size={36} /></div>
               {metaAdsStatus ? (
                 <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5">
                   <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Conectado</span>
@@ -1246,7 +1236,7 @@ const Integration: React.FC = () => {
 
         {/* OUTROS CARDS (CALENDAR/SHEETS) MANTIDOS IGUAIS */}
         <div className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col group transition-all ${googleCalendarToken ? 'border-emerald-100 ring-1 ring-emerald-50' : 'border-slate-200 hover:border-navy'}`}>
-            <div className="flex justify-between items-start mb-4"><div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><Calendar className="text-amber-500" /></div>{googleCalendarToken ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Ativo</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}</div>
+            <div className="flex justify-between items-start mb-4"><div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors"><GoogleCalendarLogo size={24} /></div>{googleCalendarToken ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase border border-emerald-100"><CheckCircle2 size={10} /> Ativo</span> : <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100">Inativo</span>}</div>
             <h3 className="font-black text-navy text-sm uppercase tracking-widest">Google Agenda</h3><p className="text-[10px] text-slate-400 mt-1 mb-4 h-8">Sincronize sua agenda médica.</p>
             {googleCalendarToken ? (<div className="mt-auto"><button onClick={handleCalendarLogout} className="w-full py-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><LogOut size={12} /> Desconectar</button></div>) : (<button onClick={handleCalendarLogin} disabled={!!loading} className={`mt-auto w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${loading === 'calendar' ? 'bg-slate-100 text-slate-400' : 'bg-navy text-white hover:bg-slate-800 shadow-lg shadow-navy/20'}`}>{loading === 'calendar' ? <Loader2 size={14} className="animate-spin" /> : 'Conectar Agora'}</button>)}
         </div>
@@ -1267,9 +1257,9 @@ const Integration: React.FC = () => {
         {/* Header inside the card */}
         <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
           <div>
-            <h3 className="text-base font-black text-navy uppercase tracking-wider flex items-center gap-2">
-              <MessageCircle size={18} className="text-blue-500" />
-              WhatsApp do CRM
+            <h3 className="text-base font-black text-navy uppercase tracking-wider flex items-center gap-2.5">
+              <UazapiLogo size={28} className="shrink-0" />
+              WhatsApp do CRM (Uazapi)
             </h3>
             <p className="text-slate-500 text-[11px] mt-1">Conecte e gerencie canais de atendimento para o CRM do AXIS AI.</p>
           </div>

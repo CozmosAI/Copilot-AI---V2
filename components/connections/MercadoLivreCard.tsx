@@ -2,15 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle2, AlertCircle, Loader2, LogOut, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { apiFetch, safeJsonResponse } from '../../services/apiClient';
+import { MercadoLivreLogo } from '../icons/CustomLogos';
 
-// Premium shaking-hands logo for Mercado Livre in official brand colors
-export const MercadoLivreIcon = ({ size = 24 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-    <rect width="32" height="32" rx="8" fill="#FFE600" />
-    <path d="M10 17C11.5 18.5 13.5 18.5 14.5 17.5L20.5 11.5C21.5 10.5 21.5 8.5 20.5 7.5C19.5 6.5 17.5 6.5 16.5 7.5L13 11" stroke="#2D3043" strokeWidth="2" strokeLinecap="round" />
-    <path d="M22 15C20.5 13.5 18.5 13.5 17.5 14.5L11.5 20.5C10.5 21.5 10.5 23.5 11.5 24.5C12.5 25.5 14.5 25.5 15.5 24.5L19 21" stroke="#2D3043" strokeWidth="2" strokeLinecap="round" />
-  </svg>
-);
+export const MercadoLivreIcon = MercadoLivreLogo;
 
 interface MercadoLivreCardProps {
   showToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info', description?: string) => void;
@@ -190,8 +184,8 @@ export function MercadoLivreCard({ showToast, onStatusChange }: MercadoLivreCard
       )}
 
       <div className="flex justify-between items-start mb-4">
-        <div className="p-1.5 bg-slate-50 rounded-2xl group-hover:bg-navy group-hover:text-white transition-colors">
-          <MercadoLivreIcon size={24} />
+        <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-2xl group-hover:bg-navy group-hover:border-navy group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+          <MercadoLivreIcon size={38} />
         </div>
         {status === 'loading' ? (
           <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-1 rounded-full uppercase border border-slate-100 flex items-center gap-1">

@@ -4,6 +4,7 @@ import { Calendar, Clock, UserCheck, UserX, ChevronLeft, ChevronRight, Bot, Targ
 import { useApp } from '../App';
 import { getUpcomingEvents, GoogleCalendarEvent, signInWithGoogleCalendar, createCalendarEvent } from '../services/googleCalendarService';
 import { Appointment } from '../types';
+import { GoogleCalendarLogo } from './icons/CustomLogos';
 
 type ViewMode = 'month' | 'week';
 
@@ -435,8 +436,8 @@ const Agenda: React.FC = () => {
                        <AlertCircle size={10} /> Sessão Expirada (Reconectar)
                     </button>
                  ) : (
-                    <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full uppercase">
-                      <RefreshCw size={10} className={`${loadingCalendar ? 'animate-spin' : ''}`} /> Google Calendar Sincronizado
+                    <span className="flex items-center gap-1.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full uppercase">
+                      <GoogleCalendarLogo size={12} /> <RefreshCw size={10} className={`${loadingCalendar ? 'animate-spin' : ''}`} /> Google Calendar Sincronizado
                     </span>
                  )}
                </>

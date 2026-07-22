@@ -14,6 +14,7 @@ import { AdPerformance, AppSection } from '../types';
 import { getGoogleOverview } from '../services/googleAdsService';
 import { getMetaOverview } from '../services/metaAdsService';
 import { supabase } from '../lib/supabase';
+import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
 
 function timeAgo(dateString: string): string {
   if (!dateString) return 'nunca';
@@ -25,20 +26,8 @@ function timeAgo(dateString: string): string {
   return `há ${Math.floor(seconds/86400)} dias`;
 }
 
-const GoogleIcon = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-    <path d="M12 23c3.11 0 5.71-1.03 7.61-2.81l-3.57-2.77c-.99.66-2.26 1.06-4.04 1.06-3.41 0-6.3-2.3-7.34-5.41H1.04v2.81C3.12 19.38 7.3 23 12 23z" fill="#34A853"/>
-    <path d="M4.66 14.07c-.26-.77-.41-1.6-.41-2.47s.15-1.7.41-2.47V6.32H1.04C.38 7.64 0 9.13 0 10.7c0 1.57.38 3.06 1.04 4.38l3.62-2.81z" fill="#FBBC05"/>
-    <path d="M12 4.19c1.69 0 3.21.58 4.4 1.72l3.3-3.3C17.71 1.03 15.11 0 12 0 7.3 0 3.12 3.62 1.04 8.07l3.62 2.81c1.04-3.11 3.93-5.41 7.34-5.41z" fill="#EA4335"/>
-  </svg>
-);
-
-const MetaIcon = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 15.13C16.09 15.65 15.35 15.96 14.54 15.96C13.68 15.96 12.91 15.58 12.39 14.96C11.85 15.61 11.05 16.04 10.14 16.04C8.61 16.04 7.36 14.88 7.36 13.43C7.36 12.06 8.35 10.92 9.64 10.61C9.64 10.6 9.64 10.59 9.64 10.58C9.64 9.13 10.89 7.96 12.43 7.96C13.29 7.96 14.07 8.34 14.58 8.96C15.12 8.31 15.93 7.88 16.84 7.88C18.37 7.88 19.62 9.04 19.62 10.49C19.62 11.86 18.63 13 17.34 13.31C17.34 13.32 17.34 13.33 17.34 13.34C17.34 14.07 17.06 14.73 16.64 15.13Z" fill="#0668E1"/>
-  </svg>
-);
+const GoogleIcon = ({ size = 20 }: { size?: number }) => <GoogleAdsLogo size={size} />;
+const MetaIcon = ({ size = 20 }: { size?: number }) => <MetaAdsLogo size={size} />;
 
 const Dashboard: React.FC = () => {
   const { dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, metrics, financialEntries, leads, googleAdsToken, navigateToSection, user, adsData, preloadAdsData, aiConfig } = useApp();
@@ -493,7 +482,7 @@ const Dashboard: React.FC = () => {
                 {/* Google Sub-card */}
                 <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-xl shadow-sm border border-emerald-100"><GoogleIcon size={24} /></div>
+                    <div className="w-11 h-11 bg-white rounded-xl shadow-sm border border-emerald-100 flex items-center justify-center shrink-0"><GoogleIcon size={30} /></div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Google Ads</p>
                       <p className="font-bold text-navy text-sm">{googleAccount?.customer_name || 'Desconhecido'}</p>
@@ -511,7 +500,7 @@ const Dashboard: React.FC = () => {
                 {/* Meta Sub-card */}
                 <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-xl shadow-sm border border-emerald-100"><MetaIcon size={24} /></div>
+                    <div className="w-11 h-11 bg-white rounded-xl shadow-sm border border-emerald-100 flex items-center justify-center shrink-0"><MetaIcon size={30} /></div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Meta Ads</p>
                       <p className="font-bold text-navy text-sm">{metaAccount?.ad_account_name || 'Desconhecido'}</p>
