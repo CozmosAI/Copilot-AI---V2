@@ -7671,6 +7671,378 @@ app.post('/api/gemini/tts', async (req, res) => {
     }
 });
 
+// ==============================================================================
+// MERCADO LIVRE INTEGRATION (OAuth 2.0 & Webhooks)
+// ==============================================================================
+
+const ML_APP_ID = process.env.ML_APP_ID;
+const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET;
+const ML_REDIRECT_URI = process.env.ML_REDIRECT_URI || 'https://axis-ai-1s3m.onrender.com/api/auth/ml/callback';
+
+const mlRefreshLocks = new Map();
+
+async function refreshMlToken(userId) {
+    if (mlRefreshLocks.has(userId)) {
+        return mlRefreshLocks.get(userId);
+    }
+    
+    const promise = (async () => {
+        const client = supabaseAdmin || supabase;
+        const { data: conn } = await client.from('ml_connections')
+            .select('refresh_token')
+            .eq('user_id', userId)
+            .maybeSingle();
+        
+        if (!conn || !conn.refresh_token) throw new Error('Sem refresh_token');
+        
+        const response = await fetch('https://api.mercadolibre.com/oauth/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                grant_type: 'refresh_token',
+                client_id: ML_APP_ID,
+                client_secret: ML_CLIENT_SECRET,
+                refresh_token: conn.refresh_token
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.access_token) throw new Error('Erro no refresh: ' + JSON.stringify(data));
+        
+        const expiresAt = Date.now() + (data.expires_in * 1000);
+        
+        await client.from('ml_connections')
+            .update({
+                access_token: data.access_token,
+                refresh_token: data.refresh_token,
+                token_expires_at: new Date(expiresAt).toISOString(),
+                status: 'active',
+                updated_at: new Date().toISOString()
+            })
+            .eq('user_id', userId);
+        
+        return data.access_token;
+    })();
+    
+    mlRefreshLocks.set(userId, promise);
+    try {
+        return await promise;
+    } finally {
+        mlRefreshLocks.delete(userId);
+    }
+}
+
+async function getValidMlToken(userId) {
+    const client = supabaseAdmin || supabase;
+    const { data: conn } = await client.from('ml_connections')
+        .select('access_token, token_expires_at')
+        .eq('user_id', userId)
+        .maybeSingle();
+    
+    if (!conn || !conn.access_token) throw new Error('Mercado Livre não conectado');
+    
+    const now = Date.now();
+    const tenMinutes = 10 * 60 * 1000;
+    
+    if (conn.token_expires_at) {
+        const expiresTime = new Date(conn.token_expires_at).getTime();
+        if (expiresTime < now + tenMinutes) {
+            return await refreshMlToken(userId);
+        }
+    }
+    
+    return conn.access_token;
+}
+
+// 1) GET /api/auth/ml (OAuth URL protegida)
+app.get('/api/auth/ml', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        const state = `ml-oauth-${authUser.id}`;
+        const params = new URLSearchParams({
+            response_type: 'code',
+            client_id: ML_APP_ID,
+            redirect_uri: ML_REDIRECT_URI,
+            state: state
+        });
+        
+        const url = `https://auth.mercadolivre.com.br/authorization?${params.toString()}`;
+        res.json({ ok: true, authUrl: url });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2) GET /api/auth/ml/url (OAuth URL simples)
+app.get('/api/auth/ml/url', (req, res) => {
+    try {
+        const { user_id } = req.query;
+        if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+        
+        const state = `ml-oauth-${user_id}`;
+        const params = new URLSearchParams({
+            response_type: 'code',
+            client_id: ML_APP_ID,
+            redirect_uri: ML_REDIRECT_URI,
+            state: state
+        });
+        
+        const url = `https://auth.mercadolivre.com.br/authorization?${params.toString()}`;
+        res.json({ ok: true, url });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3) GET /api/auth/ml/callback (OAuth Callback)
+app.get('/api/auth/ml/callback', async (req, res) => {
+    try {
+        const { code, state } = req.query;
+        
+        if (!code) return res.status(400).send('Código de autorização não recebido');
+        
+        const userId = state?.replace('ml-oauth-', '');
+        if (!userId) return res.status(400).send('State inválido');
+        
+        const tokenResponse = await fetch('https://api.mercadolibre.com/oauth/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                grant_type: 'authorization_code',
+                client_id: ML_APP_ID,
+                client_secret: ML_CLIENT_SECRET,
+                code: code,
+                redirect_uri: ML_REDIRECT_URI
+            })
+        });
+        
+        const tokenData = await tokenResponse.json();
+        
+        if (!tokenData.access_token) {
+            throw new Error('Erro ao obter token: ' + JSON.stringify(tokenData));
+        }
+        
+        const userResponse = await fetch('https://api.mercadolibre.com/users/me', {
+            headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
+        });
+        const userData = await userResponse.json();
+        
+        const client = supabaseAdmin || supabase;
+        const expiresAt = Date.now() + (tokenData.expires_in * 1000);
+        
+        await client.from('ml_connections')
+            .upsert({
+                user_id: userId,
+                ml_user_id: String(userData.id),
+                ml_nickname: userData.nickname,
+                access_token: tokenData.access_token,
+                refresh_token: tokenData.refresh_token,
+                token_expires_at: new Date(expiresAt).toISOString(),
+                status: 'active',
+                scopes: tokenData.scope ? tokenData.scope.split(' ') : [],
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+        
+        res.redirect('/?ml_connected=true');
+    } catch (error) {
+        console.error('Erro no callback ML:', error);
+        res.redirect('/?ml_error=' + encodeURIComponent(error.message));
+    }
+});
+
+// 4) POST /api/auth/ml/refresh (OAuth Refresh)
+app.post('/api/auth/ml/refresh', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        await getValidMlToken(authUser.id);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 5) GET /api/ml/status e GET /api/ml/status/:userId (Conexão status)
+app.get('/api/ml/status', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        const client = supabaseAdmin || supabase;
+        const { data: conn } = await client.from('ml_connections')
+            .select('ml_user_id, ml_nickname, status, token_expires_at')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+        
+        if (!conn) return res.json({ connected: false });
+        
+        const now = Date.now();
+        let status = conn.status;
+        if (conn.token_expires_at && new Date(conn.token_expires_at).getTime() < now) {
+            status = 'expired';
+            await client.from('ml_connections').update({ status: 'expired' }).eq('user_id', authUser.id);
+        }
+        
+        res.json({
+            connected: status === 'active',
+            nickname: conn.ml_nickname,
+            mlUserId: conn.ml_user_id,
+            status: status,
+            token_expires_at: conn.token_expires_at
+        });
+    } catch (err) {
+        res.json({ connected: false, error: err.message });
+    }
+});
+
+app.get('/api/ml/status/:userId', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        const client = supabaseAdmin || supabase;
+        const { data: conn } = await client.from('ml_connections')
+            .select('ml_user_id, ml_nickname, status, token_expires_at')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+        
+        if (!conn) return res.json({ connected: false });
+        
+        const now = Date.now();
+        let status = conn.status;
+        if (conn.token_expires_at && new Date(conn.token_expires_at).getTime() < now) {
+            status = 'expired';
+            await client.from('ml_connections').update({ status: 'expired' }).eq('user_id', authUser.id);
+        }
+        
+        res.json({
+            connected: status === 'active',
+            nickname: conn.ml_nickname,
+            mlUserId: conn.ml_user_id,
+            status: status,
+            token_expires_at: conn.token_expires_at
+        });
+    } catch (err) {
+        res.json({ connected: false, error: err.message });
+    }
+});
+
+// 6) POST /api/ml/disconnect (Desconectar)
+app.post('/api/ml/disconnect', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        const client = supabaseAdmin || supabase;
+        
+        const { data: conn } = await client.from('ml_connections')
+            .select('access_token')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+            
+        if (conn && conn.access_token) {
+            try {
+                await fetch('https://api.mercadolibre.com/oauth/revoke', {
+                    method: 'POST',
+                    body: new URLSearchParams({
+                        token: conn.access_token
+                    })
+                });
+            } catch (revokeErr) {
+                console.error('Erro ao revogar token ML:', revokeErr);
+            }
+        }
+        
+        await client.from('ml_connections')
+            .delete()
+            .eq('user_id', authUser.id);
+        
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 7) POST /api/ml/webhook (Webhooks Mercado Livre)
+app.post('/api/ml/webhook', async (req, res) => {
+    try {
+        const payload = req.body;
+        console.log('[ML Webhook] Recebido:', JSON.stringify(payload));
+        
+        res.status(200).send('OK');
+        
+        const { topic, resource, user_id: mlUserId } = payload;
+        if (!topic || !resource || !mlUserId) return;
+        
+        const client = supabaseAdmin || supabase;
+        const { data: conn } = await client.from('ml_connections')
+            .select('user_id, id')
+            .eq('ml_user_id', String(mlUserId))
+            .maybeSingle();
+            
+        if (!conn) {
+            console.log('[ML Webhook] Nenhuma conexão ativa encontrada para ml_user_id:', mlUserId);
+            return;
+        }
+        
+        const token = await getValidMlToken(conn.user_id);
+        const resourceId = resource.split('/').pop();
+        
+        if (topic === 'orders') {
+            const orderRes = await fetch(`https://api.mercadolibre.com/orders/${resourceId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const orderData = await orderRes.json();
+            
+            if (orderData && orderData.id) {
+                const item = orderData.order_items?.[0] || {};
+                await client.from('ml_orders').upsert({
+                    user_id: conn.user_id,
+                    ml_order_id: orderData.id,
+                    ml_connection_id: conn.id,
+                    buyer_nickname: orderData.buyer?.nickname || '',
+                    buyer_email: orderData.buyer?.email || '',
+                    status: orderData.status || '',
+                    total_amount: orderData.total_amount || 0,
+                    currency_id: orderData.currency_id || 'BRL',
+                    item_count: orderData.order_items?.length || 1,
+                    created_at_ml: orderData.date_created ? new Date(orderData.date_created).toISOString() : new Date().toISOString(),
+                    raw: orderData,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'ml_order_id' });
+            }
+        } else if (topic === 'questions') {
+            const questionRes = await fetch(`https://api.mercadolibre.com/questions/${resourceId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const questionData = await questionRes.json();
+            
+            if (questionData && questionData.id) {
+                await client.from('ml_questions').upsert({
+                    user_id: conn.user_id,
+                    ml_question_id: questionData.id,
+                    ml_connection_id: conn.id,
+                    item_id: questionData.item_id || '',
+                    item_title: '',
+                    buyer_nickname: '',
+                    question_text: questionData.text || '',
+                    answer_text: questionData.answer?.text || '',
+                    status: questionData.status || 'unanswered',
+                    created_at_ml: questionData.date_created ? new Date(questionData.date_created).toISOString() : new Date().toISOString(),
+                    raw: questionData,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'ml_question_id' });
+            }
+        }
+    } catch (err) {
+        console.error('[ML Webhook] Erro:', err);
+    }
+});
+
 if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

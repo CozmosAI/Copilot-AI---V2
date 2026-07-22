@@ -12,6 +12,7 @@ import { signInWithGoogleCalendar } from '../services/googleCalendarService';
 import { signInWithGoogleSheets, listSpreadsheets, getSpreadsheetDetails, getSheetData } from '../services/googleSheetsService';
 import { supabase } from '../lib/supabase';
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
+import { MercadoLivreCard } from './connections/MercadoLivreCard';
 
 const GoogleIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -1255,6 +1256,9 @@ const Integration: React.FC = () => {
             <h3 className="font-black text-navy text-sm uppercase tracking-widest">Planilhas Google</h3><p className="text-[10px] text-slate-400 mt-1 mb-4">Importe listas de leads.</p>
             {googleSheetsToken ? (<div className="mt-auto space-y-4 animate-in fade-in"><div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-3">{importStatus && <p className="text-[9px] font-bold text-emerald-600 bg-emerald-50 p-2 rounded mb-2 text-center">{importStatus}</p>}<div className="space-y-2"><select onChange={handleSelectSpreadsheet} className="w-full mt-1 p-1.5 text-[10px] border rounded bg-white focus:outline-none focus:border-navy"><option value="">Selecione arquivo...</option>{spreadsheets.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select><select onChange={e => setSelectedTab(e.target.value)} value={selectedTab} disabled={!selectedSpreadsheet} className="w-full mt-1 p-1.5 text-[10px] border rounded bg-white focus:outline-none focus:border-navy">{sheetTabs.map(t => <option key={t} value={t}>{t}</option>)}</select></div><button onClick={handleImportLeads} disabled={importLoading || !selectedTab} className="w-full bg-navy text-white py-2 rounded-lg text-[10px] font-bold uppercase flex justify-center items-center gap-2 hover:bg-slate-800 disabled:opacity-50">{importLoading ? <Loader2 size={12} className="animate-spin"/> : <><Upload size={12} /> Importar</>}</button></div><button onClick={handleSheetsLogout} className="text-[9px] font-bold text-rose-400 underline w-full text-center">Desconectar</button></div>) : (<button onClick={handleSheetsLogin} disabled={!!loading} className={`mt-auto w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${loading === 'sheets' ? 'bg-slate-100 text-slate-400' : 'bg-navy text-white hover:bg-slate-800 shadow-lg shadow-navy/20'}`}>{loading === 'sheets' ? <Loader2 size={14} className="animate-spin" /> : 'Conectar Agora'}</button>)}
         </div>
+
+        {/* MERCADO LIVRE CARD */}
+        <MercadoLivreCard showToast={showToast} />
       </div>
 
       <div className="h-px bg-slate-200 w-full my-8"></div>
