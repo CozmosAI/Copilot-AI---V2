@@ -7689,38 +7689,64 @@ async function refreshMlToken(userId) {
     const promise = (async () => {
         const client = supabaseAdmin || supabase;
         const { data: conn } = await client.from('ml_connections')
-            .select('refresh_token')
+            .select('refresh_token, ml_user_id')
             .eq('user_id', userId)
             .maybeSingle();
         
         if (!conn || !conn.refresh_token) throw new Error('Sem refresh_token');
+
+        const oldRefreshToken = conn.refresh_token;
+        const appId = ML_APP_ID || process.env.ML_APP_ID;
+        const clientSecret = ML_CLIENT_SECRET || process.env.ML_CLIENT_SECRET;
         
         const response = await fetch('https://api.mercadolibre.com/oauth/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 grant_type: 'refresh_token',
-                client_id: ML_APP_ID,
-                client_secret: ML_CLIENT_SECRET,
-                refresh_token: conn.refresh_token
+                client_id: appId,
+                client_secret: clientSecret,
+                refresh_token: oldRefreshToken
             })
         });
         
         const data = await response.json();
         
-        if (!data.access_token) throw new Error('Erro no refresh: ' + JSON.stringify(data));
+        if (!data.access_token) {
+            throw new Error('Erro no refresh ML: ' + JSON.stringify(data));
+        }
         
         const expiresAt = Date.now() + (data.expires_in * 1000);
+        const newRefreshToken = data.refresh_token || oldRefreshToken;
         
-        await client.from('ml_connections')
+        // Gravação atômica filtrada pelo refresh_token antigo
+        const { data: updated, error: updateErr } = await client.from('ml_connections')
             .update({
                 access_token: data.access_token,
-                refresh_token: data.refresh_token,
+                refresh_token: newRefreshToken,
                 token_expires_at: new Date(expiresAt).toISOString(),
+                last_refreshed_at: new Date().toISOString(),
                 status: 'active',
                 updated_at: new Date().toISOString()
             })
-            .eq('user_id', userId);
+            .eq('user_id', userId)
+            .eq('refresh_token', oldRefreshToken)
+            .select('access_token');
+        
+        if (updateErr) {
+            console.error('[ML Refresh] Erro ao atualizar ml_connections:', updateErr);
+        }
+
+        // Se a atualização atômica afetou 0 linhas (outra instância renovou em paralelo)
+        if (!updated || updated.length === 0) {
+            const { data: freshConn } = await client.from('ml_connections')
+                .select('access_token')
+                .eq('user_id', userId)
+                .maybeSingle();
+            if (freshConn && freshConn.access_token) {
+                return freshConn.access_token;
+            }
+        }
         
         return data.access_token;
     })();
@@ -7866,6 +7892,57 @@ app.post('/api/auth/ml/refresh', async (req, res) => {
     }
 });
 
+// 4.1) POST /api/ml/refresh-all (Cron/Bulk Refresh para conexões prestes a expirar)
+app.post('/api/ml/refresh-all', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const authHeader = req.headers['authorization'];
+        const isSecretAuth = authHeader && (
+            authHeader === `Bearer ${process.env.ML_CLIENT_SECRET}` ||
+            authHeader === `Bearer ${ML_CLIENT_SECRET}`
+        );
+
+        if (!authUser && !isSecretAuth) {
+            return res.status(401).json({ error: 'Não autorizado' });
+        }
+
+        const client = supabaseAdmin || supabase;
+        const { data: connections, error } = await client.from('ml_connections')
+            .select('user_id, ml_user_id, token_expires_at')
+            .eq('status', 'active');
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        let refreshedCount = 0;
+        let errorCount = 0;
+        const details = [];
+        const nowMs = Date.now();
+        const tenMinutesMs = 10 * 60 * 1000;
+
+        for (const conn of (connections || [])) {
+            const expiresTime = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0;
+            if (!expiresTime || expiresTime < nowMs + tenMinutesMs) {
+                try {
+                    await refreshMlToken(conn.user_id);
+                    refreshedCount++;
+                    details.push({ user_id: conn.user_id, ml_user_id: conn.ml_user_id, status: 'success' });
+                } catch (refreshErr) {
+                    errorCount++;
+                    details.push({ user_id: conn.user_id, ml_user_id: conn.ml_user_id, status: 'error', error: refreshErr.message });
+                }
+            }
+        }
+
+        console.log(`[ML Refresh All] Renovados: ${refreshedCount}, Erros: ${errorCount}`);
+        res.json({ refreshed: refreshedCount, errors: errorCount, details });
+    } catch (err) {
+        console.error('[ML Refresh All Exception]:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 5) GET /api/ml/status e GET /api/ml/status/:userId (Conexão status)
 app.get('/api/ml/status', async (req, res) => {
     try {
@@ -7967,81 +8044,611 @@ app.post('/api/ml/disconnect', async (req, res) => {
     }
 });
 
-// 7) POST /api/ml/webhook (Webhooks Mercado Livre)
-app.post('/api/ml/webhook', async (req, res) => {
+// 6.1) GET /api/ml/orders (Listar pedidos sincronizados do Mercado Livre)
+app.get('/api/ml/orders', async (req, res) => {
     try {
-        const payload = req.body;
-        console.log('[ML Webhook] Recebido:', JSON.stringify(payload));
-        
-        res.status(200).send('OK');
-        
-        const { topic, resource, user_id: mlUserId } = payload;
-        if (!topic || !resource || !mlUserId) return;
-        
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
         const client = supabaseAdmin || supabase;
-        const { data: conn } = await client.from('ml_connections')
-            .select('user_id, id')
-            .eq('ml_user_id', String(mlUserId))
-            .maybeSingle();
-            
-        if (!conn) {
-            console.log('[ML Webhook] Nenhuma conexão ativa encontrada para ml_user_id:', mlUserId);
-            return;
+        const { status, limit: limitQuery, offset: offsetQuery, date_from, date_to } = req.query;
+
+        const limit = Math.min(Math.max(parseInt(String(limitQuery || '50'), 10) || 50, 1), 100);
+        const offset = Math.max(parseInt(String(offsetQuery || '0'), 10) || 0, 0);
+
+        const defaultFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const defaultTo = new Date().toISOString();
+
+        let query = client.from('ml_orders')
+            .select('id, ml_order_id, buyer_nickname, buyer_email, buyer_phone, buyer_id, item_title, item_id, quantity, unit_price, total_amount, currency, status, payment_status, shipping_status, date_created, date_closed, pack_id', { count: 'exact' })
+            .eq('user_id', authUser.id)
+            .gte('date_created', date_from || defaultFrom)
+            .lte('date_created', date_to || defaultTo);
+
+        if (status) {
+            query = query.eq('status', String(status));
         }
-        
-        const token = await getValidMlToken(conn.user_id);
-        const resourceId = resource.split('/').pop();
-        
-        if (topic === 'orders') {
-            const orderRes = await fetch(`https://api.mercadolibre.com/orders/${resourceId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const orderData = await orderRes.json();
-            
-            if (orderData && orderData.id) {
-                const item = orderData.order_items?.[0] || {};
-                await client.from('ml_orders').upsert({
-                    user_id: conn.user_id,
-                    ml_order_id: orderData.id,
-                    ml_connection_id: conn.id,
-                    buyer_nickname: orderData.buyer?.nickname || '',
-                    buyer_email: orderData.buyer?.email || '',
-                    status: orderData.status || '',
-                    total_amount: orderData.total_amount || 0,
-                    currency_id: orderData.currency_id || 'BRL',
-                    item_count: orderData.order_items?.length || 1,
-                    created_at_ml: orderData.date_created ? new Date(orderData.date_created).toISOString() : new Date().toISOString(),
-                    raw: orderData,
-                    updated_at: new Date().toISOString()
-                }, { onConflict: 'ml_order_id' });
-            }
-        } else if (topic === 'questions') {
-            const questionRes = await fetch(`https://api.mercadolibre.com/questions/${resourceId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const questionData = await questionRes.json();
-            
-            if (questionData && questionData.id) {
-                await client.from('ml_questions').upsert({
-                    user_id: conn.user_id,
-                    ml_question_id: questionData.id,
-                    ml_connection_id: conn.id,
-                    item_id: questionData.item_id || '',
-                    item_title: '',
-                    buyer_nickname: '',
-                    question_text: questionData.text || '',
-                    answer_text: questionData.answer?.text || '',
-                    status: questionData.status || 'unanswered',
-                    created_at_ml: questionData.date_created ? new Date(questionData.date_created).toISOString() : new Date().toISOString(),
-                    raw: questionData,
-                    updated_at: new Date().toISOString()
-                }, { onConflict: 'ml_question_id' });
-            }
+
+        query = query
+            .order('date_created', { ascending: false, nullsFirst: false })
+            .range(offset, offset + limit - 1);
+
+        const { data: orders, count, error } = await query;
+
+        if (error) {
+            console.error('[ML Orders API Error]:', error);
+            return res.status(500).json({ error: error.message });
         }
+
+        return res.json({
+            orders: orders || [],
+            total: count || 0,
+            limit,
+            offset
+        });
     } catch (err) {
-        console.error('[ML Webhook] Erro:', err);
+        console.error('[ML Orders Exception]:', err);
+        return res.status(500).json({ error: err.message });
     }
 });
+
+// 6.2) GET /api/ml/questions (Listar perguntas sincronizadas do Mercado Livre)
+app.get('/api/ml/questions', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const { status, limit: limitQuery, offset: offsetQuery } = req.query;
+
+        const limit = Math.min(Math.max(parseInt(String(limitQuery || '50'), 10) || 50, 1), 100);
+        const offset = Math.max(parseInt(String(offsetQuery || '0'), 10) || 0, 0);
+
+        let query = client.from('ml_questions')
+            .select('id, ml_question_id, item_id, buyer_nickname, question_text, answer_text, status, date_created, date_answered', { count: 'exact' })
+            .eq('user_id', authUser.id);
+
+        if (status) {
+            query = query.ilike('status', String(status));
+        }
+
+        query = query
+            .order('date_created', { ascending: false, nullsFirst: false })
+            .range(offset, offset + limit - 1);
+
+        const { data: questions, count, error } = await query;
+
+        if (error) {
+            console.error('[ML Questions API Error]:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.json({
+            questions: questions || [],
+            total: count || 0,
+            limit,
+            offset
+        });
+    } catch (err) {
+        console.error('[ML Questions Exception]:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// 6.3) GET /api/ml/messages (Listar mensagens de conversas/packs sincronizados do Mercado Livre)
+app.get('/api/ml/messages', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const { pack_id, limit: limitQuery, offset: offsetQuery } = req.query;
+
+        const limit = Math.min(Math.max(parseInt(String(limitQuery || '50'), 10) || 50, 1), 100);
+        const offset = Math.max(parseInt(String(offsetQuery || '0'), 10) || 0, 0);
+
+        let query = client.from('ml_messages')
+            .select('id, message_uuid, pack_id, from_name, from_role, text, status, has_attachments, message_created_at', { count: 'exact' })
+            .eq('user_id', authUser.id);
+
+        if (pack_id) {
+            query = query.eq('pack_id', Number(pack_id));
+        }
+
+        query = query
+            .order('message_created_at', { ascending: true })
+            .range(offset, offset + limit - 1);
+
+        const { data: messages, count, error } = await query;
+
+        if (error) {
+            console.error('[ML Messages API Error]:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.json({
+            messages: messages || [],
+            pack_id: pack_id ? Number(pack_id) : null,
+            total: count || 0,
+            limit,
+            offset
+        });
+    } catch (err) {
+        console.error('[ML Messages Exception]:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// 6.4) GET /api/ml/dashboard (Métricas agregadas do Mercado Livre para o Painel)
+app.get('/api/ml/dashboard', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const { period: periodQuery } = req.query;
+
+        const period = String(periodQuery || '30d').toLowerCase();
+        const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+
+        const now = new Date();
+        const fromDateObj = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const fromDate = fromDateObj.toISOString();
+        const toDate = now.toISOString();
+
+        // Buscar pedidos no período
+        const { data: orders } = await client.from('ml_orders')
+            .select('status, total_amount')
+            .eq('user_id', authUser.id)
+            .gte('date_created', fromDate)
+            .lte('date_created', toDate);
+
+        // Buscar perguntas no período
+        const { data: questions } = await client.from('ml_questions')
+            .select('status')
+            .eq('user_id', authUser.id)
+            .gte('date_created', fromDate)
+            .lte('date_created', toDate);
+
+        // Buscar itens cadastrados
+        const { data: items } = await client.from('ml_items')
+            .select('status')
+            .eq('user_id', authUser.id);
+
+        // Buscar mensagens
+        const { data: messages } = await client.from('ml_messages')
+            .select('status')
+            .eq('user_id', authUser.id);
+
+        const orderList = orders || [];
+        const totalOrders = orderList.length;
+        const paidOrders = orderList.filter(o => o.status === 'paid').length;
+        const shippedOrders = orderList.filter(o => o.status === 'shipped').length;
+        const deliveredOrders = orderList.filter(o => o.status === 'delivered').length;
+        const cancelledOrders = orderList.filter(o => o.status === 'cancelled').length;
+
+        const revenue = orderList
+            .filter(o => o.status !== 'cancelled')
+            .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+        const questionList = questions || [];
+        const totalQuestions = questionList.length;
+        const unansweredQuestions = questionList.filter(q => String(q.status).toLowerCase() === 'unanswered').length;
+        const answeredQuestions = questionList.filter(q => String(q.status).toLowerCase() === 'answered').length;
+
+        const itemList = items || [];
+        const totalActiveItems = itemList.filter(i => String(i.status).toLowerCase() === 'active').length;
+        const totalPausedItems = itemList.filter(i => String(i.status).toLowerCase() === 'paused').length;
+
+        const messageList = messages || [];
+        const totalMessages = messageList.length;
+        const unreadMessages = messageList.filter(m => String(m.status).toLowerCase() === 'unread').length;
+
+        return res.json({
+            orders: {
+                total: totalOrders,
+                paid: paidOrders,
+                shipped: shippedOrders,
+                delivered: deliveredOrders,
+                cancelled: cancelledOrders,
+                revenue: Number(revenue.toFixed(2))
+            },
+            questions: {
+                total: totalQuestions,
+                unanswered: unansweredQuestions,
+                answered: answeredQuestions
+            },
+            items: {
+                total_active: totalActiveItems,
+                total_paused: totalPausedItems
+            },
+            messages: {
+                total: totalMessages,
+                unread: unreadMessages
+            },
+            period: {
+                from: fromDate.split('T')[0],
+                to: toDate.split('T')[0]
+            }
+        });
+    } catch (err) {
+        console.error('[ML Dashboard Exception]:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// 7) POST /api/ml/webhook (Webhooks Mercado Livre - Fast Handler + HMAC Signature Validation)
+function validateMlWebhookSignature(headers, body, secret) {
+    const signatureHeader = headers['x-signature'] || headers['X-Signature'];
+    if (!signatureHeader || !secret) {
+        return false;
+    }
+
+    const parts = {};
+    signatureHeader.split(',').forEach(part => {
+        const idx = part.indexOf('=');
+        if (idx !== -1) {
+            const key = part.substring(0, idx).trim();
+            const value = part.substring(idx + 1).trim();
+            parts[key] = value;
+        }
+    });
+
+    const tsStr = parts.ts;
+    const receivedHash = parts.v1;
+    if (!tsStr || !receivedHash) return false;
+
+    const tsNum = Number(tsStr);
+    if (isNaN(tsNum)) return false;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tsSec = tsNum > 1e11 ? Math.floor(tsNum / 1000) : tsNum;
+
+    // Rejeitar replays > 5 min (300s)
+    if (Math.abs(nowSec - tsSec) > 300) {
+        console.warn('[ML Webhook] Tentativa de replay ignorada (mais de 300s de diferença)');
+        return false;
+    }
+
+    const resourceId = (body?.resource || String(body?.id || '')).split('/').pop();
+    const manifest = `data.id:${resourceId}:${tsStr}`;
+
+    const calculatedHash = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+
+    const bufCalc = Buffer.from(calculatedHash, 'utf8');
+    const bufRec = Buffer.from(receivedHash, 'utf8');
+
+    if (bufCalc.length !== bufRec.length) return false;
+    return crypto.timingSafeEqual(bufCalc, bufRec);
+}
+
+app.post('/api/ml/webhook', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        console.log('[ML Webhook] Recebido:', JSON.stringify(payload));
+
+        const sigHeader = req.headers['x-signature'] || req.headers['X-Signature'];
+        const secret = process.env.ML_WEBHOOK_SECRET || process.env.ML_CLIENT_SECRET || ML_CLIENT_SECRET;
+
+        let signatureValid = false;
+        if (sigHeader) {
+            signatureValid = validateMlWebhookSignature(req.headers, payload, secret);
+            if (!signatureValid) {
+                console.warn('[ML Webhook] Assinatura HMAC x-signature inválida.');
+                return res.status(401).json({ error: 'Assinatura x-signature inválida' });
+            }
+        } else {
+            if (secret && process.env.NODE_ENV === 'production') {
+                return res.status(401).json({ error: 'Header x-signature obrigatório em produção' });
+            }
+        }
+
+        const idempotencyId = payload._id || payload.id;
+        if (!idempotencyId) {
+            return res.status(400).json({ error: 'Payload sem _id / id de idempotência' });
+        }
+
+        const client = supabaseAdmin || supabase;
+
+        // Tenta gravar em ml_webhook_events rapidamente sem fazer fetch externo
+        const { error: dbError } = await client.from('ml_webhook_events').insert({
+            idempotency_id: String(idempotencyId),
+            ml_user_id: payload.user_id ? Number(payload.user_id) : null,
+            topic: payload.topic || 'unknown',
+            resource: payload.resource || '',
+            actions: payload.actions || null,
+            application_id: payload.application_id ? String(payload.application_id) : null,
+            raw_payload: payload,
+            status: 'pending',
+            attempts: 0,
+            signature_valid: signatureValid,
+            received_at: new Date().toISOString()
+        });
+
+        if (dbError) {
+            // Tratamento de idempotência (ON CONFLICT DO NOTHING)
+            if (dbError.code === '23505' || dbError.message?.includes('duplicate key') || dbError.message?.includes('unique')) {
+                console.log(`[ML Webhook] Evento duplicado ignorado: ${idempotencyId}`);
+                return res.status(200).send('OK');
+            }
+            console.error('[ML Webhook] Erro ao registrar evento no banco:', dbError);
+            return res.status(500).json({ error: 'Erro ao registrar evento' });
+        }
+
+        // Resposta ultra-rápida ao Mercado Livre (< 500ms)
+        return res.status(200).send('OK');
+    } catch (err) {
+        console.error('[ML Webhook Exception]:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// WORKER DE PROCESSAMENTO DE WEBHOOKS
+async function processWebhookEvent(event) {
+    const client = supabaseAdmin || supabase;
+    const mlUserId = event.ml_user_id;
+
+    if (!mlUserId) {
+        throw new Error('ml_user_id ausente no evento');
+    }
+
+    const { data: conn } = await client.from('ml_connections')
+        .select('*')
+        .eq('ml_user_id', String(mlUserId))
+        .maybeSingle();
+
+    if (!conn) {
+        throw new Error(`Nenhuma conexão ativa encontrada para ml_user_id: ${mlUserId}`);
+    }
+
+    if (conn.user_id && conn.user_id !== event.user_id) {
+        await client.from('ml_webhook_events')
+            .update({ user_id: conn.user_id })
+            .eq('id', event.id);
+    }
+
+    const token = await getValidMlToken(conn.user_id);
+    const resource = event.resource || '';
+    const resourceId = resource.split('/').pop();
+    const topic = (event.topic || '').toLowerCase();
+
+    if (topic === 'orders' || topic === 'orders_v2') {
+        const orderRes = await fetch(`https://api.mercadolibre.com/orders/${resourceId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!orderRes.ok) {
+            const errTxt = await orderRes.text();
+            throw new Error(`Erro API ML Orders (${orderRes.status}): ${errTxt}`);
+        }
+        const orderData = await orderRes.json();
+
+        if (orderData && orderData.id) {
+            const firstItem = orderData.order_items?.[0] || {};
+            const firstPayment = orderData.payments?.[0] || {};
+
+            await client.from('ml_orders').upsert({
+                user_id: conn.user_id,
+                ml_order_id: String(orderData.id),
+                buyer_nickname: orderData.buyer?.nickname || '',
+                buyer_email: orderData.buyer?.email || '',
+                buyer_phone: orderData.buyer?.phone?.number || '',
+                buyer_id: orderData.buyer?.id ? Number(orderData.buyer.id) : null,
+                item_id: firstItem.item?.id || '',
+                item_title: firstItem.item?.title || '',
+                quantity: firstItem.quantity || 1,
+                unit_price: firstItem.unit_price || 0,
+                total_amount: orderData.total_amount || 0,
+                currency: orderData.currency_id || 'BRL',
+                status: orderData.status || '',
+                payment_status: firstPayment.status || '',
+                payment_id: firstPayment.id ? String(firstPayment.id) : null,
+                payment_method_id: firstPayment.payment_method_id || '',
+                shipping_id: orderData.shipping?.id ? String(orderData.shipping.id) : null,
+                shipping_cost: orderData.shipping_cost || 0,
+                tags: orderData.tags || [],
+                pack_id: orderData.pack_id ? Number(orderData.pack_id) : null,
+                date_created: orderData.date_created ? new Date(orderData.date_created).toISOString() : null,
+                date_closed: orderData.date_closed ? new Date(orderData.date_closed).toISOString() : null,
+                raw: orderData,
+                webhook_received_at: new Date().toISOString(),
+                imported_at: new Date().toISOString()
+            }, { onConflict: 'ml_order_id' });
+        }
+    } else if (topic === 'questions') {
+        const questionRes = await fetch(`https://api.mercadolibre.com/questions/${resourceId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!questionRes.ok) {
+            const errTxt = await questionRes.text();
+            throw new Error(`Erro API ML Questions (${questionRes.status}): ${errTxt}`);
+        }
+        const questionData = await questionRes.json();
+
+        if (questionData && questionData.id) {
+            await client.from('ml_questions').upsert({
+                user_id: conn.user_id,
+                ml_question_id: String(questionData.id),
+                item_id: questionData.item_id || '',
+                buyer_nickname: questionData.from?.nickname || '',
+                buyer_id: questionData.from?.id ? Number(questionData.from.id) : null,
+                question_text: questionData.text || '',
+                answer_text: questionData.answer?.text || '',
+                status: questionData.status || 'unanswered',
+                date_created: questionData.date_created ? new Date(questionData.date_created).toISOString() : null,
+                date_answered: questionData.answer?.date_created ? new Date(questionData.answer.date_created).toISOString() : null,
+                raw: questionData,
+                webhook_received_at: new Date().toISOString(),
+                imported_at: new Date().toISOString()
+            }, { onConflict: 'ml_question_id' });
+        }
+    } else if (topic === 'messages') {
+        const msgRes = await fetch(`https://api.mercadolibre.com/messages/${resourceId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!msgRes.ok) {
+            const errTxt = await msgRes.text();
+            throw new Error(`Erro API ML Messages (${msgRes.status}): ${errTxt}`);
+        }
+        const msgData = await msgRes.json();
+
+        if (msgData) {
+            const fromObj = msgData.from || {};
+            const extractedPackId = msgData.message_resources?.[0]?.id || msgData.pack_id;
+
+            await client.from('ml_messages').upsert({
+                user_id: conn.user_id,
+                ml_user_id: mlUserId ? Number(mlUserId) : null,
+                pack_id: extractedPackId ? Number(extractedPackId) : null,
+                message_uuid: String(resourceId),
+                from_user_id: fromObj.user_id ? Number(fromObj.user_id) : null,
+                from_email: fromObj.email || '',
+                from_name: fromObj.name || '',
+                from_role: fromObj.role || '',
+                to_user_id: msgData.to?.[0]?.user_id ? Number(msgData.to[0].user_id) : null,
+                text: typeof msgData.text === 'object' ? (msgData.text.plain || '') : (msgData.text || ''),
+                status: msgData.status || '',
+                moderation_status: msgData.moderation_status || '',
+                has_attachments: Array.isArray(msgData.attachments) && msgData.attachments.length > 0,
+                attachments: msgData.attachments || null,
+                message_created_at: msgData.message_date?.created ? new Date(msgData.message_date.created).toISOString() : null,
+                message_received_at: msgData.message_date?.received ? new Date(msgData.message_date.received).toISOString() : null,
+                message_read_at: msgData.message_date?.read ? new Date(msgData.message_date.read).toISOString() : null,
+                imported_at: new Date().toISOString(),
+                raw_payload: msgData
+            }, { onConflict: 'message_uuid' });
+        }
+    } else if (topic === 'items') {
+        const itemRes = await fetch(`https://api.mercadolibre.com/items/${resourceId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!itemRes.ok) {
+            const errTxt = await itemRes.text();
+            throw new Error(`Erro API ML Items (${itemRes.status}): ${errTxt}`);
+        }
+        const itemData = await itemRes.json();
+
+        if (itemData && itemData.id) {
+            const sellerSku = itemData.seller_custom_field || 
+                itemData.attributes?.find((a) => a.id === 'SELLER_SKU')?.value_name || '';
+
+            await client.from('ml_items').upsert({
+                user_id: conn.user_id,
+                ml_user_id: mlUserId ? Number(mlUserId) : null,
+                item_id: String(itemData.id),
+                title: itemData.title || '',
+                category_id: itemData.category_id || '',
+                price: itemData.price || 0,
+                currency_id: itemData.currency_id || 'BRL',
+                available_quantity: itemData.available_quantity || 0,
+                sold_quantity: itemData.sold_quantity || 0,
+                condition: itemData.condition || '',
+                listing_type_id: itemData.listing_type_id || '',
+                status: itemData.status || '',
+                permalink: itemData.permalink || '',
+                thumbnail: itemData.thumbnail || '',
+                seller_sku: sellerSku,
+                raw_payload: itemData,
+                last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'item_id' });
+        }
+    } else if (topic === 'shipments') {
+        const shipRes = await fetch(`https://api.mercadolibre.com/shipments/${resourceId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (shipRes.ok) {
+            const shipmentData = await shipRes.json();
+            if (shipmentData && shipmentData.id) {
+                await client.from('ml_orders')
+                    .update({
+                        shipping_status: shipmentData.status || '',
+                        webhook_received_at: new Date().toISOString()
+                    })
+                    .eq('shipping_id', String(resourceId));
+            }
+        }
+    } else if (topic === 'payments') {
+        const payRes = await fetch(`https://api.mercadolibre.com/collections/${resourceId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (payRes.ok) {
+            const paymentData = await payRes.json();
+            if (paymentData && paymentData.id) {
+                await client.from('ml_orders')
+                    .update({
+                        payment_status: paymentData.status || '',
+                        webhook_received_at: new Date().toISOString()
+                    })
+                    .eq('payment_id', String(resourceId));
+            }
+        }
+    } else {
+        console.log(`[ML Webhook Worker] Tópico sem handler específico: ${topic} (${resourceId})`);
+    }
+}
+
+let isMlWorkerRunning = false;
+async function processWebhookQueue() {
+    if (isMlWorkerRunning) return;
+    isMlWorkerRunning = true;
+
+    try {
+        const client = supabaseAdmin || supabase;
+
+        const { data: events, error } = await client.from('ml_webhook_events')
+            .select('*')
+            .eq('status', 'pending')
+            .order('received_at', { ascending: true })
+            .limit(10);
+
+        if (error || !events || events.length === 0) {
+            return;
+        }
+
+        for (const event of events) {
+            try {
+                const { data: claimData, error: claimErr } = await client.from('ml_webhook_events')
+                    .update({ status: 'processing' })
+                    .eq('id', event.id)
+                    .eq('status', 'pending')
+                    .select('id')
+                    .maybeSingle();
+
+                if (claimErr || !claimData) {
+                    continue;
+                }
+
+                await processWebhookEvent(event);
+
+                await client.from('ml_webhook_events').update({
+                    status: 'processed',
+                    processed_at: new Date().toISOString()
+                }).eq('id', event.id);
+
+            } catch (eventError) {
+                console.error(`[ML Webhook Worker] Erro no evento #${event.id}:`, eventError);
+
+                const newAttempts = (event.attempts || 0) + 1;
+                const newStatus = newAttempts >= 5 ? 'dead_letter' : 'pending';
+
+                await client.from('ml_webhook_events').update({
+                    attempts: newAttempts,
+                    status: newStatus,
+                    last_error: eventError.message || String(eventError)
+                }).eq('id', event.id);
+            }
+        }
+    } catch (queueErr) {
+        console.error('[ML Webhook Worker Exception]:', queueErr);
+    } finally {
+        isMlWorkerRunning = false;
+    }
+}
+
+// Iniciar worker assíncrono de webhook polling
+setInterval(processWebhookQueue, 5000);
+console.log('[ML Webhook Worker] Iniciado - polling a cada 5s');
+
 
 if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import('vite');
