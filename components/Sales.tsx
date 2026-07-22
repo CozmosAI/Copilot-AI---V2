@@ -267,6 +267,108 @@ const Sales: React.FC = () => {
       custom_fields: {} as Record<string, any>
   });
 
+  // Custom Field Management State
+  const [showCreateFieldModal, setShowCreateFieldModal] = useState(false);
+  const [newFieldLabelInput, setNewFieldLabelInput] = useState('');
+  const [newFieldTypeInput, setNewFieldTypeInput] = useState<'text' | 'number' | 'date' | 'select'>('text');
+  const [newFieldOptionsInput, setNewFieldOptionsInput] = useState('');
+  const [isSavingCustomField, setIsSavingCustomField] = useState(false);
+
+  const refreshCustomFields = async () => {
+    if (!user?.id) return;
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { data: fieldsData } = await supabase
+        .from('custom_field_definitions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('sort_order', { ascending: true });
+      if (fieldsData) setCustomFields(fieldsData);
+    } catch (err) {
+      console.error('Erro ao atualizar definições de campos:', err);
+    }
+  };
+
+  const generateKeyFromLabel = (label: string) => {
+    return label
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9_]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "") || `campo_${Date.now()}`;
+  };
+
+  const handleCreateCustomFieldQuick = async (
+    labelToUse?: string,
+    typeToUse?: 'text' | 'number' | 'date' | 'select',
+    optionsToUse?: string
+  ) => {
+    const label = (labelToUse || newFieldLabelInput).trim();
+    const type = typeToUse || newFieldTypeInput;
+    const options = optionsToUse !== undefined ? optionsToUse : newFieldOptionsInput;
+
+    if (!label || !user?.id) return;
+
+    setIsSavingCustomField(true);
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const computedKey = generateKeyFromLabel(label);
+
+      let optionsArray: string[] | null = null;
+      if (type === 'select' && options.trim()) {
+        optionsArray = options.split(/[\n,]+/).map(o => o.trim()).filter(o => o.length > 0);
+      }
+
+      const payload = {
+        user_id: user.id,
+        field_key: computedKey,
+        field_label: label,
+        field_type: type,
+        field_options: optionsArray,
+        is_required: false,
+        sort_order: customFields.length
+      };
+
+      const { error } = await supabase.from('custom_field_definitions').insert([payload]);
+      if (error) {
+        console.error("Erro ao inserir campo no Supabase:", error);
+      }
+
+      await refreshCustomFields();
+
+      setNewLeadData(prev => ({
+        ...prev,
+        custom_fields: { ...(prev.custom_fields || {}), [computedKey]: '' }
+      }));
+
+      if (editingLeadData) {
+        setEditingLeadData(prev => prev ? ({
+          ...prev,
+          custom_fields: { ...(prev.custom_fields || {}), [computedKey]: '' }
+        }) : null);
+      }
+
+      if (activeLead) {
+        const updatedActive = {
+          ...activeLead,
+          custom_fields: { ...(activeLead.custom_fields || {}), [computedKey]: '' }
+        };
+        setActiveLead(updatedActive);
+        await updateLead(updatedActive);
+      }
+
+      setNewFieldLabelInput('');
+      setNewFieldOptionsInput('');
+      setNewFieldTypeInput('text');
+      setShowCreateFieldModal(false);
+    } catch (err) {
+      console.error("Erro ao criar campo personalizado:", err);
+    } finally {
+      setIsSavingCustomField(false);
+    }
+  };
+
   // Edit Lead Form State
   const [showEditModal, setShowEditModal] = useState(false);
   const formatPhoneWithMask = (value: string) => {
@@ -2177,25 +2279,72 @@ const Sales: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Campos personalizados preenchidos */}
+                  {/* Campos personalizados no Drawer de detalhes */}
                   <div className="pt-4 border-t border-slate-200">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <Tag size={14} className="text-blue-600" />
-                      Campos Personalizados
-                    </h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Tag size={14} className="text-blue-600" />
+                        Campos Personalizados
+                      </h4>
+                      <div className="flex items-center gap-1">
+                        <button 
+                          type="button"
+                          onClick={() => setShowCreateFieldModal(true)}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                        >
+                          <Plus size={12} /> Novo Campo
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => handleOpenEditModal(activeLead)}
+                          className="text-[10px] font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                        >
+                          <Edit2 size={12} /> Editar Lead
+                        </button>
+                      </div>
+                    </div>
+
                     {customFields.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">Sem definições de campos customizados.</p>
-                    ) : !customFields.some(f => activeLead.custom_fields?.[f.field_key]) ? (
-                      <p className="text-xs text-slate-400 italic">Nenhum campo personalizado preenchido para este lead.</p>
+                      <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-3 text-center space-y-2">
+                        <p className="text-xs text-slate-500 font-medium">Nenhum campo personalizado cadastrado.</p>
+                        <p className="text-[10px] text-slate-400">Adicione campos como CNPJ, Razão Social, IE ou CPF:</p>
+                        <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+                          <button type="button" onClick={() => handleCreateCustomFieldQuick('CNPJ', 'text')} className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors">
+                            + Add CNPJ
+                          </button>
+                          <button type="button" onClick={() => handleCreateCustomFieldQuick('Razão Social', 'text')} className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors">
+                            + Add Razão Social
+                          </button>
+                          <button type="button" onClick={() => handleCreateCustomFieldQuick('CPF', 'text')} className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors">
+                            + Add CPF
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       <div className="space-y-3">
                         {customFields.map(f => {
-                          const val = activeLead.custom_fields?.[f.field_key];
-                          if (!val) return null;
+                          const val = activeLead.custom_fields?.[f.field_key] || '';
                           return (
-                            <div key={f.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-150 shadow-xs">
+                            <div key={f.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
                               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block leading-tight">{f.field_label}</span>
-                              <span className="text-xs text-slate-700 font-semibold mt-0.5 block break-words">{val}</span>
+                              <input 
+                                type="text"
+                                value={val}
+                                placeholder={`Preencher ${f.field_label}...`}
+                                onChange={async (e) => {
+                                  const newVal = e.target.value;
+                                  const updatedLead = {
+                                    ...activeLead,
+                                    custom_fields: {
+                                      ...(activeLead.custom_fields || {}),
+                                      [f.field_key]: newVal
+                                    }
+                                  };
+                                  setActiveLead(updatedLead);
+                                  await updateLead(updatedLead);
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                              />
                             </div>
                           );
                         })}
@@ -2370,70 +2519,127 @@ const Sales: React.FC = () => {
                           </div>
 
                           {/* SEÇÃO: CAMPOS PERSONALIZADOS */}
-                          {customFields.length > 0 && (
-                            <div className="pt-4 border-t border-slate-100">
-                                <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Campos Personalizados</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {customFields.map(field => {
-                                        const value = newLeadData.custom_fields?.[field.field_key] || '';
-                                        const setVal = (v: string | number | boolean) => {
-                                            setNewLeadData({
-                                                ...newLeadData,
-                                                custom_fields: {
-                                                    ...(newLeadData.custom_fields || {}),
-                                                    [field.field_key]: v
-                                                }
-                                            });
-                                        };
-                                        return (
-                                            <div key={field.id} className="space-y-1.5">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                                    {field.field_label} {field.is_required && '*'}
-                                                </label>
-                                                {field.field_type === 'select' ? (
-                                                    <select 
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
-                                                    >
-                                                        <option value="">Selecione...</option>
-                                                        {(field.field_options || []).map(opt => (
-                                                            <option key={opt} value={opt}>{opt}</option>
-                                                        ))}
-                                                    </select>
-                                                ) : field.field_type === 'date' ? (
-                                                    <input 
-                                                        type="date"
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                                    />
-                                                ) : field.field_type === 'number' ? (
-                                                    <input 
-                                                        type="number"
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                                    />
-                                                ) : (
-                                                    <input 
-                                                        type="text"
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                                        placeholder={`Insira ${field.field_label.toLowerCase()}`}
-                                                    />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                          )}
+                          <div className="pt-4 border-t border-slate-100 space-y-4">
+                              <div className="flex items-center justify-between">
+                                  <div>
+                                      <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest flex items-center gap-2"><Tag size={14}/> Campos Personalizados</h4>
+                                      <p className="text-[11px] text-slate-400 mt-0.5">CNPJ, Razão Social, CPF, Inscrição Estadual e dados extras.</p>
+                                  </div>
+                                  <button 
+                                      type="button" 
+                                      onClick={() => setShowCreateFieldModal(true)} 
+                                      className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 shadow-xs"
+                                  >
+                                      <Plus size={14} /> Novo Campo
+                                  </button>
+                              </div>
+
+                              {customFields.length === 0 ? (
+                                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4 text-center space-y-3">
+                                      <p className="text-xs text-slate-500 font-medium">Nenhum campo personalizado cadastrado ainda.</p>
+                                      <p className="text-[11px] text-slate-400">Clique em um dos atalhos para criar o campo e preencher agora:</p>
+                                      <div className="flex flex-wrap justify-center gap-2 pt-1">
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('CNPJ', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + CNPJ
+                                          </button>
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('Razão Social', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + Razão Social
+                                          </button>
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('CPF', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + CPF
+                                          </button>
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('Inscrição Estadual', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + Inscrição Estadual
+                                          </button>
+                                      </div>
+                                  </div>
+                              ) : (
+                                  <div className="space-y-4">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {customFields.map(field => {
+                                              const value = newLeadData.custom_fields?.[field.field_key] || '';
+                                              const setVal = (v: string | number | boolean) => {
+                                                  setNewLeadData({
+                                                      ...newLeadData,
+                                                      custom_fields: {
+                                                          ...(newLeadData.custom_fields || {}),
+                                                          [field.field_key]: v
+                                                      }
+                                                  });
+                                              };
+                                              return (
+                                                  <div key={field.id} className="space-y-1.5">
+                                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                          {field.field_label} {field.is_required && '*'}
+                                                      </label>
+                                                      {field.field_type === 'select' ? (
+                                                          <select 
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
+                                                          >
+                                                              <option value="">Selecione...</option>
+                                                              {(field.field_options || []).map(opt => (
+                                                                  <option key={opt} value={opt}>{opt}</option>
+                                                              ))}
+                                                          </select>
+                                                      ) : field.field_type === 'date' ? (
+                                                          <input 
+                                                              type="date"
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                          />
+                                                      ) : field.field_type === 'number' ? (
+                                                          <input 
+                                                              type="number"
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                          />
+                                                      ) : (
+                                                          <input 
+                                                              type="text"
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                              placeholder={`Preencher ${field.field_label}`}
+                                                          />
+                                                      )}
+                                                  </div>
+                                              );
+                                          })}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Criar mais campos:</span>
+                                          {!customFields.some(f => f.field_label.toLowerCase() === 'cnpj') && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('CNPJ', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + CNPJ
+                                              </button>
+                                          )}
+                                          {!customFields.some(f => f.field_label.toLowerCase() === 'razão social') && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('Razão Social', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + Razão Social
+                                              </button>
+                                          )}
+                                          {!customFields.some(f => f.field_label.toLowerCase() === 'cpf') && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('CPF', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + CPF
+                                              </button>
+                                          )}
+                                          {!customFields.some(f => f.field_label.toLowerCase().includes('inscrição')) && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('Inscrição Estadual', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + Inscrição Estadual
+                                              </button>
+                                          )}
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
 
                       </form>
                   </div>
@@ -2553,70 +2759,127 @@ const Sales: React.FC = () => {
                           </div>
 
                           {/* SEÇÃO: CAMPOS PERSONALIZADOS */}
-                          {customFields.length > 0 && (
-                            <div className="pt-4 border-t border-slate-100">
-                                <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Campos Personalizados</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {customFields.map(field => {
-                                        const value = editingLeadData.custom_fields?.[field.field_key] || '';
-                                        const setVal = (v: string | number | boolean) => {
-                                            setEditingLeadData({
-                                                ...editingLeadData,
-                                                custom_fields: {
-                                                    ...(editingLeadData.custom_fields || {}),
-                                                    [field.field_key]: v
-                                                }
-                                            });
-                                        };
-                                        return (
-                                            <div key={field.id} className="space-y-1.5">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                                    {field.field_label} {field.is_required && '*'}
-                                                </label>
-                                                {field.field_type === 'select' ? (
-                                                    <select 
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
-                                                    >
-                                                        <option value="">Selecione...</option>
-                                                        {(field.field_options || []).map(opt => (
-                                                            <option key={opt} value={opt}>{opt}</option>
-                                                        ))}
-                                                    </select>
-                                                ) : field.field_type === 'date' ? (
-                                                    <input 
-                                                        type="date"
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                                    />
-                                                ) : field.field_type === 'number' ? (
-                                                    <input 
-                                                        type="number"
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                                    />
-                                                ) : (
-                                                    <input 
-                                                        type="text"
-                                                        required={field.is_required}
-                                                        value={value}
-                                                        onChange={e => setVal(e.target.value)}
-                                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                                        placeholder={`Insira ${field.field_label.toLowerCase()}`}
-                                                    />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                          )}
+                          <div className="pt-4 border-t border-slate-100 space-y-4">
+                              <div className="flex items-center justify-between">
+                                  <div>
+                                      <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest flex items-center gap-2"><Tag size={14}/> Campos Personalizados</h4>
+                                      <p className="text-[11px] text-slate-400 mt-0.5">CNPJ, Razão Social, CPF, Inscrição Estadual e dados adicionais.</p>
+                                  </div>
+                                  <button 
+                                      type="button" 
+                                      onClick={() => setShowCreateFieldModal(true)} 
+                                      className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 shadow-xs"
+                                  >
+                                      <Plus size={14} /> Novo Campo
+                                  </button>
+                              </div>
+
+                              {customFields.length === 0 ? (
+                                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4 text-center space-y-3">
+                                      <p className="text-xs text-slate-500 font-medium">Nenhum campo personalizado cadastrado ainda.</p>
+                                      <p className="text-[11px] text-slate-400">Clique em um dos atalhos para criar o campo e preencher agora:</p>
+                                      <div className="flex flex-wrap justify-center gap-2 pt-1">
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('CNPJ', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + CNPJ
+                                          </button>
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('Razão Social', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + Razão Social
+                                          </button>
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('CPF', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + CPF
+                                          </button>
+                                          <button type="button" onClick={() => handleCreateCustomFieldQuick('Inscrição Estadual', 'text')} className="text-xs font-bold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1">
+                                              <Plus size={12}/> + Inscrição Estadual
+                                          </button>
+                                      </div>
+                                  </div>
+                              ) : (
+                                  <div className="space-y-4">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {customFields.map(field => {
+                                              const value = editingLeadData.custom_fields?.[field.field_key] || '';
+                                              const setVal = (v: string | number | boolean) => {
+                                                  setEditingLeadData({
+                                                      ...editingLeadData,
+                                                      custom_fields: {
+                                                          ...(editingLeadData.custom_fields || {}),
+                                                          [field.field_key]: v
+                                                      }
+                                                  });
+                                              };
+                                              return (
+                                                  <div key={field.id} className="space-y-1.5">
+                                                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                          {field.field_label} {field.is_required && '*'}
+                                                      </label>
+                                                      {field.field_type === 'select' ? (
+                                                          <select 
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
+                                                          >
+                                                              <option value="">Selecione...</option>
+                                                              {(field.field_options || []).map(opt => (
+                                                                  <option key={opt} value={opt}>{opt}</option>
+                                                              ))}
+                                                          </select>
+                                                      ) : field.field_type === 'date' ? (
+                                                          <input 
+                                                              type="date"
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                          />
+                                                      ) : field.field_type === 'number' ? (
+                                                          <input 
+                                                              type="number"
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                          />
+                                                      ) : (
+                                                          <input 
+                                                              type="text"
+                                                              required={field.is_required}
+                                                              value={value}
+                                                              onChange={e => setVal(e.target.value)}
+                                                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                                                              placeholder={`Preencher ${field.field_label}`}
+                                                          />
+                                                      )}
+                                                  </div>
+                                              );
+                                          })}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Criar mais campos:</span>
+                                          {!customFields.some(f => f.field_label.toLowerCase() === 'cnpj') && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('CNPJ', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + CNPJ
+                                              </button>
+                                          )}
+                                          {!customFields.some(f => f.field_label.toLowerCase() === 'razão social') && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('Razão Social', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + Razão Social
+                                              </button>
+                                          )}
+                                          {!customFields.some(f => f.field_label.toLowerCase() === 'cpf') && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('CPF', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + CPF
+                                              </button>
+                                          )}
+                                          {!customFields.some(f => f.field_label.toLowerCase().includes('inscrição')) && (
+                                              <button type="button" onClick={() => handleCreateCustomFieldQuick('Inscrição Estadual', 'text')} className="text-[11px] font-bold text-blue-600 hover:underline">
+                                                  + Inscrição Estadual
+                                              </button>
+                                          )}
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
 
                       </form>
                   </div>
@@ -2832,6 +3095,101 @@ const Sales: React.FC = () => {
           </div>
         );
       })()}
+      {/* OVERLAY DIALOG / CRIAR CAMPO PERSONALIZADO MODAL */}
+      {showCreateFieldModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-navy/80 backdrop-blur-sm animate-in fade-in p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                  <Tag size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Novo Campo Personalizado</h3>
+                  <p className="text-xs text-slate-400 font-medium">Ex: CNPJ, Razão Social, IE, CPF</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowCreateFieldModal(false)}
+                className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome do Campo *</label>
+                <input 
+                  type="text" 
+                  value={newFieldLabelInput}
+                  onChange={(e) => setNewFieldLabelInput(e.target.value)}
+                  placeholder="Ex: CNPJ, Razão Social, CPF..."
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo de Dado</label>
+                <select 
+                  value={newFieldTypeInput}
+                  onChange={(e) => setNewFieldTypeInput(e.target.value as any)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all appearance-none"
+                >
+                  <option value="text">Texto livre</option>
+                  <option value="number">Número</option>
+                  <option value="date">Data</option>
+                  <option value="select">Lista de opções (Seleção)</option>
+                </select>
+              </div>
+
+              {/* Sugestões de campos frequentes */}
+              <div className="pt-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Sugestões rápidas:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {['CNPJ', 'Razão Social', 'Inscrição Estadual', 'CPF', 'Segmento', 'Vendedor responsável'].map(sugg => (
+                    <button
+                      key={sugg}
+                      type="button"
+                      onClick={() => setNewFieldLabelInput(sugg)}
+                      className="text-xs font-semibold text-slate-600 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 px-2.5 py-1 rounded-lg transition-colors border border-slate-200"
+                    >
+                      {sugg}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button 
+                type="button" 
+                onClick={() => setShowCreateFieldModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-200/60 rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button"
+                disabled={!newFieldLabelInput.trim()}
+                onClick={() => {
+                  if (newFieldLabelInput.trim()) {
+                    handleCreateCustomFieldQuick(newFieldLabelInput.trim(), newFieldTypeInput);
+                    setShowCreateFieldModal(false);
+                    setNewFieldLabelInput('');
+                  }
+                }}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+              >
+                <Plus size={14} /> Criar Campo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
