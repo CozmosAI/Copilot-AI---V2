@@ -215,6 +215,16 @@ const Sales: React.FC = () => {
   const [messageText, setMessageText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = (instant = true) => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'end' });
+    }
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [attachmentAccept, setAttachmentAccept] = useState('image/*,video/*,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain');
@@ -962,11 +972,19 @@ const Sales: React.FC = () => {
   }, [selectedConversationId]);
 
   useEffect(() => { 
-    const timer = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' }); 
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [chatMessages, selectedConversationId]);
+    if (isChatLoading) return;
+
+    scrollToBottom(true);
+    const t1 = setTimeout(() => scrollToBottom(true), 50);
+    const t2 = setTimeout(() => scrollToBottom(true), 150);
+    const t3 = setTimeout(() => scrollToBottom(true), 350);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [chatMessages, selectedConversationId, isChatLoading]);
 
   // --- LÓGICA DE COLUNAS (CRUD + DnD) ---
   
@@ -1812,7 +1830,7 @@ const Sales: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative bg-opacity-50">
+                        <div ref={messagesContainerRef} className="flex-1 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative bg-opacity-50">
                              <div className="absolute inset-0 opacity-[0.05] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] pointer-events-none"></div>
                             {aiAnalysis && <div className="z-10 bg-white/95 backdrop-blur border border-blue-100 p-4 rounded-xl text-xs text-blue-900 shadow-md mx-auto max-w-lg mb-4 text-center leading-relaxed"><strong>🤖 Copilot Insight:</strong> {aiAnalysis}</div>}
                             
@@ -1943,6 +1961,7 @@ const Sales: React.FC = () => {
                                                   <img 
                                                       src={sourceUrl} 
                                                       alt="Mídia WhatsApp" 
+                                                      onLoad={() => scrollToBottom(true)}
                                                       className={isSticker ? "w-24 h-24 object-contain rounded-lg" : "max-w-xs md:max-w-sm max-h-64 object-cover rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"} 
                                                       referrerPolicy="no-referrer" 
                                                   />
