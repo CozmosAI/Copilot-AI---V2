@@ -1105,22 +1105,198 @@ const CONVERSION_TYPES = [
 ];
 
 function extractConversions(insights) {
-    if (!insights?.actions) return 0;
+    if (!insights) return 0;
     
     let total = 0;
-    for (const action of insights.actions) {
-        // Verifica se o action_type é um tipo de conversão relevante
-        // (começa com offsite_conversion, ou é um dos tipos específicos)
-        const isConversion = CONVERSION_TYPES.some(type => 
-            action.action_type === type || 
-            action.action_type.startsWith('offsite_conversion.')
-        );
-        
-        if (isConversion) {
-            total += parseInt(action.value || '0');
+    const actionsList = insights.actions || insights.conversions || [];
+    if (Array.isArray(actionsList)) {
+        for (const action of actionsList) {
+            const isConversion = CONVERSION_TYPES.some(type => 
+                action.action_type === type || 
+                action.action_type.startsWith('offsite_conversion.') ||
+                action.action_type.includes('purchase') ||
+                action.action_type.includes('lead') ||
+                action.action_type.includes('conversion')
+            );
+            
+            if (isConversion) {
+                total += parseInt(action.value || '0', 10);
+            }
         }
     }
+    
+    // Fallback if there is a direct conversions value field
+    if (total === 0 && insights.conversions !== undefined && insights.conversions !== null) {
+        if (typeof insights.conversions === 'number') return insights.conversions;
+        if (typeof insights.conversions === 'string') {
+            const parsed = parseInt(insights.conversions, 10);
+            if (!isNaN(parsed)) return parsed;
+        }
+    }
+
     return total;
+}
+
+function getFieldValue(fieldName, rowData) {
+    if (!rowData) return 0;
+    
+    // 1. Check direct property
+    if (rowData[fieldName] !== undefined && rowData[fieldName] !== null) {
+        const val = parseFloat(rowData[fieldName]);
+        return isNaN(val) ? 0 : val;
+    }
+    
+    // 2. Check actions or action_values array
+    const searchInArray = (arr, typeName) => {
+        if (!Array.isArray(arr)) return null;
+        const found = arr.find(item => 
+            item.action_type === typeName || 
+            item.action_type?.startsWith(typeName + '.') ||
+            item.action_type?.includes(typeName)
+        );
+        return found ? parseFloat(found.value) : null;
+    };
+
+    // Try actions
+    let actionVal = searchInArray(rowData.actions || rowData.conversions, fieldName);
+    if (actionVal !== null && !isNaN(actionVal)) return actionVal;
+
+    // Try action_values
+    let actionValueVal = searchInArray(rowData.action_values || rowData.conversion_values, fieldName);
+    if (actionValueVal !== null && !isNaN(actionValueVal)) return actionValueVal;
+
+    return 0;
+}
+
+function extractResultsByObjective(objective, insights) {
+    if (!insights) return 0;
+    
+    // Fallback if actions is empty
+    if (!insights.actions && !insights.conversions) {
+        if (objective === 'OUTBOUND_CLICKS' && insights.outbound_clicks) {
+            return parseInt(insights.outbound_clicks) || 0;
+        }
+        return 0;
+    }
+
+    const actions = insights.actions || insights.conversions || [];
+    if (!Array.isArray(actions)) return 0;
+
+    // Map objectives to their primary action types
+    let targetActionTypes = [];
+    
+    const obj = (objective || '').toUpperCase();
+    if (obj.includes('CONVERSIONS') || obj.includes('OUTCOME_SALES') || obj.includes('SALES')) {
+        targetActionTypes = ['purchase', 'offsite_conversion.fb_pixel_purchase', 'offsite_conversion', 'onsite_conversion.messaging_conversation_started_7d'];
+    } else if (obj.includes('LEAD') || obj.includes('OUTCOME_LEADS')) {
+        targetActionTypes = ['lead', 'offsite_conversion.fb_pixel_lead', 'submit_application', 'lead_grouped'];
+    } else if (obj.includes('TRAFFIC') || obj.includes('OUTBOUND_CLICKS') || obj.includes('LINK_CLICKS')) {
+        targetActionTypes = ['link_click', 'outbound_click'];
+    } else if (obj.includes('POST_ENGAGEMENT') || obj.includes('ENGAGEMENT')) {
+        targetActionTypes = ['post_engagement', 'post_reaction', 'comment', 'share', 'page_engagement'];
+    } else if (obj.includes('APP_INSTALLS') || obj.includes('APP_PROMOTION')) {
+        targetActionTypes = ['mobile_app_install', 'app_install'];
+    } else if (obj.includes('VIDEO_VIEWS')) {
+        targetActionTypes = ['video_view', 'video_play'];
+    } else if (obj.includes('MESSAGING') || obj.includes('OUTCOME_TRAFFIC')) {
+        targetActionTypes = ['onsite_conversion.messaging_conversation_started_7d', 'link_click'];
+    }
+
+    // Default list of conversion action types if objective doesn't map perfectly
+    if (targetActionTypes.length === 0) {
+        targetActionTypes = CONVERSION_TYPES;
+    }
+
+    let total = 0;
+    for (const action of actions) {
+        const match = targetActionTypes.some(type => 
+            action.action_type === type || 
+            action.action_type.startsWith(type + '.') ||
+            action.action_type.endsWith('.' + type) ||
+            action.action_type.includes(type)
+        );
+        if (match) {
+            total += parseInt(action.value || '0', 10);
+        }
+    }
+
+    // If still 0, return any purchase or lead or general conversions
+    if (total === 0) {
+        for (const action of actions) {
+            const isGeneralConversion = CONVERSION_TYPES.some(type => 
+                action.action_type === type || 
+                action.action_type.startsWith('offsite_conversion.')
+            );
+            if (isGeneralConversion) {
+                total += parseInt(action.value || '0', 10);
+            }
+        }
+    }
+
+    return total;
+}
+
+function formatValue(value, format) {
+    if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
+        return '0';
+    }
+    if (format === 'percentage') {
+        return (value * 100).toFixed(2) + '%';
+    }
+    if (format === 'currency') {
+        return 'R$ ' + value.toFixed(2).replace('.', ',');
+    }
+    return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function evaluateCustomMetric(formula, rowData) {
+    if (!formula || typeof formula !== 'string') {
+        throw new Error('Fórmula não fornecida ou inválida');
+    }
+
+    // 1. Substituir {{field_name}} pelo valor correspondente
+    let expr = formula.replace(/\{\{(\w+)\}\}/g, (match, fieldName) => {
+        const val = getFieldValue(fieldName, rowData);
+        return val.toString();
+    });
+
+    // 2. Validar que a expressão resultante só contém caracteres seguros
+    let tempExpr = expr;
+    const allowedWords = ['min', 'max', 'abs', 'round', 'sqrt', 'log10', 'if'];
+    for (const word of allowedWords) {
+        tempExpr = tempExpr.replace(new RegExp(`\\b${word}\\b`, 'g'), '');
+    }
+
+    const unsafeCharMatch = tempExpr.match(/[^0-9+\-*/%^().,\s]/);
+    if (unsafeCharMatch) {
+        throw new Error(`Fórmula inválida: caracteres não permitidos ou termo suspeito encontrado: "${unsafeCharMatch[0]}"`);
+    }
+
+    // Substituir "^" por "**" para potenciação real em JS
+    let jsExpr = expr.replace(/\^/g, '**');
+
+    // 5. Avaliar usando Function constructor com whitelist de funções matemáticas
+    const allowedFns = { 
+        min: Math.min, 
+        max: Math.max, 
+        abs: Math.abs, 
+        round: Math.round, 
+        sqrt: Math.sqrt, 
+        log10: Math.log10, 
+        if: (c, a, b) => c ? a : b 
+    };
+
+    try {
+        const fn = new Function(...Object.keys(allowedFns), `return ${jsExpr};`);
+        const result = fn(...Object.values(allowedFns));
+        
+        if (result === null || result === undefined || isNaN(result) || !isFinite(result)) {
+            return 0;
+        }
+        return result;
+    } catch (evalError) {
+        throw new Error(`Erro ao avaliar a fórmula: ${evalError.message}`);
+    }
 }
 
 // 6. Rota POST /api/meta-ads/overview
@@ -1133,7 +1309,7 @@ app.post('/api/meta-ads/overview', async (req, res) => {
         const end = date_range?.end || new Date().toISOString().split('T')[0];
 
         const overviewUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/insights?` + new URLSearchParams({
-            fields: 'spend,impressions,clicks,actions',
+            fields: 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers',
             time_range: JSON.stringify({ since: start, until: end }),
             level: 'account',
             time_increment: '1',
@@ -1146,8 +1322,6 @@ app.post('/api/meta-ads/overview', async (req, res) => {
 
         const response = await fetch(overviewUrl);
         const overviewData = await response.json();
-
-        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(overviewData, null, 2).substring(0, 500));
 
         if (overviewData.error) {
             console.error('[Meta Ads API Error - Overview]:', overviewData.error);
@@ -1162,9 +1336,8 @@ app.post('/api/meta-ads/overview', async (req, res) => {
             const parsedImpressions = parseInt(item.impressions || '0');
             const parsedClicks = parseInt(item.clicks || '0');
 
-            // console.log(`[Meta Ads Dashboard] [DEBUG Overview Mapping] item spend: ${item.spend} -> parsed: ${parsedSpend}, impressions: ${item.impressions} -> parsed: ${parsedImpressions}, clicks: ${item.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
-
             return {
+                ...item,
                 date: item.date_start,
                 spend: parsedSpend,
                 impressions: parsedImpressions,
@@ -1191,7 +1364,7 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const campaignsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/campaigns?` + new URLSearchParams({
-            fields: `id,name,status,objective,daily_budget,lifetime_budget,insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            fields: `id,name,status,effective_status,buying_type,objective,daily_budget,lifetime_budget,insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -1202,8 +1375,6 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
         const campsResponse = await fetch(campaignsUrl);
         const campaignsData = await campsResponse.json();
 
-        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(campaignsData, null, 2).substring(0, 500));
-
         if (campaignsData.error) {
             console.error('[Meta Ads API Error - Campaigns List]:', campaignsData.error);
             return res.status(400).json({ error: campaignsData.error.message || 'Erro ao buscar campanhas' });
@@ -1212,21 +1383,15 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
         const campaigns = campaignsData.data || [];
         const results = campaigns.map(c => {
             const insights = c.insights?.data?.[0] || {};
-            
-            if (insights?.actions && insights.actions.length > 0) {
-                // console.log(`[Meta Ads Debug] Actions encontradas:`, insights.actions.map(a => `${a.action_type}=${a.value}`).join(', '));
-            }
-            
-            const parsedConversions = extractConversions(insights);
+            const parsedConversions = extractResultsByObjective(c.objective, insights);
 
             const parsedBudget = parseFloat(c.daily_budget || c.lifetime_budget || '0') / 100;
             const parsedSpend = parseFloat(insights.spend || '0');
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
 
-            // console.log(`[Meta Ads Dashboard] [DEBUG Campaigns Mapping] Campaign: ${c.name} (${c.id}), budget raw: ${c.daily_budget || c.lifetime_budget} -> parsed: ${parsedBudget}, spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
-
             return {
+                ...insights,
                 id: c.id,
                 name: c.name,
                 status: c.status,
@@ -1235,7 +1400,11 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
                 spend: parsedSpend,
                 impressions: parsedImpressions,
                 clicks: parsedClicks,
-                conversions: parsedConversions
+                conversions: parsedConversions,
+                effective_status: c.effective_status || c.status,
+                buying_type: c.buying_type,
+                daily_budget: c.daily_budget,
+                lifetime_budget: c.lifetime_budget
             };
         });
 
@@ -1257,7 +1426,7 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const adsetsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/adsets?` + new URLSearchParams({
-            fields: `id,name,status,campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            fields: `id,name,status,effective_status,bid_strategy,daily_budget,lifetime_budget,campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -1267,8 +1436,6 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
 
         const adsetsResponse = await fetch(adsetsUrl);
         const adsetsData = await adsetsResponse.json();
-
-        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsetsData, null, 2).substring(0, 500));
 
         if (adsetsData.error) {
             console.error('[Meta Ads API Error - Adsets List]:', adsetsData.error);
@@ -1289,9 +1456,8 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
 
-            // console.log(`[Meta Ads Dashboard] [DEBUG Ad-Groups Mapping] AdSet: ${adset.name} (${adset.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
-
             return {
+                ...insights,
                 id: adset.id,
                 name: adset.name,
                 status: adset.status,
@@ -1300,7 +1466,11 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
                 spend: parsedSpend,
                 impressions: parsedImpressions,
                 clicks: parsedClicks,
-                conversions: parsedConversions
+                conversions: parsedConversions,
+                effective_status: adset.effective_status || adset.status,
+                bid_strategy: adset.bid_strategy,
+                daily_budget: adset.daily_budget,
+                lifetime_budget: adset.lifetime_budget
             };
         });
 
@@ -1322,7 +1492,7 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const adsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/ads?` + new URLSearchParams({
-            fields: `id,name,status,adset{id,name},campaign{id,name},adcreatives{image_url,thumbnail_url,video_id,body,title},insights.time_range(${time_range_str}){spend,impressions,clicks,actions}`,
+            fields: `id,name,status,effective_status,adset_id,campaign_id,adset{id,name},campaign{id,name},adcreatives{body,title,image_url,thumbnail_url,video_id,object_story_spec,link_url},insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -1332,8 +1502,6 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 
         const adsResponse = await fetch(adsUrl);
         const adsData = await adsResponse.json();
-
-        // console.log(`[Meta Ads Dashboard] Resposta da Graph API:`, JSON.stringify(adsData, null, 2).substring(0, 500));
 
         if (adsData.error) {
             console.error('[Meta Ads API Error - Ads List]:', adsData.error);
@@ -1350,11 +1518,10 @@ app.post('/api/meta-ads/ads', async (req, res) => {
             const parsedImpressions = parseInt(insights.impressions || '0');
             const parsedClicks = parseInt(insights.clicks || '0');
 
-            // console.log(`[Meta Ads Dashboard] [DEBUG Ads Mapping] Ad: ${ad.name} (${ad.id}), spend raw: ${insights.spend} -> parsed: ${parsedSpend}, impressions raw: ${insights.impressions} -> parsed: ${parsedImpressions}, clicks raw: ${insights.clicks} -> parsed: ${parsedClicks}, conversions: ${parsedConversions}`);
-
             const adCreative = ad.adcreatives?.data?.[0] || {};
 
             return {
+                ...insights,
                 id: ad.id,
                 name: ad.name,
                 status: ad.status,
@@ -1367,7 +1534,11 @@ app.post('/api/meta-ads/ads', async (req, res) => {
                 imageUrl: adCreative.image_url || adCreative.thumbnail_url || null,
                 videoId: adCreative.video_id || null,
                 body: adCreative.body || null,
-                title: adCreative.title || null
+                title: adCreative.title || null,
+                effective_status: ad.effective_status || ad.status,
+                adset_id: ad.adset_id,
+                campaign_id: ad.campaign_id,
+                adcreatives: ad.adcreatives
             };
         });
 
@@ -1375,6 +1546,180 @@ app.post('/api/meta-ads/ads', async (req, res) => {
     } catch (err) {
         console.error('[Meta Ads Ads Endpoint Error]:', err);
         res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
+// ==============================================================================
+// METAS ADS CUSTOM METRICS ENDPOINTS (CRUD + VALIDATION)
+// ==============================================================================
+
+app.get('/api/meta-ads/custom-metrics', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const { ad_account_id } = req.query;
+
+        let query = supabase.from('meta_custom_metrics')
+            .select('*')
+            .eq('is_archived', false);
+
+        if (ad_account_id) {
+            query = query.eq('ad_account_id', ad_account_id);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const filtered = (data || []).filter(m => m.user_id === authUser.id || m.is_shared === true);
+        res.json({ metrics: filtered });
+    } catch (err) {
+        console.error('[Meta Ads Custom Metrics List Error]:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/meta-ads/custom-metrics', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const { ad_account_id, name, description, formula, format, is_shared } = req.body;
+        
+        if (!name || !formula || !format) {
+            return res.status(400).json({ error: 'Campos name, formula e format são obrigatórios' });
+        }
+        
+        const validFormats = ['numeric', 'percentage', 'currency'];
+        if (!validFormats.includes(format)) {
+            return res.status(400).json({ error: 'Formato inválido. Use numeric, percentage ou currency' });
+        }
+
+        try {
+            evaluateCustomMetric(formula, {});
+        } catch (fError) {
+            return res.status(400).json({ error: `Fórmula inválida: ${fError.message}` });
+        }
+
+        const { data, error } = await supabase.from('meta_custom_metrics').insert({
+            user_id: authUser.id,
+            ad_account_id,
+            name,
+            description: description || '',
+            formula,
+            format,
+            is_shared: !!is_shared,
+            is_archived: false
+        }).select();
+
+        if (error) throw error;
+        res.status(201).json({ ok: true, metric: data[0] });
+    } catch (err) {
+        console.error('[Meta Ads Custom Metrics Create Error]:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.patch('/api/meta-ads/custom-metrics/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const { id } = req.params;
+        const { name, description, formula, format, is_shared } = req.body;
+
+        const updateData = {};
+        if (name !== undefined) updateData.name = name;
+        if (description !== undefined) updateData.description = description;
+        if (formula !== undefined) {
+            try {
+                evaluateCustomMetric(formula, {});
+            } catch (fError) {
+                return res.status(400).json({ error: `Fórmula inválida: ${fError.message}` });
+            }
+            updateData.formula = formula;
+        }
+        if (format !== undefined) {
+            const validFormats = ['numeric', 'percentage', 'currency'];
+            if (!validFormats.includes(format)) {
+                return res.status(400).json({ error: 'Formato inválido. Use numeric, percentage ou currency' });
+            }
+            updateData.format = format;
+        }
+        if (is_shared !== undefined) updateData.is_shared = !!is_shared;
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: 'Nenhum dado para atualizar fornecido' });
+        }
+
+        const { data, error } = await supabase.from('meta_custom_metrics')
+            .update(updateData)
+            .eq('id', id)
+            .eq('user_id', authUser.id)
+            .select();
+
+        if (error) throw error;
+        if (!data || data.length === 0) {
+            return res.status(404).json({ error: 'Métrica não encontrada ou você não tem permissão para editá-la' });
+        }
+
+        res.json({ ok: true, metric: data[0] });
+    } catch (err) {
+        console.error('[Meta Ads Custom Metrics Update Error]:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/meta-ads/custom-metrics/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const { id } = req.params;
+
+        const { data, error } = await supabase.from('meta_custom_metrics')
+            .update({ is_archived: true })
+            .eq('id', id)
+            .eq('user_id', authUser.id)
+            .select();
+
+        if (error) throw error;
+        if (!data || data.length === 0) {
+            return res.status(404).json({ error: 'Métrica não encontrada ou você não tem permissão para deletá-la' });
+        }
+
+        res.json({ ok: true, message: 'Métrica removida com sucesso' });
+    } catch (err) {
+        console.error('[Meta Ads Custom Metrics Delete Error]:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/meta-ads/custom-metrics/:id/validate', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const { id } = req.params;
+        const { row_data } = req.body;
+
+        const { data, error } = await supabase.from('meta_custom_metrics')
+            .select('*')
+            .eq('id', id)
+            .eq('is_archived', false)
+            .single();
+
+        if (error || !data) {
+            return res.status(404).json({ error: 'Métrica não encontrada ou arquivada' });
+        }
+
+        if (data.user_id !== authUser.id && !data.is_shared) {
+            return res.status(403).json({ error: 'Você não tem permissão para acessar esta métrica' });
+        }
+
+        try {
+            const rawValue = evaluateCustomMetric(data.formula, row_data || {});
+            res.json({
+                valid: true,
+                value: rawValue,
+                formatted: formatValue(rawValue, data.format)
+            });
+        } catch (evalErr) {
+            res.status(400).json({ valid: false, error: evalErr.message });
+        }
+    } catch (err) {
+        console.error('[Meta Ads Custom Metrics Validate Error]:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 

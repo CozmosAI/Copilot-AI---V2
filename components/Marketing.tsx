@@ -3,9 +3,10 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
-  ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, X, Plus, Trash2, Calculator, Save, Bell,
+  ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, ChevronRight, X, Plus, Trash2, Calculator, Save, Bell,
   FileUp, Download, Image as ImageIcon, Play, Pause, Pencil, Settings, Folder, HelpCircle, Edit2
 } from 'lucide-react';
+import { AdPreviewDrawer } from './AdPreviewDrawer';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, Brush, ComposedChart, Bar
 } from 'recharts';
@@ -21,6 +22,9 @@ import {
   toggleMetaCampaignStatus, updateMetaCampaignBudget
 } from '../services/metaAdsService';
 import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
+import { CustomMetricBuilder } from './CustomMetricBuilder';
+import { CustomMetricsManager } from './CustomMetricsManager';
+import { evaluateFormula, formatValue, CustomMetric as CustomMetricFull } from '../utils/customMetrics';
 
 // --- TYPES ---
 type BaseMetricType = 'clicks' | 'impressions' | 'spend' | 'conversions' | 'conversionsValue';
@@ -116,18 +120,147 @@ const Marketing: React.FC = () => {
   });
   const chartRef = useRef<HTMLDivElement>(null);
   const metaPreviewRef = useRef<HTMLDivElement>(null);
+  const selectedAdRowRef = useRef<HTMLTableRowElement>(null);
 
-  const handleSelectMetaAd = (id: string) => {
-      setSelectedMetaAdIdForPreview(id);
-      setTimeout(() => {
-          metaPreviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
+  // Selection States
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<string>>(new Set());
+  const [selectedAdGroupIds, setSelectedAdGroupIds] = useState<Set<string>>(new Set());
+  const [selectedAdIds, setSelectedAdIds] = useState<Set<string>>(new Set());
+
+  // Tree Table Drill-down State
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const [expandedAdSets, setExpandedAdSets] = useState<Set<string>>(new Set());
+  const [selectedAdForPreview, setSelectedAdForPreview] = useState<any | null>(null);
+  const [isPreviewDrawerOpen, setIsPreviewDrawerOpen] = useState(false);
+
+  const toggleCampaignExpand = (campaignId: string) => {
+    setExpandedCampaigns(prev => {
+      const next = new Set(prev);
+      const id = campaignId.toString();
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAdSetExpand = (adSetId: string) => {
+    setExpandedAdSets(prev => {
+      const next = new Set(prev);
+      const id = adSetId.toString();
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAdClick = (ad: any) => {
+    setSelectedAdForPreview(ad);
+    setIsPreviewDrawerOpen(true);
   };
 
   // Filters & UI State
   const [selectedMetrics, setSelectedMetrics] = useState<MetricType[]>(['clicks', 'spend']);
   const [globalCampaignFilter, setGlobalCampaignFilter] = useState<string>(''); // ID da campanha
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+
+  // Clear selection and tree expansions on tab/platform/filter change
+  useEffect(() => {
+    setSelectedCampaignIds(new Set());
+    setSelectedAdGroupIds(new Set());
+    setSelectedAdIds(new Set());
+    setExpandedCampaigns(new Set());
+    setExpandedAdSets(new Set());
+    setSelectedAdForPreview(null);
+    setIsPreviewDrawerOpen(false);
+  }, [activePlatform, activeTab, globalCampaignFilter, searchTermFilter, marketingDateFilter]);
+
+  const toggleCampaignSelection = (id: string) => {
+    setSelectedCampaignIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllCampaigns = (campaignsList: any[]) => {
+    const allIds = campaignsList.map(c => c.id.toString());
+    setSelectedCampaignIds(prev => {
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        allIds.forEach(id => next.delete(id));
+      } else {
+        allIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleAdGroupSelection = (id: string) => {
+    setSelectedAdGroupIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllAdGroups = (adGroupsList: any[]) => {
+    const allIds = adGroupsList.map(ag => ag.id.toString());
+    setSelectedAdGroupIds(prev => {
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        allIds.forEach(id => next.delete(id));
+      } else {
+        allIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleAdSelection = (id: string) => {
+    setSelectedAdIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllAds = (adsList: any[]) => {
+    const allIds = adsList.map(ad => ad.id.toString());
+    setSelectedAdIds(prev => {
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        allIds.forEach(id => next.delete(id));
+      } else {
+        allIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleSelectMetaAd = (id: string) => {
+    setSelectedMetaAdIdForPreview(id);
+    setTimeout(() => {
+      metaPreviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+    setTimeout(() => {
+      selectedAdRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
   
   // Custom Metrics State
   const [customMetrics, setCustomMetrics] = useState<CustomMetric[]>(() => {
@@ -135,6 +268,28 @@ const Marketing: React.FC = () => {
       return saved ? JSON.parse(saved) : PREBUILT_METRICS;
   });
   const [isMetricModalOpen, setIsMetricModalOpen] = useState(false);
+  const [metaCustomMetrics, setMetaCustomMetrics] = useState<CustomMetricFull[]>([]);
+  const [isMetricBuilderOpen, setIsMetricBuilderOpen] = useState(false);
+  const [isMetricManagerOpen, setIsMetricManagerOpen] = useState(false);
+  const [editingCustomMetric, setEditingCustomMetric] = useState<CustomMetricFull | null>(null);
+
+  const fetchMetaCustomMetrics = async () => {
+    try {
+      const accountParam = selectedAccountId ? `?ad_account_id=${selectedAccountId}` : '';
+      const res = await fetch(`/api/meta-ads/custom-metrics${accountParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMetaCustomMetrics(data.metrics || []);
+      }
+    } catch (err) {
+      console.error('[Meta Custom Metrics Fetch Error]:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchMetaCustomMetrics();
+  }, [selectedAccountId, activePlatform]);
+
   const [newMetric, setNewMetric] = useState<Partial<CustomMetric>>({
       name: '',
       numerator: 'clicks',
@@ -726,14 +881,77 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       return sortConfig.direction === 'asc' ? <ChevronUp size={12} className="ml-1 text-navy"/> : <ChevronDown size={12} className="ml-1 text-navy"/>;
   };
 
-  const renderStatusBadge = (status: string) => {
-      const config: any = {
-          'ENABLED': { bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Ativo' },
-          'PAUSED': { bg: 'bg-amber-50', text: 'text-amber-600', label: 'Pausado' },
-          'REMOVED': { bg: 'bg-rose-50', text: 'text-rose-600', label: 'Removido' }
+  const renderStatusBadge = (status: string, platform?: 'meta' | 'google') => {
+      const s = (status || '').toUpperCase();
+      let bg = 'bg-slate-100';
+      let text = 'text-slate-500';
+      let label = status || 'N/A';
+
+      if (platform === 'meta') {
+          if (s === 'ACTIVE' || s === 'ENABLED') {
+              bg = 'bg-emerald-50';
+              text = 'text-emerald-600';
+              label = 'Ativo';
+          } else if (s === 'PAUSED') {
+              bg = 'bg-amber-50';
+              text = 'text-amber-600';
+              label = 'Pausado';
+          } else if (s === 'DELETED') {
+              bg = 'bg-rose-50';
+              text = 'text-rose-600';
+              label = 'Excluído';
+          } else if (s === 'ARCHIVED') {
+              bg = 'bg-slate-200';
+              text = 'text-slate-700';
+              label = 'Arquivado';
+          } else if (s === 'IN_REVIEW') {
+              bg = 'bg-yellow-50';
+              text = 'text-yellow-600';
+              label = 'Em revisão';
+          }
+      } else {
+          // Google Ads / General
+          if (s === 'ENABLED' || s === 'ACTIVE') {
+              bg = 'bg-emerald-50';
+              text = 'text-[#0f9d58]';
+              label = 'Ativo';
+          } else if (s === 'PAUSED') {
+              bg = 'bg-amber-50';
+              text = 'text-amber-600';
+              label = 'Pausado';
+          } else if (s === 'REMOVED' || s === 'DELETED') {
+              bg = 'bg-rose-50';
+              text = 'text-rose-600';
+              label = 'Removido';
+          }
+      }
+
+      return <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${bg} ${text}`}>{label}</span>;
+  };
+
+  const renderCampaignResults = (c: any) => {
+      // Determine the result label based on the campaign objective or type
+      const getObjectiveLabel = (obj: string) => {
+          const o = (obj || '').toUpperCase();
+          if (o.includes('CONVERSIONS') || o.includes('OUTCOME_SALES') || o.includes('SALES')) return 'Conversões (Compras)';
+          if (o.includes('LEAD') || o.includes('OUTCOME_LEADS')) return 'Cadastros (Leads)';
+          if (o.includes('TRAFFIC') || o.includes('OUTBOUND_CLICKS') || o.includes('LINK_CLICKS')) return 'Cliques no Link';
+          if (o.includes('POST_ENGAGEMENT') || o.includes('ENGAGEMENT')) return 'Engajamento';
+          if (o.includes('APP_INSTALLS') || o.includes('APP_PROMOTION')) return 'Instalações de App';
+          if (o.includes('VIDEO_VIEWS')) return 'Visualizações de Vídeo';
+          if (o.includes('MESSAGING') || o.includes('OUTCOME_TRAFFIC')) return 'Conversas por mensagem iniciadas';
+          return 'Resultados';
       };
-      const style = config[status] || { bg: 'bg-slate-100', text: 'text-slate-500', label: status };
-      return <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${style.bg} ${style.text}`}>{style.label}</span>;
+
+      const label = getObjectiveLabel(c.type || c.objective);
+      const value = c.conversions || 0;
+
+      return (
+          <div className="flex flex-col items-end group/tooltip relative">
+              <span className="font-bold text-indigo-600 bg-indigo-50/20 px-1.5 py-0.5 rounded">{formatNumber(value)}</span>
+              <span className="text-[9px] text-slate-400 mt-0.5 cursor-help" title={label}>{label}</span>
+          </div>
+      );
   };
 
   // --- TOTALS CALCULATION ---
@@ -1295,12 +1513,20 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     </div>
                                 ))}
                                 
-                                <button 
-                                    onClick={() => setIsMetricModalOpen(true)}
-                                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-slate-300 text-slate-500 hover:text-blue-600 hover:border-blue-600 hover:bg-blue-50 transition-colors text-[10px] font-bold uppercase tracking-wider"
-                                >
-                                    <Plus size={12} /> Criar
-                                </button>
+                                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-2">
+                                    <button 
+                                        onClick={() => { setEditingCustomMetric(null); setIsMetricBuilderOpen(true); }}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-[10px] font-bold uppercase tracking-wider"
+                                    >
+                                        <Plus size={12} /> Criar Métrica
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsMetricManagerOpen(true)}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors text-[10px] font-bold uppercase tracking-wider"
+                                    >
+                                        <Calculator size={12} /> Gerenciar Métricas ({metaCustomMetrics.length})
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div className="h-64 md:h-[300px]">
@@ -1413,18 +1639,22 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         </div>
                     ) : activePlatform === 'meta' ? (
                         <>
-                            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="max-h-[600px] overflow-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
-                                    <thead className="bg-slate-50/80 border-b border-slate-300">
+                                    <thead className="sticky top-0 bg-[#f8f9fa] border-b border-slate-250 z-20">
                                         <tr className="divide-x divide-slate-200 h-9 md:h-10 text-slate-600">
                                             <th className="w-10 px-2 text-center border-r border-slate-200">
-                                                <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5" defaultChecked />
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5 cursor-pointer" 
+                                                    checked={sortData(filteredCampaigns).length > 0 && sortData(filteredCampaigns).every(c => selectedCampaignIds.has(c.id.toString()))}
+                                                    onChange={() => toggleAllCampaigns(sortData(filteredCampaigns))}
+                                                />
                                             </th>
-                                            <th className="w-12 px-2 text-center border-r border-slate-200 text-[9px] md:text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
+                                            <th className="w-32 px-2 text-center border-r border-slate-200 text-[9px] md:text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
                                             {[
                                                 { k: 'name', l: 'Campanha', align: 'left' },
                                                 { k: 'budget', l: 'Orçamento', align: 'right' },
-                                                { k: 'status', l: 'Status de Veiculação', align: 'left' },
                                                 { k: 'type', l: 'Objetivo', align: 'left' },
                                                 { k: 'impressions', l: 'Alcance', align: 'right' },
                                                 { k: 'clicks', l: 'Cliques no Link', align: 'right' },
@@ -1445,93 +1675,235 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                     </div>
                                                 </th>
                                             ))}
+                                            {metaCustomMetrics.map(m => (
+                                                <th 
+                                                    key={m.id || m.name} 
+                                                    className="px-2 md:px-4 py-1.5 md:py-2 text-[9px] md:text-[10px] font-bold text-indigo-700 uppercase tracking-normal whitespace-nowrap border-r border-slate-200 text-right bg-indigo-50/50"
+                                                >
+                                                    <div className="flex items-center gap-1 justify-end" title={m.formula}>
+                                                        <Calculator size={11} className="text-indigo-500" />
+                                                        <span>{m.name}</span>
+                                                    </div>
+                                                </th>
+                                            ))}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
                                         {sortData(filteredCampaigns).map((c, i) => {
-                                            return (
-                                                <tr key={c.id} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
-                                                    <td className="px-2 py-1.5 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5" defaultChecked />
-                                                    </td>
-                                                    {/* Meta Style Toggle Switch */}
-                                                    <td className="px-2 py-1.5 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center justify-center">
-                                                            
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setMetaStatusConfirmModal({
-                                                            open: true,
-                                                            campaignId: c.id,
-                                                            campaignName: c.name,
-                                                            action: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'pause' : 'enable'
-                                                        });
-                                                    }}
-                                                    className={`p-1.5 rounded-lg transition-colors ${
-                                                        (c.status === 'ENABLED' || c.status === 'ACTIVE') 
-                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
-                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
-                                                    }`}
-                                                >
-                                                    {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? <Pause size={14} /> : <Play size={14} />}
-                                                </button>
+                                            const isExpanded = expandedCampaigns.has(c.id.toString());
+                                            const childAdSets = metaAdGroups.filter(ag => 
+                                                (ag.campaign_id || ag.campaignId || ag.campaign_id?.toString()) == c.id?.toString()
+                                            );
 
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 font-normal">
-                                                        <div className="flex items-center gap-1.5 overflow-hidden">
-                                                            <div className="w-4 h-4 md:w-5 md:h-5 bg-[#0866ff]/10 border border-[#0866ff]/20 rounded flex items-center justify-center shrink-0">
-                                                                <Instagram size={10} className="text-[#0866ff]" />
+                                            return (
+                                                <React.Fragment key={`meta-camp-${c.id}`}>
+                                                    {/* Level 1: Campaign Row */}
+                                                    <tr className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
+                                                        <td className="px-2 py-1.5 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3 h-3 md:w-3.5 md:h-3.5 cursor-pointer" 
+                                                                checked={selectedCampaignIds.has(c.id.toString())}
+                                                                onChange={() => toggleCampaignSelection(c.id.toString())}
+                                                            />
+                                                        </td>
+                                                        <td className="px-2 py-1.5 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
+                                                                {renderStatusBadge(c.status, 'meta')}
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setMetaStatusConfirmModal({
+                                                                            open: true,
+                                                                            campaignId: c.id,
+                                                                            campaignName: c.name,
+                                                                            action: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'pause' : 'enable'
+                                                                        });
+                                                                    }}
+                                                                    className={`p-1 rounded transition-colors ${
+                                                                        (c.status === 'ENABLED' || c.status === 'ACTIVE') 
+                                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                                                    }`}
+                                                                >
+                                                                    {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? <Pause size={12} /> : <Play size={12} />}
+                                                                </button>
                                                             </div>
-                                                            <span 
-                                                                onClick={() => setGlobalCampaignFilter(c.id.toString())}
-                                                                className="text-[#0866ff] hover:underline font-medium cursor-pointer truncate text-xs md:text-sm"
-                                                                title={c.name}
-                                                            >
-                                                                {c.name}
-                                                            </span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-medium text-slate-800">
-                                                        <div>
-                                                            <p className="font-semibold">{formatCurrency(c.budget || 0)}</p>
-                                                            <p className="text-[8px] md:text-[9px] text-slate-400 font-normal">Diário</p>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-left font-normal">
-                                                        <div className="flex items-center gap-1 md:gap-1.5">
-                                                            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'bg-[#0f9d58] shadow-sm shadow-emerald-200' : 'bg-slate-400'}`} />
-                                                            <span className="text-[11px] md:text-xs font-medium text-slate-700">
-                                                                {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'Veiculando' : 'Pausado'}
-                                                            </span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-left text-[11px] md:text-xs font-normal text-slate-500 uppercase tracking-wider">
-                                                        <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] font-semibold">{c.type?.replace(/_/g, ' ')}</span>
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
-                                                        {formatNumber(c.impressions)}
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
-                                                        {formatNumber(c.clicks)}
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
-                                                        {formatPercent(c.ctr * 100 || 0)}
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
-                                                        {formatCurrency(c.averageCpc || 0)}
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-bold text-slate-800">
-                                                        {formatCurrency(c.spend)}
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-bold text-indigo-600 bg-indigo-50/20">
-                                                        {formatNumber(c.conversions)}
-                                                    </td>
-                                                    <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-semibold text-slate-800">
-                                                        {formatCurrency(c.conversions > 0 ? c.spend / c.conversions : 0)}
-                                                    </td>
-                                                </tr>
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 font-normal">
+                                                            <div className="flex items-center gap-1.5 overflow-hidden">
+                                                                <button 
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleCampaignExpand(c.id.toString());
+                                                                    }}
+                                                                    className="p-1 hover:bg-slate-200/70 rounded text-slate-500 hover:text-slate-900 transition-colors shrink-0"
+                                                                    title={isExpanded ? "Recolher Conjuntos" : "Expandir Conjuntos"}
+                                                                >
+                                                                    {isExpanded ? <ChevronDown size={14} className="text-[#0866ff] font-bold" /> : <ChevronRight size={14} />}
+                                                                </button>
+                                                                <div className="w-4 h-4 md:w-5 md:h-5 bg-[#0866ff]/10 border border-[#0866ff]/20 rounded flex items-center justify-center shrink-0">
+                                                                    <Instagram size={10} className="text-[#0866ff]" />
+                                                                </div>
+                                                                <span 
+                                                                    onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                                    className="text-[#0866ff] hover:underline font-semibold cursor-pointer truncate text-xs md:text-sm"
+                                                                    title={c.name}
+                                                                >
+                                                                    {c.name}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-medium text-slate-800">
+                                                            <div>
+                                                                <p className="font-semibold">{formatCurrency(c.budget || 0)}</p>
+                                                                <p className="text-[8px] md:text-[9px] text-slate-400 font-normal">Diário</p>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-left text-[11px] md:text-xs font-normal text-slate-500 uppercase tracking-wider">
+                                                            <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] font-semibold">{c.type?.replace(/_/g, ' ')}</span>
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                            {formatNumber(c.impressions)}
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                            {formatNumber(c.clicks)}
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                            {formatPercent(c.ctr * 100 || 0)}
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-normal text-slate-800">
+                                                            {formatCurrency(c.averageCpc || 0)}
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-bold text-slate-800">
+                                                            {formatCurrency(c.spend)}
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-bold text-indigo-600 bg-indigo-50/20">
+                                                            {renderCampaignResults(c)}
+                                                        </td>
+                                                        <td className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-semibold text-slate-800">
+                                                            {formatCurrency(c.conversions > 0 ? c.spend / c.conversions : 0)}
+                                                        </td>
+                                                        {metaCustomMetrics.map(m => (
+                                                            <td key={m.id || m.name} className="px-2 md:px-4 py-1.5 md:py-2 text-right text-[11px] md:text-xs font-semibold text-indigo-700 bg-indigo-50/10 border-r border-slate-200">
+                                                                {formatValue(evaluateFormula(m.formula, c), m.format)}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+
+                                                    {/* Level 2: AdSets for Expanded Campaign */}
+                                                    {isExpanded && childAdSets.map((ag) => {
+                                                        const isAdSetExpanded = expandedAdSets.has(ag.id.toString());
+                                                        const childAds = metaAds.filter(ad => 
+                                                            (ad.adset_id || ad.ad_group_id || ad.adSetId || ad.ad_group_id?.toString()) == ag.id?.toString() ||
+                                                            ad.campaign_id == c.id
+                                                        );
+
+                                                        return (
+                                                            <React.Fragment key={`meta-ag-${ag.id}`}>
+                                                                <tr className="bg-slate-50/80 hover:bg-slate-100/80 transition-colors h-10 divide-x divide-slate-200 text-slate-700 border-l-4 border-l-blue-500">
+                                                                    <td className="px-2 py-1.5 text-center w-10 border-r border-slate-200">
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-600 w-3 h-3 cursor-pointer"
+                                                                            checked={selectedAdGroupIds.has(ag.id.toString())}
+                                                                            onChange={() => toggleAdGroupSelection?.(ag.id.toString())}
+                                                                        />
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5 border-r border-slate-200">
+                                                                        <div className="flex items-center gap-1">
+                                                                            {renderStatusBadge(ag.status || 'ENABLED', 'meta')}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-2 md:px-4 py-1.5 font-normal pl-8">
+                                                                        <div className="flex items-center gap-1.5 overflow-hidden">
+                                                                            <button 
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    toggleAdSetExpand(ag.id.toString());
+                                                                                }}
+                                                                                className="p-1 hover:bg-slate-200/70 rounded text-slate-500 hover:text-slate-900 transition-colors shrink-0"
+                                                                                title={isAdSetExpanded ? "Recolher Anúncios" : "Expandir Anúncios"}
+                                                                            >
+                                                                                {isAdSetExpanded ? <ChevronDown size={13} className="text-indigo-600 font-bold" /> : <ChevronRight size={13} />}
+                                                                            </button>
+                                                                            <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[9px] font-bold uppercase shrink-0">Conjunto</span>
+                                                                            <span className="font-semibold text-slate-800 text-xs truncate" title={ag.name}>{ag.name}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs font-medium text-slate-700">{formatCurrency(ag.budget || ag.daily_budget || 0)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-left text-xs text-slate-500 uppercase">{ag.type || ag.optimization_goal || 'Conjunto'}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs">{formatNumber(ag.impressions || 0)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs">{formatNumber(ag.clicks || 0)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs">{formatPercent((ag.ctr || 0) * 100)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs">{formatCurrency(ag.cpc || ag.averageCpc || 0)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs font-semibold">{formatCurrency(ag.spend || 0)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs font-semibold text-indigo-600">{formatNumber(ag.conversions || 0)}</td>
+                                                                    <td className="px-2 md:px-4 py-1.5 text-right text-xs">{formatCurrency(ag.conversions > 0 ? (ag.spend || 0) / ag.conversions : 0)}</td>
+                                                                    {metaCustomMetrics.map(m => (
+                                                                        <td key={m.id || m.name} className="px-2 md:px-4 py-1.5 text-right text-xs text-indigo-700 bg-indigo-50/10 border-r border-slate-200">
+                                                                            {formatValue(evaluateFormula(m.formula, ag), m.format)}
+                                                                        </td>
+                                                                    ))}
+                                                                </tr>
+
+                                                                {/* Level 3: Ads inside AdSet */}
+                                                                {isAdSetExpanded && childAds.map((ad) => (
+                                                                    <tr 
+                                                                        key={`meta-ad-${ad.id}`}
+                                                                        id={`ad-row-${ad.id}`}
+                                                                        onClick={() => handleAdClick(ad)}
+                                                                        className="bg-indigo-50/30 hover:bg-indigo-100/60 transition-colors h-9 divide-x divide-slate-200 text-slate-700 cursor-pointer border-l-4 border-l-indigo-600"
+                                                                    >
+                                                                        <td className="px-2 py-1 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                                            <input 
+                                                                                type="checkbox" 
+                                                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 w-3 h-3 cursor-pointer"
+                                                                                checked={selectedAdIds.has(ad.id.toString())}
+                                                                                onChange={() => toggleAdSelection?.(ad.id.toString())}
+                                                                            />
+                                                                        </td>
+                                                                        <td className="px-2 py-1 border-r border-slate-200">
+                                                                            <div className="flex items-center gap-1">
+                                                                                {renderStatusBadge(ad.status || 'ENABLED', 'meta')}
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-2 md:px-4 py-1 font-normal pl-16">
+                                                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                                                <button 
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleAdClick(ad);
+                                                                                    }}
+                                                                                    className="p-1 text-indigo-600 hover:text-indigo-900 bg-indigo-100 rounded hover:bg-indigo-200 transition-colors shrink-0"
+                                                                                    title="Ver Preview do Anúncio"
+                                                                                >
+                                                                                    <Eye size={12} />
+                                                                                </button>
+                                                                                <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[9px] font-bold uppercase shrink-0">Anúncio</span>
+                                                                                <span className="font-semibold text-slate-900 text-xs truncate" title={ad.name}>{ad.name}</span>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs text-slate-400">-</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-left text-xs text-slate-500 uppercase">{ad.creative?.type || 'Anúncio'}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs">{formatNumber(ad.impressions || 0)}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs">{formatNumber(ad.clicks || 0)}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs">{formatPercent((ad.ctr || 0) * 100)}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs">{formatCurrency(ad.cpc || ad.averageCpc || 0)}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs font-semibold text-slate-900">{formatCurrency(ad.spend || 0)}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs font-semibold text-indigo-600">{formatNumber(ad.conversions || 0)}</td>
+                                                                        <td className="px-2 md:px-4 py-1 text-right text-xs">{formatCurrency(ad.conversions > 0 ? (ad.spend || 0) / ad.conversions : 0)}</td>
+                                                                        {metaCustomMetrics.map(m => (
+                                                                            <td key={m.id || m.name} className="px-2 md:px-4 py-1 text-right text-xs text-indigo-700 bg-indigo-50/10 border-r border-slate-200">
+                                                                                {formatValue(evaluateFormula(m.formula, ad), m.format)}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                </React.Fragment>
                                             );
                                         })}
                                     </tbody>
@@ -1539,7 +1911,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-[11px] md:text-xs h-10 md:h-11 bg-slate-100/50">
                                             <td className="px-2 py-1.5 text-center border-r border-slate-200"></td>
                                             <td className="px-2 py-1.5 text-center border-r border-slate-200"></td>
-                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-10 md:h-11" colSpan={4}>
+                                            <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-10 md:h-11" colSpan={3}>
                                                 Resultados Totais (Meta)
                                             </td>
                                             <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
@@ -1563,6 +1935,11 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             <td className="px-2 md:px-4 py-1.5 md:py-2 border-r border-slate-200 text-right font-bold">
                                                 {formatCurrency(calculateTotals(filteredCampaigns).conversions > 0 ? calculateTotals(filteredCampaigns).spend / calculateTotals(filteredCampaigns).conversions : 0)}
                                             </td>
+                                            {metaCustomMetrics.map(m => (
+                                                <td key={m.id || m.name} className="px-2 md:px-4 py-1.5 md:py-2 text-right font-bold text-indigo-700 border-r border-slate-200">
+                                                    -
+                                                </td>
+                                            ))}
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -1637,23 +2014,25 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                             </div>
                         </>
                     ) : (
-                        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
-                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                        <div className="max-h-[600px] overflow-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="hidden md:block">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
-                                    <thead className="bg-[#f8f9fa] border-b border-slate-200">
+                                    <thead className="sticky top-0 bg-[#f8f9fa] border-b border-slate-250 z-20">
                                         <tr className="divide-x divide-slate-200">
                                             <th className="px-3 py-3 w-10 text-center border-r border-slate-200">
-                                                <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" />
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                    checked={sortData(filteredCampaigns).length > 0 && sortData(filteredCampaigns).every(c => selectedCampaignIds.has(c.id.toString()))}
+                                                    onChange={() => toggleAllCampaigns(sortData(filteredCampaigns))}
+                                                />
                                             </th>
-                                            <th className="px-3 py-3 w-10 text-center border-r border-slate-200 text-slate-400 font-bold text-xs">•</th>
+                                            <th className="px-3 py-3 w-32 text-center border-r border-slate-200 text-slate-500 font-bold text-xs uppercase tracking-wider">Veiculação</th>
                                             <th onClick={() => handleSort('name')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
                                                 <div className="flex items-center gap-1">Campanha {renderSortIcon('name')}</div>
                                             </th>
                                             <th onClick={() => handleSort('budget')} className="px-4 py-3 text-xs font-semibold text-slate-600 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
                                                 <div className="flex items-center justify-end gap-1">Orçamento {renderSortIcon('budget')}</div>
-                                            </th>
-                                            <th onClick={() => handleSort('status')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
-                                                <div className="flex items-center gap-1">Status {renderSortIcon('status')}</div>
                                             </th>
                                             <th className="px-4 py-3 text-xs font-semibold text-slate-500 text-right border-r border-slate-200 whitespace-nowrap">Optimization score</th>
                                             <th onClick={() => handleSort('type')} className="px-4 py-3 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 whitespace-nowrap">
@@ -1703,7 +2082,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             <td className="px-3 py-2 text-center w-10">
                                                 <Folder size={14} className="inline text-slate-450" />
                                             </td>
-                                            <td className="px-4 py-2 font-medium" colSpan={14 + customMetrics.length}>
+                                            <td className="px-4 py-2 font-medium" colSpan={13 + customMetrics.length}>
                                                 <span className="text-slate-700 text-xs font-medium">Rascunhos em andamento: 0</span>
                                             </td>
                                         </tr>
@@ -1716,19 +2095,27 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 <tr key={`row-google-${c.id}`} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
                                                     {/* Checkbox */}
                                                     <td className="px-3 py-2 text-center w-10" onClick={(e) => e.stopPropagation()}>
-                                                        <input type="checkbox" className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" />
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="rounded border-slate-300 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                            checked={selectedCampaignIds.has(c.id.toString())}
+                                                            onChange={() => toggleCampaignSelection(c.id.toString())}
+                                                        />
                                                     </td>
 
-                                                    {/* Interactive Status Dot */}
-                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuCampaignId(activeStatusMenuCampaignId === c.id.toString() ? null : c.id.toString())}>
-                                                            {c.status === 'ENABLED' ? (
-                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
-                                                            ) : c.status === 'PAUSED' ? (
-                                                                <div className="w-4 h-4 rounded-full bg-slate-350 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
-                                                            ) : (
-                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
-                                                            )}
+                                                    {/* Interactive Status Badge & Dot */}
+                                                    <td className="px-2 py-1.5 border-r border-slate-200 relative" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
+                                                            {renderStatusBadge(c.status, 'google')}
+                                                            <div className="cursor-pointer hover:scale-110 transition-transform p-1 rounded hover:bg-slate-100" onClick={() => setActiveStatusMenuCampaignId(activeStatusMenuCampaignId === c.id.toString() ? null : c.id.toString())}>
+                                                                {c.status === 'ENABLED' ? (
+                                                                    <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" title="Ativo" />
+                                                                ) : c.status === 'PAUSED' ? (
+                                                                    <div className="w-3.5 h-3.5 rounded bg-slate-300 flex items-center justify-center text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                                ) : (
+                                                                    <div className="w-3.5 h-3.5 rounded bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                                )}
+                                                            </div>
                                                         </div>
 
                                                         {/* Status Selector Dropdown */}
@@ -1764,7 +2151,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                         }}
                                                                         className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
                                                                     >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                        <div className="w-2.5 h-2.5 rounded bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
                                                                         Pausar
                                                                     </button>
                                                                 </div>
@@ -1776,7 +2163,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                         }}
                                                                         className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
                                                                     >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                        <div className="w-2.5 h-2.5 rounded bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
                                                                         Remover
                                                                     </button>
                                                                 </div>
@@ -1846,18 +2233,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                             >
                                                                 <Pencil size={11} />
                                                             </button>
-                                                        </div>
-                                                    </td>
-
-                                                    {/* Status Column */}
-                                                    <td className="px-4 py-2 text-left font-normal">
-                                                        <div className="flex flex-col">
-                                                            <span className={`text-xs font-semibold ${c.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
-                                                                {c.status === 'ENABLED' ? 'Qualificada' : 'Pausada'}
-                                                            </span>
-                                                            <span className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
-                                                                {c.status === 'ENABLED' ? 'Ativa' : 'Campanha pausada'}
-                                                            </span>
                                                         </div>
                                                     </td>
 
@@ -1939,7 +2314,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
                                             </td>
                                             <td className="px-4 py-2 border-r border-slate-200 text-right"></td>
-                                            <td className="px-4 py-2 border-r border-slate-200"></td>
                                             <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
                                             <td className="px-4 py-2 border-r border-slate-200"></td>
                                             <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
@@ -1985,7 +2359,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
                                             </td>
                                             <td className="px-4 py-2 border-r border-slate-200 text-right font-medium text-slate-600">R$ 0,00/dia</td>
-                                            <td className="px-4 py-2 border-r border-slate-200"></td>
                                             <td className="px-4 py-2 border-r border-slate-200 text-right text-slate-400">-</td>
                                             <td className="px-4 py-2 border-r border-slate-200"></td>
                                             <td className="px-4 py-2 border-r border-slate-200 text-right font-bold text-[#0f9d58] bg-[#e6f4ea]/20">
@@ -2210,19 +2583,23 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         </div>
                     ) : activePlatform === 'meta' ? (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="max-h-[600px] overflow-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
-                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                    <thead className="sticky top-0 bg-[#f8f9fa] border-b border-slate-300 z-20">
                                         <tr className="divide-x divide-slate-200 h-10">
                                             <th className="w-12 px-3 text-center border-r border-slate-200">
-                                                <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5 cursor-pointer" 
+                                                    checked={sortData(metaAdGroups).length > 0 && sortData(metaAdGroups).every(ag => selectedAdGroupIds.has(ag.id.toString()))}
+                                                    onChange={() => toggleAllAdGroups(sortData(metaAdGroups))}
+                                                />
                                             </th>
-                                            <th className="w-14 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
+                                            <th className="w-32 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
                                             {[
                                                 { k: 'name', l: 'Conjunto de Anúncios', align: 'left' },
                                                 { k: 'campaignName', l: 'Campanha', align: 'left' },
                                                 { k: 'budget', l: 'Orçamento', align: 'right' },
-                                                { k: 'status', l: 'Status', align: 'left' },
                                                 { k: 'impressions', l: 'Impressões', align: 'right' },
                                                 { k: 'clicks', l: 'Cliques no Link', align: 'right' },
                                                 { k: 'ctr', l: 'CTR', align: 'right' },
@@ -2252,11 +2629,17 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             return (
                                                 <tr key={ag.id} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-12 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5 cursor-pointer" 
+                                                            checked={selectedAdGroupIds.has(ag.id.toString())}
+                                                            onChange={() => toggleAdGroupSelection(ag.id.toString())}
+                                                        />
                                                     </td>
-                                                    {/* Meta Style Toggle Switch */}
-                                                    <td className="px-3 py-2 text-center w-14 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center justify-center">
+                                                    {/* Unified Status and Toggle Switch */}
+                                                    <td className="px-2 py-1.5 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-between gap-2 px-1 min-w-[120px]">
+                                                            {renderStatusBadge(ag.status, 'meta')}
                                                             <label className="relative inline-flex items-center cursor-pointer">
                                                                 <input 
                                                                     type="checkbox" 
@@ -2304,14 +2687,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                             >
                                                                 <Edit2 size={12} />
                                                             </button>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-4 py-2 text-left font-normal">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <div className={`w-2 h-2 rounded-full ${(ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'bg-[#0f9d58]' : 'bg-slate-400'}`} />
-                                                            <span className="text-xs font-medium text-slate-700">
-                                                                {(ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'Ativo' : 'Pausado'}
-                                                            </span>
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
@@ -2455,18 +2830,23 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="max-h-[600px] overflow-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
-                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                    <thead className="sticky top-0 bg-[#f8f9fa] border-b border-slate-300 z-20">
                                         <tr className="divide-x divide-slate-200 h-10">
-                                            <th className="w-10 px-3 text-center border-r border-slate-200">
-                                                <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                            <th className="w-12 px-3 text-center border-r border-slate-200">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                    checked={sortData(filteredAdGroups).length > 0 && sortData(filteredAdGroups).every(ag => selectedAdGroupIds.has(ag.id.toString()))}
+                                                    onChange={() => toggleAllAdGroups(sortData(filteredAdGroups))}
+                                                />
                                             </th>
-                                            <th className="w-10 px-3 text-center border-r border-slate-200"></th>
+                                            <th className="w-32 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">Veiculação</th>
                                             {[
                                                 { k: 'name', l: 'Grupo de Anúncios', align: 'left' },
                                                 { k: 'campaignName', l: 'Campanha', align: 'left' },
-                                                { k: 'status', l: 'Status do Grupo', align: 'left' },
+                                                { k: 'budget', l: 'Orçamento', align: 'right' },
                                                 { k: 'impressions', l: 'Impr.', align: 'right' },
                                                 { k: 'clicks', l: 'Cliques', align: 'right' },
                                                 { k: 'ctr', l: 'CTR', align: 'right' },
@@ -2506,18 +2886,27 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         {sortData(filteredAdGroups).map((ag, i) => {
                                             return (
                                                 <tr key={ag.id} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
-                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                    <td className="px-3 py-2 text-center w-12 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                            checked={selectedAdGroupIds.has(ag.id.toString())}
+                                                            onChange={() => toggleAdGroupSelection(ag.id.toString())}
+                                                        />
                                                     </td>
-                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuAdGroupId(activeStatusMenuAdGroupId === (ag.id?.toString() || i.toString()) ? null : (ag.id?.toString() || i.toString()))}>
-                                                            {ag.status === 'ENABLED' ? (
-                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
-                                                            ) : ag.status === 'PAUSED' ? (
-                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
-                                                            ) : (
-                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
-                                                            )}
+                                                    {/* Unified Status and Action Dot */}
+                                                    <td className="px-2 py-1.5 border-r border-slate-200 relative" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
+                                                            {renderStatusBadge(ag.status, 'google')}
+                                                            <div className="cursor-pointer hover:scale-110 transition-transform p-1 rounded hover:bg-slate-100 flex items-center justify-center" onClick={() => setActiveStatusMenuAdGroupId(activeStatusMenuAdGroupId === (ag.id?.toString() || i.toString()) ? null : (ag.id?.toString() || i.toString()))}>
+                                                                {ag.status === 'ENABLED' ? (
+                                                                    <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" title="Ativo" />
+                                                                ) : ag.status === 'PAUSED' ? (
+                                                                    <div className="w-3.5 h-3.5 rounded bg-slate-300 flex items-center justify-center text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
+                                                                ) : (
+                                                                    <div className="w-3.5 h-3.5 rounded bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                         {activeStatusMenuAdGroupId === (ag.id?.toString() || i.toString()) && (
                                                             <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
@@ -2541,7 +2930,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                         }}
                                                                         className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
                                                                     >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
+                                                                        <div className="w-2.5 h-2.5 rounded bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
                                                                         Pausar
                                                                     </button>
                                                                 </div>
@@ -2553,7 +2942,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                         }}
                                                                         className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
                                                                     >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
+                                                                        <div className="w-2.5 h-2.5 rounded bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
                                                                         Remover
                                                                     </button>
                                                                 </div>
@@ -2596,16 +2985,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                             >
                                                                 <Edit2 size={12} />
                                                             </button>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-4 py-2 text-left font-normal">
-                                                        <div className="flex flex-col">
-                                                            <span className={`text-xs font-semibold ${ag.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
-                                                                {ag.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
-                                                            </span>
-                                                            <span className="text-[10px] text-slate-400 font-normal mt-0.5">
-                                                                {ag.status === 'ENABLED' ? 'Qualificado' : 'Grupo pausado'}
-                                                            </span>
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
@@ -3120,14 +3499,34 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     </span>
                                 </div>
                                 
-                                <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                                {selectedAdIds.size > 0 && (
+                                    <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-indigo-900 animate-in fade-in duration-150">
+                                        <div className="flex items-center gap-2">
+                                            <span className="bg-indigo-600 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">{selectedAdIds.size}</span>
+                                            <span>selecionados</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => setSelectedAdIds(new Set())}
+                                            className="text-[#0866ff] hover:text-blue-800 hover:underline transition-colors font-medium"
+                                        >
+                                            Desmarcar todos
+                                        </button>
+                                    </div>
+                                )}
+                                
+                                <div className="max-h-[600px] overflow-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                     <table className="w-full min-w-[800px] text-left border-collapse">
-                                        <thead className="bg-[#f8f9fa] border-b border-slate-250">
+                                        <thead className="sticky top-0 bg-[#f8f9fa] border-b border-slate-250 z-20">
                                             <tr className="divide-x divide-slate-200 text-slate-500">
                                                 <th className="w-10 px-2 py-3 text-center border-r border-slate-200">
-                                                    <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5 cursor-pointer" 
+                                                        checked={metaAds.length > 0 && metaAds.every(ad => selectedAdIds.has(ad.id.toString()))}
+                                                        onChange={() => toggleAllAds(metaAds)}
+                                                    />
                                                 </th>
-                                                <th className="w-14 px-2 py-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider">Status</th>
+                                                <th className="w-32 px-2 py-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider">Veiculação</th>
                                                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200">Criativo / Nome do Anúncio</th>
                                                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200 text-right">Resultados</th>
                                                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200 text-right">Alcance</th>
@@ -3137,29 +3536,37 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 text-slate-700">
                                             {metaAds.map((ad, idx) => {
-                                                const isSelected = selectedMetaAdIdForPreview !== null && ad.id?.toString() === selectedMetaAdIdForPreview;
+                                                const isSelectedForPreview = selectedMetaAdIdForPreview !== null && ad.id?.toString() === selectedMetaAdIdForPreview;
+                                                const isChecked = selectedAdIds.has(ad.id.toString());
                                                 return (
                                                     <tr 
                                                         key={ad.id || idx} 
                                                         onClick={() => handleSelectMetaAd(ad.id?.toString())}
-                                                        className={`group cursor-pointer transition-all h-14 divide-x divide-slate-200 ${isSelected ? 'bg-indigo-50/40 border-l-4 border-l-[#0866ff]' : 'hover:bg-[#f2f4f7]/40'}`}
+                                                        className={`group cursor-pointer transition-all h-14 divide-x divide-slate-200 ${isSelectedForPreview ? 'bg-indigo-50/40 border-l-4 border-l-[#0866ff]' : 'hover:bg-[#f2f4f7]/40'}`}
                                                     >
                                                         <td className="px-2 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                            <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5" defaultChecked />
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-3.5 h-3.5 cursor-pointer" 
+                                                                checked={isChecked}
+                                                                onChange={() => toggleAdSelection(ad.id.toString())}
+                                                            />
                                                         </td>
-                                                        <td className="px-2 py-2 text-center w-14 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex items-center justify-center">
-                                                                <label className="relative inline-flex items-center cursor-pointer">
-                                                                    <input 
-                                                                        type="checkbox" 
-                                                                        checked={ad.status === 'ENABLED' || ad.status === 'ACTIVE'} 
-                                                                        onChange={() => {
-                                                                            setMetaAds(prev => prev.map((item, idx2) => (item.id === ad.id || idx2 === idx) ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
-                                                                        }}
-                                                                        className="sr-only peer" 
-                                                                    />
-                                                                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
-                                                                </label>
+                                                        <td className="px-2 py-2 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
+                                                                {renderStatusBadge(ad.status, 'meta')}
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setMetaAds(prev => prev.map((item, idx2) => (item.id === ad.id || idx2 === idx) ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                    }}
+                                                                    className={`p-1 rounded transition-colors ${
+                                                                        (ad.status === 'ENABLED' || ad.status === 'ACTIVE') 
+                                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                                                    }`}
+                                                                >
+                                                                    {(ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? <Pause size={12} /> : <Play size={12} />}
+                                                                </button>
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-2">
@@ -3208,7 +3615,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 );
                                             })}
                                         </tbody>
-                                        <tfoot className="bg-slate-50 border-t border-slate-200">
+                                        <tfoot className="bg-slate-50 border-t border-slate-200 sticky bottom-0 z-10">
                                             <tr className="divide-x divide-slate-200 font-bold text-slate-800 text-xs h-10">
                                                 <td colSpan={3} className="px-4 py-2 text-slate-600">Total de Anúncios</td>
                                                 <td className="px-4 py-2 text-right text-indigo-600">{formatNumber(calculateTotals(metaAds).conversions)}</td>
@@ -3576,19 +3983,38 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            {selectedAdIds.size > 0 && (
+                                <div className="bg-blue-50 border-b border-blue-100 px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-blue-900 animate-in fade-in duration-150">
+                                    <div className="flex items-center gap-2">
+                                        <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">{selectedAdIds.size}</span>
+                                        <span>selecionados</span>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSelectedAdIds(new Set())}
+                                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium"
+                                    >
+                                        Desmarcar todos
+                                    </button>
+                                </div>
+                            )}
+
+                            <div className="hidden md:block max-h-[600px] overflow-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
-                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                    <thead className="sticky top-0 bg-[#f8f9fa] border-b border-slate-300 z-20">
                                         <tr className="divide-x divide-slate-200 h-10">
                                             <th className="w-10 px-3 text-center border-r border-slate-200">
-                                                <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                    checked={filteredAds.length > 0 && filteredAds.every(ad => selectedAdIds.has(ad.id.toString()))}
+                                                    onChange={() => toggleAllAds(filteredAds)}
+                                                />
                                             </th>
-                                            <th className="w-10 px-3 text-center border-r border-slate-200"></th>
+                                            <th className="w-36 px-3 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wider">Veiculação</th>
                                             {[
                                                 { k: 'headlines', l: 'Anúncio (Títulos)', align: 'left' },
                                                 { k: 'campaignName', l: 'Campanha', align: 'left' },
                                                 { k: 'adGroupName', l: 'Grupo de anúncios', align: 'left' },
-                                                { k: 'status', l: 'Status do Anúncio', align: 'left' },
                                                 { k: 'impressions', l: 'Impr.', align: 'right' },
                                                 { k: 'clicks', l: 'Cliques', align: 'right' },
                                                 { k: 'ctr', l: 'CTR', align: 'right' },
@@ -3610,61 +4036,34 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     </thead>
                                     <tbody className="divide-y divide-slate-200 text-slate-700">
                                         {sortData(filteredAds).map((ad, i) => {
+                                            const isChecked = selectedAdIds.has(ad.id.toString());
                                             return (
                                                 <tr key={ad.id?.toString() || `ad-row-${i}`} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-11 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                            checked={isChecked}
+                                                            onChange={() => toggleAdSelection(ad.id.toString())}
+                                                        />
                                                     </td>
-                                                    <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuAdId(activeStatusMenuAdId === (ad.id?.toString() || i.toString()) ? null : (ad.id?.toString() || i.toString()))}>
-                                                            {ad.status === 'ENABLED' ? (
-                                                                <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58] hover:scale-110 transition-transform" title="Ativo" />
-                                                            ) : ad.status === 'PAUSED' ? (
-                                                                <div className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center hover:scale-110 transition-transform text-slate-600 text-[8px] font-bold" title="Pausado">||</div>
-                                                            ) : (
-                                                                <div className="w-4 h-4 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 text-[8px] font-bold" title="Removido">X</div>
-                                                            )}
+                                                    <td className="px-3 py-2 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center justify-between gap-1.5 px-1 min-w-[130px]">
+                                                            {renderStatusBadge(ad.status, 'google')}
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const nextStatus = ad.status === 'ENABLED' ? 'PAUSED' : 'ENABLED';
+                                                                    setAds(prev => prev.map((item, idx) => (item.id === ad.id || idx === i) ? { ...item, status: nextStatus } : item));
+                                                                }}
+                                                                className={`p-1 rounded transition-colors ${
+                                                                    ad.status === 'ENABLED' 
+                                                                        ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
+                                                                        : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                                                }`}
+                                                            >
+                                                                {ad.status === 'ENABLED' ? <Pause size={12} /> : <Play size={12} />}
+                                                            </button>
                                                         </div>
-                                                        {activeStatusMenuAdId === (ad.id?.toString() || i.toString()) && (
-                                                            <div className="absolute left-full top-2 ml-2 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 min-w-[130px] text-left text-xs font-medium text-slate-700 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
-                                                                <div className="p-1">
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            setActiveStatusMenuAdId(null);
-                                                                            setAds(prev => prev.map((item, idx) => (item.id === ad.id || idx === i) ? { ...item, status: 'ENABLED' } : item));
-                                                                            alert(`Anúncio ativado com sucesso!`);
-                                                                        }}
-                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
-                                                                    >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-[#0f9d58]" />
-                                                                        Ativar
-                                                                    </button>
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            setActiveStatusMenuAdId(null);
-                                                                            setAds(prev => prev.map((item, idx) => (item.id === ad.id || idx === i) ? { ...item, status: 'PAUSED' } : item));
-                                                                            alert(`Anúncio pausado com sucesso!`);
-                                                                        }}
-                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 rounded-lg"
-                                                                    >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400 flex items-center justify-center text-[7px] text-white font-bold">||</div>
-                                                                        Pausar
-                                                                    </button>
-                                                                </div>
-                                                                <div className="p-1">
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            setActiveStatusMenuAdId(null);
-                                                                            alert("A remoção de anúncios deve ser feita diretamente no painel do Google Ads por motivos de segurança.");
-                                                                        }}
-                                                                        className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 flex items-center gap-2 rounded-lg"
-                                                                    >
-                                                                        <div className="w-2.5 h-2.5 rounded-full bg-rose-600 flex items-center justify-center text-[7px] text-white font-bold">X</div>
-                                                                        Remover
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        )}
                                                     </td>
                                                     <td className="px-4 py-2 font-normal max-w-md">
                                                         <div className="flex flex-col gap-1">
@@ -3686,16 +4085,6 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                     </td>
                                                     <td className="px-4 py-2 text-left font-normal text-slate-500 text-xs">
                                                         {ad.adGroupName}
-                                                    </td>
-                                                    <td className="px-4 py-2 text-left font-normal">
-                                                        <div className="flex flex-col">
-                                                            <span className={`text-xs font-semibold ${ad.status === 'ENABLED' ? 'text-slate-800' : 'text-slate-400'}`}>
-                                                                {ad.status === 'ENABLED' ? 'Ativo' : 'Pausado'}
-                                                            </span>
-                                                            <span className="text-[10px] text-slate-400 font-normal mt-0.5">
-                                                                {ad.status === 'ENABLED' ? 'Qualificada (Aprovado)' : 'Anúncio pausado'}
-                                                            </span>
-                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-2 text-right text-xs font-normal text-slate-800">
                                                         {formatNumber(ad.impressions)}
@@ -3719,11 +4108,11 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             );
                                         })}
                                     </tbody>
-                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200 sticky bottom-0 z-10">
                                         <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
                                             <td className="px-3 py-2 text-center border-r border-slate-200"></td>
                                             <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-700 italic flex items-center gap-1 whitespace-nowrap h-11" colSpan={3}>
                                                 Total: All but removed ads in your current view
                                                 <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
                                             </td>
@@ -3748,7 +4137,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 <ChevronDown size={14} className="inline text-slate-600 cursor-pointer" />
                                             </td>
                                             <td className="px-3 py-2 text-center border-r border-slate-200"></td>
-                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11" colSpan={4}>
+                                            <td className="px-4 py-2 border-r border-slate-200 text-slate-800 font-bold flex items-center gap-1 whitespace-nowrap h-11" colSpan={3}>
                                                 Total: conta
                                                 <HelpCircle size={13} className="text-slate-400 inline cursor-pointer" />
                                             </td>
@@ -4197,137 +4586,30 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                 </div>
             )}
 
-      {/* METRIC CREATOR MODAL */}
-      {isMetricModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-300 border border-slate-200">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                      <div className="flex items-center gap-3">
-                          <div className="p-2 bg-blue-100 text-blue-600 rounded-xl"><Calculator size={20} /></div>
-                          <h3 className="text-lg font-bold text-slate-900">Criar Métrica Personalizada</h3>
-                      </div>
-                      <button onClick={() => setIsMetricModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={20} /></button>
-                  </div>
-                  
-                  <div className="p-6 space-y-6">
-                      {/* Name */}
-                      <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Nome da Métrica</label>
-                          <input 
-                              type="text" 
-                              value={newMetric.name}
-                              onChange={(e) => setNewMetric({...newMetric, name: e.target.value})}
-                              placeholder="Ex: Meu ROAS"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
-                          />
-                      </div>
+      {/* CUSTOM METRICS BUILDER AND MANAGER */}
+      <CustomMetricBuilder 
+          isOpen={isMetricBuilderOpen}
+          onClose={() => { setIsMetricBuilderOpen(false); setEditingCustomMetric(null); }}
+          onSuccess={() => {
+              fetchMetaCustomMetrics();
+          }}
+          initialMetric={editingCustomMetric}
+          adAccountId={selectedAccountId || undefined}
+          sampleData={metaCampaigns.length > 0 ? metaCampaigns : metaAds}
+      />
 
-                      {/* Formula Builder */}
-                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-5">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fórmula</label>
-                          <div className="flex items-center gap-2">
-                              <select 
-                                  value={newMetric.numerator}
-                                  onChange={(e) => setNewMetric({...newMetric, numerator: e.target.value as BaseMetricType})}
-                                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                              >
-                                  <option value="clicks">Cliques</option>
-                                  <option value="impressions">Impressões</option>
-                                  <option value="spend">Custo</option>
-                                  <option value="conversions">Conversões</option>
-                                  <option value="conversionsValue">Valor Conv.</option>
-                              </select>
-
-                              <select 
-                                  value={newMetric.operator}
-                                  onChange={(e) => setNewMetric({...newMetric, operator: e.target.value as MetricOperator})}
-                                  className="w-16 bg-white border border-slate-200 rounded-xl px-2 py-2.5 text-sm font-bold text-center text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                              >
-                                  <option value="/">÷</option>
-                                  <option value="*">×</option>
-                                  <option value="+">+</option>
-                                  <option value="-">−</option>
-                              </select>
-
-                              <select 
-                                  value={newMetric.denominator}
-                                  onChange={(e) => setNewMetric({...newMetric, denominator: e.target.value as BaseMetricType})}
-                                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                              >
-                                  <option value="clicks">Cliques</option>
-                                  <option value="impressions">Impressões</option>
-                                  <option value="spend">Custo</option>
-                                  <option value="conversions">Conversões</option>
-                                  <option value="conversionsValue">Valor Conv.</option>
-                              </select>
-                          </div>
-                          
-                          <div className="flex items-center gap-4">
-                              <div className="flex-1">
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Multiplicador (Opcional)</label>
-                                  <input 
-                                      type="number" 
-                                      value={newMetric.multiplier}
-                                      onChange={(e) => setNewMetric({...newMetric, multiplier: parseFloat(e.target.value)})}
-                                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                  />
-                              </div>
-                              <div className="flex-1">
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Formato</label>
-                                  <select 
-                                      value={newMetric.format}
-                                      onChange={(e) => setNewMetric({...newMetric, format: e.target.value as MetricFormat})}
-                                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                  >
-                                      <option value="number">Número (1.234)</option>
-                                      <option value="currency">Moeda (R$)</option>
-                                      <option value="percent">Percentual (%)</option>
-                                  </select>
-                              </div>
-                          </div>
-                      </div>
-
-                      {/* Color & Preview */}
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Cor da Linha</label>
-                              <div className="flex items-center gap-3">
-                                  <input 
-                                      type="color" 
-                                      value={newMetric.color}
-                                      onChange={(e) => setNewMetric({...newMetric, color: e.target.value})}
-                                      className="h-10 w-20 rounded-lg cursor-pointer border-0 p-0"
-                                  />
-                                  <span className="text-xs font-mono text-slate-500 bg-slate-50 px-2 py-1 rounded-md border border-slate-200">{newMetric.color}</span>
-                              </div>
-                          </div>
-                          <div className="bg-slate-900 rounded-2xl p-5 text-white shadow-inner">
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Preview (Total do Período)</label>
-                              <div className="text-2xl font-black tracking-tight">
-                                  {formatMetricValue(calculateMetricValue(newMetric as CustomMetric, periodTotals), newMetric.format as MetricFormat)}
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-
-                  <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
-                      <button 
-                          onClick={() => setIsMetricModalOpen(false)}
-                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors"
-                      >
-                          Cancelar
-                      </button>
-                      <button 
-                          onClick={handleSaveMetric}
-                          disabled={!newMetric.name}
-                          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
-                      >
-                          <Save size={16} /> Salvar Métrica
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
+      <CustomMetricsManager 
+          isOpen={isMetricManagerOpen}
+          onClose={() => setIsMetricManagerOpen(false)}
+          metrics={metaCustomMetrics}
+          onOpenBuilder={(metricToEdit) => {
+              setEditingCustomMetric(metricToEdit || null);
+              setIsMetricBuilderOpen(true);
+          }}
+          onRefreshList={() => {
+              fetchMetaCustomMetrics();
+          }}
+      />
 
       
       {/* META STATUS CONFIRM MODAL */}
@@ -4522,6 +4804,13 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
               </div>
           </div>
       )}
+
+      {/* AD PREVIEW DRAWER */}
+      <AdPreviewDrawer 
+        isOpen={isPreviewDrawerOpen} 
+        onClose={() => setIsPreviewDrawerOpen(false)} 
+        ad={selectedAdForPreview} 
+      />
 
     </div>
   );

@@ -217,7 +217,9 @@ export const getMetaCampaigns = async (userId: string, dateRange?: { start: stri
       conversionsValue: 0,
       ctr: row.impressions > 0 ? (row.clicks / row.impressions) : 0,
       averageCpc: row.clicks > 0 ? (row.spend / row.clicks) : 0,
-      status: row.status
+      status: row.effective_status || row.status,
+      effective_status: row.effective_status || row.status,
+      actions: row.actions || []
     }));
   } catch (error) {
     console.error("Erro ao buscar campanhas Meta:", error);
