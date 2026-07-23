@@ -3,6 +3,7 @@ import React from 'react';
 import { 
   LayoutDashboard, 
   Megaphone, 
+  ShoppingCart,
   Users, 
   Bot, 
   DollarSign, 
@@ -37,6 +38,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onNavigate }) => {
     { id: AppSection.DASHBOARD, label: 'Visão Geral', icon: <LayoutDashboard size={18} className="shrink-0" /> },
     { id: AppSection.AXIS, label: 'Axis AI', icon: <Cpu size={18} className="shrink-0" />, badge: 'Novo' },
     { id: AppSection.MARKETING, label: 'Marketing', icon: <Megaphone size={18} className="shrink-0" /> },
+    { id: AppSection.MERCADO_LIVRE, label: 'Mercado Livre', icon: <ShoppingCart size={18} className="shrink-0" /> },
     { id: AppSection.VENDAS, label: 'CRM & Vendas', icon: <Users size={18} className="shrink-0" /> },
     { id: AppSection.AGENDA, label: 'Agenda Médica', icon: <Calendar size={18} className="shrink-0" /> },
     { id: AppSection.AUTOMACAO, label: 'Inteligência Artificial', icon: <Bot size={18} className="shrink-0" /> },

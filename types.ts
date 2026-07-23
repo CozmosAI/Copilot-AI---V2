@@ -4,6 +4,7 @@ import React from 'react';
 export enum AppSection {
   DASHBOARD = 'dashboard',
   MARKETING = 'marketing',
+  MERCADO_LIVRE = 'mercado_livre',
   VENDAS = 'vendas',
   AGENDA = 'agenda',
   AUTOMACAO = 'automacao',

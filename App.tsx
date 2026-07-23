@@ -11,6 +11,7 @@ import Integration from './components/Integration';
 import Profile from './components/Profile';
 import Recorder from './components/Recorder';
 import AxisModule from './components/AxisModule'; // Importado
+import { MercadoLivreDashboard } from './components/MercadoLivreDashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
 import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
@@ -1078,6 +1079,7 @@ const App: React.FC = () => {
             case AppSection.DASHBOARD: return <Dashboard />;
             case AppSection.AXIS: return <AxisModule />;
             case AppSection.MARKETING: return <Marketing />;
+            case AppSection.MERCADO_LIVRE: return <MercadoLivreDashboard />;
             case AppSection.VENDAS: return <Sales />;
             case AppSection.AGENDA: return <Agenda />;
             case AppSection.AUTOMACAO: return <Automation />;

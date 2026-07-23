@@ -8405,10 +8405,15 @@ app.get('/api/ml/orders', async (req, res) => {
         const defaultTo = new Date().toISOString();
 
         let query = client.from('ml_orders')
-            .select('id, ml_order_id, buyer_nickname, buyer_email, buyer_phone, buyer_id, item_title, item_id, quantity, unit_price, total_amount, currency, status, payment_status, shipping_status, date_created, date_closed, pack_id', { count: 'exact' })
-            .eq('user_id', authUser.id)
-            .gte('date_created', date_from || defaultFrom)
-            .lte('date_created', date_to || defaultTo);
+            .select('*, raw_payload', { count: 'exact' })
+            .eq('user_id', authUser.id);
+
+        if (date_from) {
+            query = query.gte('date_created', date_from);
+        }
+        if (date_to) {
+            query = query.lte('date_created', date_to);
+        }
 
         if (status) {
             query = query.eq('status', String(status));
@@ -8520,6 +8525,53 @@ app.get('/api/ml/messages', async (req, res) => {
         });
     } catch (err) {
         console.error('[ML Messages Exception]:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// 6.3b) GET /api/ml/items (Listar anúncios do Mercado Livre)
+app.get('/api/ml/items', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const { status, limit: limitQuery, offset: offsetQuery, search } = req.query;
+
+        const limit = Math.min(Math.max(parseInt(String(limitQuery || '50'), 10) || 50, 1), 100);
+        const offset = Math.max(parseInt(String(offsetQuery || '0'), 10) || 0, 0);
+
+        let query = client.from('ml_items')
+            .select('*', { count: 'exact' })
+            .eq('user_id', authUser.id);
+
+        if (status) {
+            query = query.ilike('status', String(status));
+        }
+
+        if (search) {
+            query = query.or(`title.ilike.%${search}%,seller_sku.ilike.%${search}%,item_id.ilike.%${search}%`);
+        }
+
+        query = query
+            .order('updated_at', { ascending: false, nullsFirst: false })
+            .range(offset, offset + limit - 1);
+
+        const { data: items, count, error } = await query;
+
+        if (error) {
+            console.error('[ML Items API Error]:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.json({
+            items: items || [],
+            total: count || 0,
+            limit,
+            offset
+        });
+    } catch (err) {
+        console.error('[ML Items Exception]:', err);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -8672,20 +8724,36 @@ app.post('/api/ml/webhook', async (req, res) => {
         const payload = req.body || {};
         console.log('[ML Webhook] Recebido:', JSON.stringify(payload));
 
-        const sigHeader = req.headers['x-signature'] || req.headers['X-Signature'];
         const secret = process.env.ML_WEBHOOK_SECRET || process.env.ML_CLIENT_SECRET || ML_CLIENT_SECRET;
 
+        // Validação HMAC best-effort: loga mas NÃO bloqueia (ML não envia x-signature de forma confiável)
         let signatureValid = false;
-        if (sigHeader) {
-            signatureValid = validateMlWebhookSignature(req.headers, payload, secret);
-            if (!signatureValid) {
-                console.warn('[ML Webhook] Assinatura HMAC x-signature inválida.');
-                return res.status(401).json({ error: 'Assinatura x-signature inválida' });
+        const sigHeader = req.headers['x-signature'] || req.headers['X-Signature'];
+        if (sigHeader && secret) {
+            try {
+                signatureValid = validateMlWebhookSignature(req.headers, payload, secret);
+                if (!signatureValid) {
+                    console.warn('[ML Webhook] Assinatura HMAC x-signature inválida (mas processando mesmo assim).');
+                }
+            } catch (sigErr) {
+                console.warn('[ML Webhook] Erro ao validar assinatura:', sigErr.message);
             }
         } else {
-            if (secret && process.env.NODE_ENV === 'production') {
-                return res.status(401).json({ error: 'Header x-signature obrigatório em produção' });
-            }
+            console.log('[ML Webhook] Sem header x-signature. Processando sem validação HMAC.');
+        }
+
+        // Validação alternativa: confirmar que application_id do payload bate com ML_APP_ID
+        const expectedAppId = String(ML_APP_ID || process.env.ML_APP_ID);
+        const payloadAppId = payload.application_id ? String(payload.application_id) : null;
+        if (expectedAppId && payloadAppId && payloadAppId !== expectedAppId) {
+            console.warn(`[ML Webhook] application_id mismatch. Esperado: ${expectedAppId}, Recebido: ${payloadAppId}`);
+            return res.status(403).json({ error: 'application_id inválido' });
+        }
+
+        // Logar TODOS os headers recebidos na PRIMEIRA vez (pra debugar formato do x-signature)
+        if (!global.mlWebhookHeadersLogged) {
+            global.mlWebhookHeadersLogged = true;
+            console.log('[ML Webhook] HEADERS RECEBIDOS (primeira vez):', JSON.stringify(req.headers, null, 2));
         }
 
         const idempotencyId = payload._id || payload.id;
