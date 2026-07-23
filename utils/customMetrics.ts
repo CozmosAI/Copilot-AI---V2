@@ -15,7 +15,7 @@ export interface CustomMetric {
 export interface MetricField {
   key: string;
   label: string;
-  category: 'Básicos' | 'Conversão' | 'Engajamento' | 'Vídeo' | 'Diagnóstico' | 'Mensageria';
+  category: 'Básicos' | 'Conversão' | 'Engajamento' | 'Vídeo' | 'Diagnóstico' | 'Mensageria' | 'Custos Derivados';
 }
 
 export const AVAILABLE_FIELDS: MetricField[] = [
@@ -46,6 +46,15 @@ export const AVAILABLE_FIELDS: MetricField[] = [
   { key: 'cost_per_add_to_cart', label: 'Custo por Adição ao Carrinho', category: 'Conversão' },
   { key: 'cost_per_initiate_checkout', label: 'Custo por Início de Checkout', category: 'Conversão' },
   { key: 'cost_per_view_content', label: 'Custo por Visualização de Conteúdo', category: 'Conversão' },
+
+  // Custos Derivados
+  { key: 'cost_per_inline_link_click', label: 'Custo por Clique no Link Inline', category: 'Custos Derivados' },
+  { key: 'cost_per_unique_click', label: 'Custo por Clique Único', category: 'Custos Derivados' },
+  { key: 'cost_per_outbound_click', label: 'Custo por Clique de Saída', category: 'Custos Derivados' },
+  { key: 'cost_per_landing_page_view', label: 'Custo por Visita à Pág. Destino', category: 'Custos Derivados' },
+  { key: 'cost_per_1k_people_reached', label: 'Custo por 1.000 Pessoas Alcançadas', category: 'Custos Derivados' },
+  { key: 'cost_per_estimated_ad_recallers', label: 'Custo por Lembrete de Anúncio Est.', category: 'Custos Derivados' },
+  { key: 'cost_per_30_sec_video_view', label: 'Custo por Vídeo 30s Assistido', category: 'Custos Derivados' },
 
   // Engajamento
   { key: 'post_engagement', label: 'Engajamento com Publicação', category: 'Engajamento' },
@@ -177,6 +186,17 @@ function extractFieldValue(rowData: any, key: string): number {
   if (typeof insights[key] === 'number') return insights[key];
   if (typeof insights[key] === 'string' && !isNaN(Number(insights[key]))) return Number(insights[key]);
 
+  // If insights[key] is directly an array (e.g. cost_per_action_type, cost_per_conversion, cost_per_outbound_click, etc.)
+  if (Array.isArray(insights[key])) {
+    const arr = insights[key];
+    if (arr.length > 0) {
+      const firstVal = Number(arr[0]?.value);
+      if (!isNaN(firstVal) && firstVal > 0) return firstVal;
+      const sum = arr.reduce((acc: number, item: any) => acc + (Number(item?.value) || 0), 0);
+      return sum;
+    }
+  }
+
   // Actions or action_values array check (Meta Ads Graph API format)
   if (Array.isArray(insights.actions)) {
     const act = insights.actions.find((a: any) => a.action_type === key);
@@ -185,6 +205,29 @@ function extractFieldValue(rowData: any, key: string): number {
   if (Array.isArray(insights.action_values)) {
     const actVal = insights.action_values.find((a: any) => a.action_type === key);
     if (actVal && actVal.value !== undefined) return Number(actVal.value) || 0;
+  }
+
+  // Cost per action arrays check by action_type
+  const costArrays = [
+    insights.cost_per_action_type,
+    insights.cost_per_conversion,
+    insights.cost_per_outbound_click,
+    insights.cost_per_unique_click,
+    insights.cost_per_inline_link_click,
+    insights.cost_per_landing_page_view,
+    insights.cost_per_1k_people_reached,
+    insights.cost_per_estimated_ad_recallers,
+    insights.cost_per_video_thruplay,
+    insights.cost_per_30_sec_video_view
+  ];
+
+  for (const costArr of costArrays) {
+    if (Array.isArray(costArr)) {
+      const matched = costArr.find((a: any) => a.action_type === key);
+      if (matched && matched.value !== undefined) {
+        return Number(matched.value) || 0;
+      }
+    }
   }
 
   // Calculated shortcuts

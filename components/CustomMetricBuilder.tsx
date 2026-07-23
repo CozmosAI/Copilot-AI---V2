@@ -95,7 +95,7 @@ export const CustomMetricBuilder: React.FC<CustomMetricBuilderProps> = ({
     setIsDropdownOpen(false);
   };
 
-  const categories = ['Todos', 'Básicos', 'Conversão', 'Engajamento', 'Vídeo', 'Diagnóstico', 'Mensageria'];
+  const categories = ['Todos', 'Básicos', 'Conversão', 'Custos Derivados', 'Engajamento', 'Vídeo', 'Diagnóstico', 'Mensageria'];
 
   const filteredFields = selectedCategory === 'Todos' 
     ? AVAILABLE_FIELDS 
@@ -327,7 +327,7 @@ export const CustomMetricBuilder: React.FC<CustomMetricBuilderProps> = ({
               </div>
 
               <div className="text-[11px] text-slate-400">
-                Suporta: <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700 font-mono">+ - * / % ^ ( ) min max abs if</code>
+                Dica: use funções como min(a,b), max(a,b), round(x), sqrt(x), log10(x), if(cond, a, b)
               </div>
             </div>
           </div>

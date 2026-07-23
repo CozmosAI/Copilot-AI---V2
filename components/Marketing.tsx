@@ -126,6 +126,8 @@ const Marketing: React.FC = () => {
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<string>>(new Set());
   const [selectedAdGroupIds, setSelectedAdGroupIds] = useState<Set<string>>(new Set());
   const [selectedAdIds, setSelectedAdIds] = useState<Set<string>>(new Set());
+  const [selectedKeywordIds, setSelectedKeywordIds] = useState<Set<string>>(new Set());
+  const [selectedSearchTermIds, setSelectedSearchTermIds] = useState<Set<string>>(new Set());
 
   // Tree Table Drill-down State
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
@@ -156,6 +158,13 @@ const Marketing: React.FC = () => {
   const handleAdClick = (ad: any) => {
     setSelectedAdForPreview(ad);
     setIsPreviewDrawerOpen(true);
+    // Auto-scroll duplo pra garantir centralização após render
+    setTimeout(() => {
+      document.getElementById('ad-row-' + ad.id)?.scrollIntoView({behavior:'smooth', block:'center'});
+    }, 100);
+    setTimeout(() => {
+      document.getElementById('ad-row-' + ad.id)?.scrollIntoView({behavior:'smooth', block:'center'});
+    }, 350);
   };
 
   // Filters & UI State
@@ -168,11 +177,20 @@ const Marketing: React.FC = () => {
     setSelectedCampaignIds(new Set());
     setSelectedAdGroupIds(new Set());
     setSelectedAdIds(new Set());
+    setSelectedKeywordIds(new Set());
+    setSelectedSearchTermIds(new Set());
     setExpandedCampaigns(new Set());
     setExpandedAdSets(new Set());
     setSelectedAdForPreview(null);
     setIsPreviewDrawerOpen(false);
   }, [activePlatform, activeTab, globalCampaignFilter, searchTermFilter, marketingDateFilter]);
+
+  useEffect(() => {
+    if (expandedCampaigns.size > 0) {
+      const firstExpanded = Array.from(expandedCampaigns)[0];
+      setTimeout(() => document.getElementById('campaign-row-' + firstExpanded)?.scrollIntoView({behavior:'smooth', block:'nearest'}), 100);
+    }
+  }, [expandedCampaigns]);
 
   const toggleCampaignSelection = (id: string) => {
     setSelectedCampaignIds(prev => {
@@ -251,6 +269,12 @@ const Marketing: React.FC = () => {
       return next;
     });
   };
+
+  const toggleKeywordSelection = (id: string) => setSelectedKeywordIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllKeywords = (ids: string[]) => setSelectedKeywordIds(prev => { const allSelected = ids.length > 0 && ids.every(id => prev.has(id)); const next = new Set(prev); if (allSelected) ids.forEach(id => next.delete(id)); else ids.forEach(id => next.add(id)); return next; });
+
+  const toggleSearchTermSelection = (id: string) => setSelectedSearchTermIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllSearchTerms = (ids: string[]) => setSelectedSearchTermIds(prev => { const allSelected = ids.length > 0 && ids.every(id => prev.has(id)); const next = new Set(prev); if (allSelected) ids.forEach(id => next.delete(id)); else ids.forEach(id => next.add(id)); return next; });
 
   const handleSelectMetaAd = (id: string) => {
     setSelectedMetaAdIdForPreview(id);
@@ -881,52 +905,24 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       return sortConfig.direction === 'asc' ? <ChevronUp size={12} className="ml-1 text-navy"/> : <ChevronDown size={12} className="ml-1 text-navy"/>;
   };
 
-  const renderStatusBadge = (status: string, platform?: 'meta' | 'google') => {
+  const renderStatusBadge = (status: string, platform: 'meta' | 'google' = 'google') => {
       const s = (status || '').toUpperCase();
-      let bg = 'bg-slate-100';
-      let text = 'text-slate-500';
-      let label = status || 'N/A';
-
       if (platform === 'meta') {
-          if (s === 'ACTIVE' || s === 'ENABLED') {
-              bg = 'bg-emerald-50';
-              text = 'text-emerald-600';
-              label = 'Ativo';
-          } else if (s === 'PAUSED') {
-              bg = 'bg-amber-50';
-              text = 'text-amber-600';
-              label = 'Pausado';
-          } else if (s === 'DELETED') {
-              bg = 'bg-rose-50';
-              text = 'text-rose-600';
-              label = 'Excluído';
-          } else if (s === 'ARCHIVED') {
-              bg = 'bg-slate-200';
-              text = 'text-slate-700';
-              label = 'Arquivado';
-          } else if (s === 'IN_REVIEW') {
-              bg = 'bg-yellow-50';
-              text = 'text-yellow-600';
-              label = 'Em revisão';
-          }
-      } else {
-          // Google Ads / General
-          if (s === 'ENABLED' || s === 'ACTIVE') {
-              bg = 'bg-emerald-50';
-              text = 'text-[#0f9d58]';
-              label = 'Ativo';
-          } else if (s === 'PAUSED') {
-              bg = 'bg-amber-50';
-              text = 'text-amber-600';
-              label = 'Pausado';
-          } else if (s === 'REMOVED' || s === 'DELETED') {
-              bg = 'bg-rose-50';
-              text = 'text-rose-600';
-              label = 'Removido';
-          }
+          if (s === 'ACTIVE' || s === 'ENABLED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-emerald-100 text-emerald-700">Ativo</span>;
+          if (s === 'PAUSED' || s === 'CAMPAIGN_PAUSED' || s === 'ADSET_PAUSED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-amber-100 text-amber-700">Pausado</span>;
+          if (s === 'IN_REVIEW' || s === 'PENDING' || s === 'PENDING_REVIEW') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-blue-100 text-blue-700">Em revisão</span>;
+          if (s === 'DISAPPROVED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-red-100 text-red-700">Reprovado</span>;
+          if (s === 'WITH_ISSUES') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-orange-100 text-orange-700">Com problemas</span>;
+          if (s === 'SUSPENDED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-rose-100 text-rose-700">Suspensa</span>;
+          if (s === 'DELETED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-red-200 text-red-800">Excluído</span>;
+          if (s === 'ARCHIVED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-slate-300 text-slate-700">Arquivado</span>;
+          return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-slate-100 text-slate-500">{status || '—'}</span>;
       }
-
-      return <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${bg} ${text}`}>{label}</span>;
+      // Google Ads
+      if (s === 'ENABLED' || s === 'ACTIVE') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-emerald-100 text-emerald-700">Ativo</span>;
+      if (s === 'PAUSED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-amber-100 text-amber-700">Pausado</span>;
+      if (s === 'REMOVED' || s === 'DELETED') return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-red-100 text-red-700">Removido</span>;
+      return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase bg-slate-100 text-slate-500">{status || '—'}</span>;
   };
 
   const renderCampaignResults = (c: any) => {
@@ -1698,7 +1694,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             return (
                                                 <React.Fragment key={`meta-camp-${c.id}`}>
                                                     {/* Level 1: Campaign Row */}
-                                                    <tr className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
+                                                    <tr id={`campaign-row-${c.id}`} className="group hover:bg-[#f2f4f7]/40 transition-colors duration-150 h-10 md:h-12 divide-x divide-slate-200">
                                                         <td className="px-2 py-1.5 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                             <input 
                                                                 type="checkbox" 
@@ -1709,7 +1705,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                         </td>
                                                         <td className="px-2 py-1.5 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                             <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
-                                                                {renderStatusBadge(c.status, 'meta')}
+                                                                {renderStatusBadge(c.effective_status || c.status, 'meta')}
                                                                 <button
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
@@ -1746,7 +1742,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                     <Instagram size={10} className="text-[#0866ff]" />
                                                                 </div>
                                                                 <span 
-                                                                    onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                                    onClick={(e) => { e.stopPropagation(); toggleCampaignExpand(c.id.toString()); }}
                                                                     className="text-[#0866ff] hover:underline font-semibold cursor-pointer truncate text-xs md:text-sm"
                                                                     title={c.name}
                                                                 >
@@ -1812,7 +1808,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                     </td>
                                                                     <td className="px-2 py-1.5 border-r border-slate-200">
                                                                         <div className="flex items-center gap-1">
-                                                                            {renderStatusBadge(ag.status || 'ENABLED', 'meta')}
+                                                                            {renderStatusBadge(ag.effective_status || ag.status || 'ENABLED', 'meta')}
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-2 md:px-4 py-1.5 font-normal pl-8">
@@ -1828,7 +1824,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                                 {isAdSetExpanded ? <ChevronDown size={13} className="text-indigo-600 font-bold" /> : <ChevronRight size={13} />}
                                                                             </button>
                                                                             <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[9px] font-bold uppercase shrink-0">Conjunto</span>
-                                                                            <span className="font-semibold text-slate-800 text-xs truncate" title={ag.name}>{ag.name}</span>
+                                                                            <span onClick={(e) => { e.stopPropagation(); toggleAdSetExpand(ag.id.toString()); }} className="font-semibold text-slate-800 text-xs truncate cursor-pointer hover:text-blue-600 hover:underline" title={ag.name}>{ag.name}</span>
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-2 md:px-4 py-1.5 text-right text-xs font-medium text-slate-700">{formatCurrency(ag.budget || ag.daily_budget || 0)}</td>
@@ -1851,9 +1847,10 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                 {isAdSetExpanded && childAds.map((ad) => (
                                                                     <tr 
                                                                         key={`meta-ad-${ad.id}`}
-                                                                        id={`ad-row-${ad.id}`}
+                                                                        id={'ad-row-' + ad.id}
+                                                                        ref={selectedAdForPreview?.id === ad.id ? selectedAdRowRef : null}
                                                                         onClick={() => handleAdClick(ad)}
-                                                                        className="bg-indigo-50/30 hover:bg-indigo-100/60 transition-colors h-9 divide-x divide-slate-200 text-slate-700 cursor-pointer border-l-4 border-l-indigo-600"
+                                                                        className={`transition-colors h-9 divide-x divide-slate-200 text-slate-700 cursor-pointer border-l-4 border-l-indigo-600 ${selectedAdForPreview?.id === ad.id ? 'bg-blue-50 ring-2 ring-blue-200' : 'bg-indigo-50/30 hover:bg-indigo-100/60'}`}
                                                                     >
                                                                         <td className="px-2 py-1 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                                             <input 
@@ -1865,7 +1862,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                         </td>
                                                                         <td className="px-2 py-1 border-r border-slate-200">
                                                                             <div className="flex items-center gap-1">
-                                                                                {renderStatusBadge(ad.status || 'ENABLED', 'meta')}
+                                                                                {renderStatusBadge(ad.effective_status || ad.status || 'ENABLED', 'meta')}
                                                                             </div>
                                                                         </td>
                                                                         <td className="px-2 md:px-4 py-1 font-normal pl-16">
@@ -1952,7 +1949,12 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         <div key={`mobile-campaign-${c.id}`} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
                                             <div className="flex items-start justify-between gap-2.5">
                                                 <div className="flex items-start gap-2.5 min-w-0">
-                                                    <input type="checkbox" className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-4 h-4 mt-0.5 shrink-0" defaultChecked />
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={selectedCampaignIds.has(String(c.id))} 
+                                                        onChange={(e) => { e.stopPropagation(); toggleCampaignSelection(String(c.id)); }} 
+                                                        className="rounded border-slate-300 text-[#0866ff] focus:ring-[#0866ff] w-4 h-4 mt-0.5 shrink-0 cursor-pointer" 
+                                                    />
                                                     <div className="min-w-0">
                                                         <div className="flex items-center gap-1.5 flex-wrap">
                                                             
@@ -2092,7 +2094,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             const prev = getPrevCampaign(c.id);
                                             const isPMax = c.type?.includes('PERFORMANCE_MAX');
                                             return (
-                                                <tr key={`row-google-${c.id}`} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
+                                                <tr key={`row-google-${c.id}`} id={`campaign-row-${c.id}`} className="hover:bg-[#f8f9fa] transition-colors group divide-x divide-slate-200 border-b border-slate-200 text-slate-700 h-14">
                                                     {/* Checkbox */}
                                                     <td className="px-3 py-2 text-center w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input 
@@ -2179,7 +2181,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                     {isPMax ? <TrendingUp size={13} className="text-blue-500" /> : <Search size={13} className="text-slate-500" />}
                                                                 </div>
                                                                 <span 
-                                                                    onClick={() => setGlobalCampaignFilter(c.id.toString())}
+                                                                    onClick={(e) => { e.stopPropagation(); toggleCampaignExpand(c.id.toString()); }}
                                                                     className="text-[#1a73e8] hover:text-[#1557b0] hover:underline font-medium cursor-pointer truncate text-sm"
                                                                     title={c.name}
                                                                 >
@@ -2461,9 +2463,9 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
             {/* ASSET GROUPS TAB */}
             {activeTab === 'assetgroups' && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                    <div className="hidden md:block max-h-[600px] overflow-auto rounded-lg border border-slate-200 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                         <table className="w-full min-w-[800px] text-left">
-                            <thead className="bg-slate-50 border-b border-slate-200">
+                            <thead className="sticky top-0 z-20 bg-[#f8f9fa] shadow-sm border-b border-slate-200">
                                 <tr>
                                     {[
                                         { k: 'name', l: 'Grupo de Recursos' }, { k: 'status', l: 'Status' },
@@ -2471,12 +2473,12 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         { k: 'cpc', l: 'CPC Méd.' }, { k: 'spend', l: 'Custo' }, { k: 'conversions', l: 'Conv.' },
                                         { k: 'convRate', l: 'Taxa Conv.' }, { k: 'costPerConv', l: 'Custo/Conv.' }
                                     ].map(h => (
-                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors">
+                                        <th key={h.k} onClick={() => handleSort(h.k)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors bg-[#f8f9fa]">
                                             <div className="flex items-center gap-1">{h.l} {renderSortIcon(h.k)}</div>
                                         </th>
                                     ))}
                                     {customMetrics.map(m => (
-                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200">
+                                        <th key={m.id} onClick={() => handleSort(m.id)} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-blue-600 transition-colors border-l border-slate-200 bg-[#f8f9fa]">
                                             <div className="flex items-center gap-1">
                                                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                                                 {m.name} {renderSortIcon(m.id)}
@@ -2506,7 +2508,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                     </tr>
                                 ))}
                             </tbody>
-                            <tfoot className="bg-slate-50 border-t border-slate-200">
+                            <tfoot className="sticky bottom-0 z-20 bg-[#f8f9fa] shadow-[0_-2px_4px_rgba(0,0,0,0.05)] border-t border-slate-200">
                                 <tr>
                                     <td className="px-6 py-4 text-xs font-bold text-slate-900 uppercase tracking-wider" colSpan={2}>Totais</td>
                                     <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatNumber(calculateTotals(assetGroups).impressions)}</td>
@@ -2639,7 +2641,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                     {/* Unified Status and Toggle Switch */}
                                                     <td className="px-2 py-1.5 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center justify-between gap-2 px-1 min-w-[120px]">
-                                                            {renderStatusBadge(ag.status, 'meta')}
+                                                            {renderStatusBadge(ag.effective_status || ag.status, 'meta')}
                                                             <label className="relative inline-flex items-center cursor-pointer">
                                                                 <input 
                                                                     type="checkbox" 
@@ -2955,7 +2957,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                 <div className="w-5 h-5 bg-blue-50 border border-blue-100 rounded flex items-center justify-center text-[#1a73e8] shrink-0">
                                                                     <Folder size={11} />
                                                                 </div>
-                                                                <span className="text-[#1a73e8] hover:underline font-medium cursor-pointer truncate text-sm" title={ag.name}>
+                                                                <span onClick={(e) => { e.stopPropagation(); toggleAdSetExpand(ag.id.toString()); }} className="text-[#1a73e8] hover:underline font-medium cursor-pointer truncate text-sm" title={ag.name}>
                                                                     {ag.name}
                                                                 </span>
                                                             </div>
@@ -3177,14 +3179,19 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                            <div className="hidden md:block max-h-[600px] overflow-auto rounded-lg border border-slate-200 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                                 <table className="w-full min-w-[800px] text-left border-collapse">
-                                    <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                    <thead className="sticky top-0 z-20 bg-[#f8f9fa] shadow-sm border-b border-slate-300">
                                         <tr className="divide-x divide-slate-200 h-10">
-                                            <th className="w-10 px-3 text-center border-r border-slate-200">
-                                                <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                            <th className="w-10 px-3 text-center border-r border-slate-200 bg-[#f8f9fa]" onClick={(e) => e.stopPropagation()}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                    checked={filteredKeywords.length > 0 && filteredKeywords.every(k => selectedKeywordIds.has(String(k.id)))} 
+                                                    onChange={() => toggleAllKeywords(filteredKeywords.map(k => String(k.id)))} 
+                                                />
                                             </th>
-                                            <th className="w-10 px-3 text-center border-r border-slate-200"></th>
+                                            <th className="w-10 px-3 text-center border-r border-slate-200 bg-[#f8f9fa]"></th>
                                             {[
                                                 { k: 'text', l: 'Palavra-chave', align: 'left' },
                                                 { k: 'matchType', l: 'Tipo de correspondência', align: 'left' },
@@ -3202,7 +3209,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 <th 
                                                     key={h.k} 
                                                     onClick={() => handleSort(h.k)} 
-                                                    className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align}`}
+                                                    className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-${h.align} bg-[#f8f9fa]`}
                                                 >
                                                     <div className={`flex items-center gap-1 ${h.align === 'right' ? 'justify-end' : 'justify-start'}`}>
                                                         <span>{h.l}</span>
@@ -3214,7 +3221,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 <th 
                                                     key={m.id} 
                                                     onClick={() => handleSort(m.id)} 
-                                                    className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-right"
+                                                    className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200 text-right bg-[#f8f9fa]"
                                                 >
                                                     <div className="flex items-center gap-1 justify-end">
                                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
@@ -3230,7 +3237,12 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             return (
                                                 <tr key={kw.id} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                            checked={selectedKeywordIds.has(String(kw.id))} 
+                                                            onChange={() => toggleKeywordSelection(String(kw.id))} 
+                                                        />
                                                     </td>
                                                     <td className="px-3 py-2 text-center w-10 relative" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center justify-center cursor-pointer h-full" onClick={() => setActiveStatusMenuKeywordId(activeStatusMenuKeywordId === (kw.id?.toString() || i.toString()) ? null : (kw.id?.toString() || i.toString()))}>
@@ -3340,7 +3352,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             );
                                         })}
                                     </tbody>
-                                    <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                    <tfoot className="sticky bottom-0 z-20 bg-[#f8f9fa] shadow-[0_-2px_4px_rgba(0,0,0,0.05)] border-t-2 border-slate-300 divide-y divide-slate-200">
                                         <tr className="divide-x divide-slate-200 font-semibold text-slate-800 text-xs h-11 bg-slate-50">
                                             <td className="px-3 py-2 text-center border-r border-slate-200"></td>
                                             <td className="px-3 py-2 text-center border-r border-slate-200"></td>
@@ -3541,8 +3553,13 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                 return (
                                                     <tr 
                                                         key={ad.id || idx} 
-                                                        onClick={() => handleSelectMetaAd(ad.id?.toString())}
-                                                        className={`group cursor-pointer transition-all h-14 divide-x divide-slate-200 ${isSelectedForPreview ? 'bg-indigo-50/40 border-l-4 border-l-[#0866ff]' : 'hover:bg-[#f2f4f7]/40'}`}
+                                                        id={'ad-row-' + ad.id}
+                                                        ref={selectedAdForPreview?.id === ad.id ? selectedAdRowRef : null}
+                                                        onClick={() => {
+                                                            handleSelectMetaAd(ad.id?.toString());
+                                                            handleAdClick(ad);
+                                                        }}
+                                                        className={`group cursor-pointer transition-all h-14 divide-x divide-slate-200 ${selectedAdForPreview?.id === ad.id ? 'bg-blue-50 ring-2 ring-blue-200' : isSelectedForPreview ? 'bg-indigo-50/40 border-l-4 border-l-[#0866ff]' : 'hover:bg-[#f2f4f7]/40'}`}
                                                     >
                                                         <td className="px-2 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                             <input 
@@ -3554,7 +3571,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                         </td>
                                                         <td className="px-2 py-2 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                             <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
-                                                                {renderStatusBadge(ad.status, 'meta')}
+                                                                {renderStatusBadge(ad.effective_status || ad.status, 'meta')}
                                                                 <button 
                                                                     onClick={() => {
                                                                         setMetaAds(prev => prev.map((item, idx2) => (item.id === ad.id || idx2 === idx) ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
@@ -4038,7 +4055,13 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         {sortData(filteredAds).map((ad, i) => {
                                             const isChecked = selectedAdIds.has(ad.id.toString());
                                             return (
-                                                <tr key={ad.id?.toString() || `ad-row-${i}`} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-11 divide-x divide-slate-200">
+                                                <tr 
+                                                    key={ad.id?.toString() || `ad-row-${i}`} 
+                                                    id={'ad-row-' + ad.id}
+                                                    ref={selectedAdForPreview?.id === ad.id ? selectedAdRowRef : null}
+                                                    onClick={() => handleAdClick(ad)}
+                                                    className={`group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-11 divide-x divide-slate-200 cursor-pointer ${selectedAdForPreview?.id === ad.id ? 'bg-blue-50 ring-2 ring-blue-200' : ''}`}
+                                                >
                                                     <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
                                                         <input 
                                                             type="checkbox" 
@@ -4325,16 +4348,16 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                         <div className="p-6 border-b border-slate-200 bg-slate-50">
                              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Contas Gerenciadas</h3>
                         </div>
-                        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                        <div className="max-h-[600px] overflow-auto rounded-lg border border-slate-200 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                             <table className="w-full min-w-[800px] text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        <th className="p-4 px-6">Conta</th>
-                                        <th className="p-4 px-6 text-right">Custo</th>
-                                        <th className="p-4 px-6 text-right">Cliques</th>
-                                        <th className="p-4 px-6 text-right">Impressões</th>
-                                        <th className="p-4 px-6 text-right">Conversões</th>
-                                        <th className="p-4 px-6 text-right">CPL</th>
+                                <thead className="sticky top-0 z-20 bg-[#f8f9fa] shadow-sm border-b border-slate-200">
+                                    <tr className="bg-[#f8f9fa] border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                        <th className="p-4 px-6 bg-[#f8f9fa]">Conta</th>
+                                        <th className="p-4 px-6 text-right bg-[#f8f9fa]">Custo</th>
+                                        <th className="p-4 px-6 text-right bg-[#f8f9fa]">Cliques</th>
+                                        <th className="p-4 px-6 text-right bg-[#f8f9fa]">Impressões</th>
+                                        <th className="p-4 px-6 text-right bg-[#f8f9fa]">Conversões</th>
+                                        <th className="p-4 px-6 text-right bg-[#f8f9fa]">CPL</th>
                                     </tr>
                                 </thead>
                                 <tbody className="text-sm font-medium text-slate-600 divide-y divide-slate-100">
@@ -4379,14 +4402,19 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="hidden md:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                        <div className="hidden md:block max-h-[600px] overflow-auto rounded-lg border border-slate-200 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                             <table className="w-full min-w-[800px] text-left border-collapse">
-                                <thead className="bg-[#f8f9fa] border-b border-slate-300">
+                                <thead className="sticky top-0 z-20 bg-[#f8f9fa] shadow-sm border-b border-slate-300">
                                     <tr className="divide-x divide-slate-200 h-10">
-                                        <th className="w-10 px-3 text-center border-r border-slate-200">
-                                            <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                        <th className="w-10 px-3 text-center border-r border-slate-200 bg-[#f8f9fa]" onClick={(e) => e.stopPropagation()}>
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                checked={currentSearchTerms.length > 0 && currentSearchTerms.every(t => selectedSearchTermIds.has(t.searchTerm || String(t.id)))} 
+                                                onChange={() => toggleAllSearchTerms(currentSearchTerms.map(t => t.searchTerm || String(t.id)))} 
+                                            />
                                         </th>
-                                        <th className="w-10 px-3 text-center border-r border-slate-200"></th>
+                                        <th className="w-10 px-3 text-center border-r border-slate-200 bg-[#f8f9fa]"></th>
                                         {[
                                             { k: 'searchTerm', l: 'Termo de Busca', align: 'left' },
                                             { k: 'campaignName', l: 'Campanha / Grupo', align: 'left' },
@@ -4399,7 +4427,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         ].map(h => (
                                             <th 
                                                 key={h.k} 
-                                                className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap border-r border-slate-200 text-${h.align}`}
+                                                className={`px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-normal whitespace-nowrap border-r border-slate-200 text-${h.align} bg-[#f8f9fa]`}
                                             >
                                                 <span>{h.l}</span>
                                             </th>
@@ -4412,8 +4440,13 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                         .map((term, i) => {
                                             return (
                                                 <tr key={term.searchTerm || `term-${i}`} className="group hover:bg-[#f1f3f4]/60 transition-colors duration-150 h-10 divide-x divide-slate-200">
-                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200">
-                                                        <input type="checkbox" className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5" defaultChecked />
+                                                    <td className="px-3 py-2 text-center w-10 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="rounded border-slate-350 text-[#1a73e8] focus:ring-[#1a73e8] w-3.5 h-3.5 cursor-pointer" 
+                                                            checked={selectedSearchTermIds.has(term.searchTerm || String(term.id))} 
+                                                            onChange={() => toggleSearchTermSelection(term.searchTerm || String(term.id))} 
+                                                        />
                                                     </td>
                                                     <td className="px-3 py-2 text-center w-10 text-slate-400">
                                                         <Search size={14} className="mx-auto" />
@@ -4458,7 +4491,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                             );
                                         })}
                                 </tbody>
-                                <tfoot className="bg-[#f8f9fa] border-t-2 border-slate-300 divide-y divide-slate-200">
+                                <tfoot className="sticky bottom-0 z-20 bg-[#f8f9fa] shadow-[0_-2px_4px_rgba(0,0,0,0.05)] border-t-2 border-slate-300 divide-y divide-slate-200">
                                     {(() => {
                                         const visible = currentSearchTerms.filter(term => term.searchTerm.toLowerCase().includes(searchTermFilter.toLowerCase()));
                                         const totalImpr = visible.reduce((acc, t) => acc + (t.impressions || 0), 0);
