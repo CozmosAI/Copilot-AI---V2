@@ -1309,7 +1309,7 @@ app.post('/api/meta-ads/overview', async (req, res) => {
         const end = date_range?.end || new Date().toISOString().split('T')[0];
 
         const overviewUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/insights?` + new URLSearchParams({
-            fields: 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers',
+            fields: 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,unique_clicks,unique_ctr,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers',
             time_range: JSON.stringify({ since: start, until: end }),
             level: 'account',
             time_increment: '1',
@@ -1364,7 +1364,7 @@ app.post('/api/meta-ads/campaigns', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const campaignsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/campaigns?` + new URLSearchParams({
-            fields: `id,name,status,effective_status,buying_type,objective,daily_budget,lifetime_budget,insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
+            fields: `id,name,status,effective_status,buying_type,objective,daily_budget,lifetime_budget,insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,unique_clicks,unique_ctr,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -1426,7 +1426,7 @@ app.post('/api/meta-ads/ad-groups', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const adsetsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/adsets?` + new URLSearchParams({
-            fields: `id,name,status,effective_status,bid_strategy,daily_budget,lifetime_budget,campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
+            fields: `id,name,status,effective_status,bid_strategy,daily_budget,lifetime_budget,campaign{id,name},insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,unique_clicks,unique_ctr,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -1492,7 +1492,7 @@ app.post('/api/meta-ads/ads', async (req, res) => {
 
         const time_range_str = JSON.stringify({ since: start, until: end });
         const adsUrl = `https://graph.facebook.com/v25.0/${ad_account_id}/ads?` + new URLSearchParams({
-            fields: `id,name,status,effective_status,adset_id,campaign_id,adset{id,name},campaign{id,name},adcreatives{body,title,image_url,thumbnail_url,video_id,object_story_spec,link_url},insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,total_conversion_value,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_app_install,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,post_reactions,comment_count,share_count,engagement_rate,landing_page_views,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,cost_per_1k_people_reached,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
+            fields: `id,name,status,effective_status,adset_id,campaign_id,adset{id,name},campaign{id,name},adcreatives{body,title,image_url,thumbnail_url,video_id,object_story_spec,link_url},insights.time_range(${time_range_str}){spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,unique_clicks,unique_ctr,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers}`,
             limit: '150',
             access_token: accessToken
         }).toString();
@@ -7355,6 +7355,28 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                     }
                 }
                 
+                // --- CRM Sync: Sincronizar nome do lead com pushName se atualizado ---
+                if (pushName && pushName.trim() && externalChatId) {
+                    try {
+                        const { data: leadToSync } = await client.from('leads')
+                            .select('id, name')
+                            .eq('external_chat_id', externalChatId)
+                            .maybeSingle();
+                        
+                        if (leadToSync && leadToSync.name !== pushName.trim()) {
+                            await client.from('leads')
+                                .update({ 
+                                    name: pushName.trim(),
+                                    last_interaction: new Date().toISOString()
+                                })
+                                .eq('id', leadToSync.id);
+                            console.log(`[CRM Sync] Lead ${leadToSync.id} nome atualizado: "${leadToSync.name}" → "${pushName.trim()}"`);
+                        }
+                    } catch (syncErr) {
+                        console.error(`[CRM Sync] Erro ao sincronizar nome do lead com pushName:`, syncErr);
+                    }
+                }
+                
                 // --- FLUXO 2: leads (CRM) (DEFENSIVO) ---
                 let leadId = null;
                 let existingLead = null;
@@ -7420,8 +7442,9 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                 if (existingLead) {
                     leadId = existingLead.id;
                     try {
+                        const targetLeadName = (pushName && pushName.trim()) ? pushName.trim() : (existingLead.name || normalizedWebhookPhone || externalChatId || 'Lead WhatsApp');
                         const updateLeadData = {
-                            name: existingLead.name || pushName || normalizedWebhookPhone || externalChatId || 'Lead WhatsApp',
+                            name: targetLeadName,
                             phone: normalizedWebhookPhone || existingLead.phone,
                             channel: 'whatsapp',
                             external_chat_id: externalChatId || existingLead.external_chat_id,
@@ -7439,7 +7462,7 @@ app.post('/api/webhooks/uazapi/:connectionId/:secret', async (req, res) => {
                             const { error: fallbackErr } = await client
                                 .from('leads')
                                 .update({
-                                    name: existingLead.name || pushName || 'Lead WhatsApp'
+                                    name: targetLeadName
                                 })
                                 .eq('id', leadId);
                             if (fallbackErr) {
