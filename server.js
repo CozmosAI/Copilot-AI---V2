@@ -2018,8 +2018,15 @@ app.post('/api/google-ads/campaigns', async (req, res) => {
             date_range = { start, end };
         }
 
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         let sanitizedCompareStart = '';
         let sanitizedCompareEnd = '';
@@ -2235,11 +2242,18 @@ app.post('/api/google-ads/campaigns/update-budget', async (req, res) => {
 // Rota: Overview (Gráfico)
 app.post('/api/google-ads/overview', async (req, res) => {
     const { user_id, date_range, campaign_id, compare_start, compare_end, customer_id } = req.body;
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         let sanitizedCompareStart = '';
         let sanitizedCompareEnd = '';
@@ -2285,11 +2299,18 @@ app.post('/api/google-ads/overview', async (req, res) => {
 // Rota: Ad Groups
 app.post('/api/google-ads/ad-groups', async (req, res) => {
     const { user_id, date_range, customer_id } = req.body;
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         const query = `
             SELECT 
@@ -2314,11 +2335,18 @@ app.post('/api/google-ads/ad-groups', async (req, res) => {
 // Rota: Keywords
 app.post('/api/google-ads/keywords', async (req, res) => {
     const { user_id, date_range, customer_id } = req.body;
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         const query = `
             SELECT 
@@ -2345,11 +2373,18 @@ app.post('/api/google-ads/keywords', async (req, res) => {
 // Rota: Ads
 app.post('/api/google-ads/ads', async (req, res) => {
     const { user_id, date_range, customer_id } = req.body;
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         const query = `
             SELECT 
@@ -2377,11 +2412,18 @@ app.post('/api/google-ads/asset-groups', async (req, res) => {
     if (!campaign_id || campaign_id === 'undefined' || campaign_id === 'null') {
         return res.json({ results: [] });
     }
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         const query = `
             SELECT 
@@ -2440,11 +2482,18 @@ app.post('/api/google-ads/pmax-assets', async (req, res) => {
 // Rota: Search Terms (NOVA)
 app.post('/api/google-ads/search-terms', async (req, res) => {
     const { user_id, date_range, customer_id } = req.body;
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         const query = `
             SELECT 
@@ -2472,11 +2521,18 @@ app.post('/api/google-ads/search-terms', async (req, res) => {
 // Rota: MCC Overview (NOVA)
 app.post('/api/google-ads/mcc-overview', async (req, res) => {
     const { user_id, date_range } = req.body;
-    if (!user_id || !date_range) return res.status(400).json({ error: 'Missing params' });
+    if (!user_id) return res.status(400).json({ error: 'Missing params' });
 
     try {
-        const sanitizedStart = String(date_range.start).replace(/[^0-9-]/g, '');
-        const sanitizedEnd = String(date_range.end).replace(/[^0-9-]/g, '');
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
 
         // 1. Busca a lista de contas filhas do MCC
         const accountsQuery = `
@@ -2565,10 +2621,19 @@ app.post('/api/google-ads/mcc-overview', async (req, res) => {
 // 4. SISTEMA DE ALERTAS
 // ==============================================================================
 app.post('/api/google-ads/check-alerts', async (req, res) => {
-    const { user_id } = req.body;
+    const { user_id, date_range } = req.body;
     if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
 
     try {
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
         const alerts = [];
         const { cleanId, headers } = await getValidAccessToken(user_id);
 
@@ -2719,6 +2784,15 @@ app.post('/api/google-ads/generate-report', async (req, res) => {
     } = req.body;
 
     try {
+        let sanitizedStart = String(date_range?.start || '').replace(/[^0-9-]/g, '');
+        let sanitizedEnd = String(date_range?.end || '').replace(/[^0-9-]/g, '');
+
+        if (!sanitizedStart) {
+          sanitizedStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+        if (!sanitizedEnd) {
+          sanitizedEnd = new Date().toISOString().split('T')[0];
+        }
         const doc = new PDFDocument({ margin: 50 });
         const chunks = [];
         

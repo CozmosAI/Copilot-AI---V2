@@ -729,14 +729,35 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
 
   const handleToggleGoogleCampaign = async () => {
       if (!user || !statusConfirmModal) return;
-      setActionLoadingId(statusConfirmModal.campaignId);
+      const campaignId = statusConfirmModal.campaignId;
+      const newStatus = statusConfirmModal.action === 'pause' ? 'PAUSED' : 'ENABLED';
+      setActionLoadingId(campaignId);
       try {
-          await toggleGoogleCampaignStatus(user.id, statusConfirmModal.customerId!, statusConfirmModal.campaignId, statusConfirmModal.action);
-          // Toast should be here, but marketing.tsx uses an alert or toast internally. Wait, Marketing.tsx does not have showToast. 
-          // I will use alert for simplicity or check if there is a toast.
+          await toggleGoogleCampaignStatus(user.id, statusConfirmModal.customerId!, campaignId, statusConfirmModal.action);
+
+          // Atualização otimista: mudar status local imediatamente
+          setCampaigns(prev => prev.map(c => 
+            c.id === campaignId 
+              ? { ...c, status: newStatus } 
+              : c
+          ));
+
           alert(`Campanha ${statusConfirmModal.action === 'pause' ? 'pausada' : 'ativada'} com sucesso!`);
-          
-          setCampaigns(prev => prev.map(c => c.id === statusConfirmModal.campaignId ? { ...c, status: statusConfirmModal.action === 'pause' ? 'PAUSED' : 'ENABLED' } : c));
+
+          cacheRef.current = {};
+          try {
+            const campaignsRes = await getGoogleCampaigns(user.id, marketingDateFilter, isCompareEnabled ? compareDateFilter : undefined, selectedAccountId || undefined);
+            if (campaignsRes) {
+              if ('current' in campaignsRes) {
+                setCampaigns(campaignsRes.current);
+                setCampaignsComparison(campaignsRes.previous || []);
+              } else {
+                setCampaigns(Array.isArray(campaignsRes) ? campaignsRes : []);
+              }
+            }
+          } catch (refetchErr) {
+            console.error("Erro no re-fetch do Google Campaigns:", refetchErr);
+          }
       } catch (error: any) {
           alert(`Erro ao alterar status: ${error.message}`);
       } finally {
