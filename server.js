@@ -8502,7 +8502,7 @@ app.get('/api/ml/orders', async (req, res) => {
         const defaultTo = new Date().toISOString();
 
         let query = client.from('ml_orders')
-            .select('*, raw_payload', { count: 'exact' })
+            .select('*, raw', { count: 'exact' })
             .eq('user_id', authUser.id);
 
         if (date_from) {

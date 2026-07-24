@@ -17,6 +17,7 @@ import LoadingScreen from './components/LoadingScreen';
 import { AppSection, DateRange, ConsolidatedMetrics, FinancialEntry, Lead, Appointment, TeamMember, UserRole, AIConfig, ConsultationRecording } from './types';
 import { Menu, X, Bot, Loader2, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { apiFetch } from './services/apiClient';
 // import { checkStatus, configureInstance } from './services/whatsappService'; // REMOVIDO
 
 // Logo AXIS para tela de login
@@ -944,7 +945,7 @@ const App: React.FC = () => {
         const fetchDashGoogle = async () => {
           if (!googleAccount || googleAccount.status !== 'active') return null;
           try {
-            const response = await fetch('/api/google-ads/overview', {
+            const response = await apiFetch('/api/google-ads/overview', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: activeUserId, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
@@ -958,7 +959,7 @@ const App: React.FC = () => {
         const fetchDashMeta = async () => {
           if (!metaAccount || (metaAccount.status !== 'active' && metaAccount.status !== 'connected')) return null;
           try {
-            const response = await fetch('/api/meta-ads/overview', {
+            const response = await apiFetch('/api/meta-ads/overview', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: activeUserId, date_range: { start: dashboardDateFilter.start, end: dashboardDateFilter.end } })
@@ -979,7 +980,7 @@ const App: React.FC = () => {
         const fetchMarkGoogle = async () => {
           if (!googleAccount || googleAccount.status !== 'active') return null;
           try {
-            const response = await fetch('/api/google-ads/overview', {
+            const response = await apiFetch('/api/google-ads/overview', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: activeUserId, date_range: { start: marketingDateFilter.start, end: marketingDateFilter.end } })
@@ -993,7 +994,7 @@ const App: React.FC = () => {
         const fetchMarkMeta = async () => {
           if (!metaAccount || (metaAccount.status !== 'active' && metaAccount.status !== 'connected')) return null;
           try {
-            const response = await fetch('/api/meta-ads/overview', {
+            const response = await apiFetch('/api/meta-ads/overview', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: activeUserId, date_range: { start: marketingDateFilter.start, end: marketingDateFilter.end } })

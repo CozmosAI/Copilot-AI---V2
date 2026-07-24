@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { apiFetch } from '../services/apiClient';
 import { 
   Calculator, 
   Check, 
@@ -130,7 +131,7 @@ export const CustomMetricBuilder: React.FC<CustomMetricBuilderProps> = ({
       
       const method = initialMetric?.id ? 'PATCH' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

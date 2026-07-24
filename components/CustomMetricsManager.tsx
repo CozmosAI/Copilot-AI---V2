@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../services/apiClient';
 import { 
   Calculator, 
   Plus, 
@@ -47,7 +48,7 @@ export const CustomMetricsManager: React.FC<CustomMetricsManagerProps> = ({
     setErrorMsg(null);
 
     try {
-      const res = await fetch(`/api/meta-ads/custom-metrics/${id}`, {
+      const res = await apiFetch(`/api/meta-ads/custom-metrics/${id}`, {
         method: 'DELETE'
       });
 

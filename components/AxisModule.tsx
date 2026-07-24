@@ -335,7 +335,7 @@ const AxisModule: React.FC = () => {
     setChatHistory(prev => [...prev, userMsg]);
 
     try {
-        const res = await fetch('/api/axis/chat', {
+        const res = await apiFetch('/api/axis/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: userMessage })
@@ -380,7 +380,7 @@ const AxisModule: React.FC = () => {
     setMode('processing');
 
     try {
-      const res = await fetch('/api/axis/chat', {
+      const res = await apiFetch('/api/axis/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: textToSend.trim() })

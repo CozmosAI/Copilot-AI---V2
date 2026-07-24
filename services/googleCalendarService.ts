@@ -1,5 +1,6 @@
 
 import { supabase } from '../lib/supabase';
+import { apiFetch } from './apiClient';
 
 /**
  * Inicia o fluxo de OAuth para o Google Calendar.
@@ -58,7 +59,7 @@ export const refreshGoogleToken = async (userId: string) => {
         }
 
         // 2. Chama o backend para trocar refresh token por access token
-        const response = await fetch('/api/google/refresh', {
+        const response = await apiFetch('/api/google/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refreshToken: profile.google_calendar_refresh_token })

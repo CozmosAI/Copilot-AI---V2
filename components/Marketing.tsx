@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { apiFetch } from '../services/apiClient';
 import { 
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
@@ -300,7 +301,7 @@ const Marketing: React.FC = () => {
   const fetchMetaCustomMetrics = async () => {
     try {
       const accountParam = selectedAccountId ? `?ad_account_id=${selectedAccountId}` : '';
-      const res = await fetch(`/api/meta-ads/custom-metrics${accountParam}`);
+      const res = await apiFetch(`/api/meta-ads/custom-metrics${accountParam}`);
       if (res.ok) {
         const data = await res.json();
         setMetaCustomMetrics(data.metrics || []);
@@ -1129,7 +1130,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
           };
 
           // 3. Send to Backend
-          const response = await fetch('/api/google-ads/generate-report', {
+          const response = await apiFetch('/api/google-ads/generate-report', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
