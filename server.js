@@ -9387,95 +9387,110 @@ app.post('/api/ml/advertising/sync', async (req, res) => {
     try {
         const authUser = await getAuthUser(req);
         if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
-
+        
         const { advertiser_id, site_id } = await getMlAdvertiserId(authUser.id);
         const token = await getValidMlToken(authUser.id);
         const client = supabaseAdmin || supabase;
-
-        // Buscar campanhas
+        
+        // Janela temporal: últimos 90 dias (padrão pra métricas)
+        const dateTo = new Date();
+        const dateFrom = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const dateFromStr = dateFrom.toISOString().split('T')[0];
+        const dateToStr = dateTo.toISOString().split('T')[0];
+        
+        // Lista CANÔNICA de métricas (testadas — todas válidas na API v2)
+        const metricsList = 'clicks,prints,ctr,cost,cpc,acos,roas,direct_amount,indirect_amount,total_amount,direct_units_quantity,indirect_units_quantity,units_quantity,organic_units_quantity';
+        
+        // 1. Buscar campanhas COM métricas
         const campRes = await fetch(
-            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/campaigns/search`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'api-version': '2' // minúsculo!
-                }
-            }
+            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/campaigns/search?metrics=${metricsList}&date_from=${dateFromStr}&date_to=${dateToStr}`,
+            { headers: { 'Authorization': `Bearer ${token}`, 'api-version': '2' } }
         );
-
-        if (!campRes.ok) throw new Error(`Erro ao buscar campanhas de PADS: ${await campRes.text()}`);
+        
+        if (!campRes.ok) throw new Error(`Erro campaigns: ${await campRes.text()}`);
         const campData = await campRes.json();
-
+        
         let campaignsSynced = 0;
-        const campaignsList = campData.campaigns || campData.results || [];
+        const campaignsList = campData.results || campData.campaigns || [];
         for (const camp of campaignsList) {
+            const m = camp.metrics || {};
             await client.from('ml_ad_campaigns').upsert({
                 user_id: authUser.id,
                 advertiser_id: Number(advertiser_id),
-                campaign_id: Number(camp.id || camp.campaign_id),
+                campaign_id: Number(camp.id),
                 name: camp.name || '',
                 status: camp.status || '',
                 campaign_type: camp.campaign_type || 'PADS',
-                budget_amount: typeof camp.budget === 'number' ? camp.budget : (camp.budget?.amount || camp.budget_amount || 0),
+                budget_amount: typeof camp.budget === 'number' ? camp.budget : (camp.budget?.amount || 0),
                 budget_type: camp.budget_type || (typeof camp.budget === 'object' ? camp.budget?.type : '') || (camp.automatic_budget ? 'automatic' : 'daily'),
                 roas_target: camp.roas_target || camp.acos_target || null,
                 created_at_ml: camp.date_created ? new Date(camp.date_created).toISOString() : null,
                 updated_at_ml: camp.last_updated ? new Date(camp.last_updated).toISOString() : null,
+                // Métricas (chaves corretas da API):
+                clicks: m.clicks || 0,
+                prints: m.prints || 0,
+                cost: m.cost || 0,
+                ctr: m.ctr || 0,
+                cpc: m.cpc || 0,
+                direct_amount: m.direct_amount || 0,
+                indirect_amount: m.indirect_amount || 0,
+                total_amount: m.total_amount || 0,
+                units_quantity: m.units_quantity || 0,
+                roas: m.roas || null,
                 raw_payload: camp,
                 last_synced_at: new Date().toISOString()
             }, { onConflict: 'advertiser_id,campaign_id' });
             campaignsSynced++;
         }
-
-        // Buscar ad_groups (items patrocinados) com metrics (NÃO filtrar por campaign_id — pega todos de uma vez)
+        
+        // 2. Buscar ad_groups COM métricas (sem filtro de campaign — pega todos)
+        const agRes = await fetch(
+            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/ad_groups/search?metrics=${metricsList}&date_from=${dateFromStr}&date_to=${dateToStr}&limit=50&offset=0`,
+            { headers: { 'Authorization': `Bearer ${token}`, 'api-version': '2' } }
+        );
+        
         let adGroupsSynced = 0;
-        try {
-            const agRes = await fetch(
-                `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/ad_groups/search?metrics=clicks,prints,cost,sales_amount,roas&limit=50&offset=0`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'api-version': '2'
-                    }
-                }
-            );
-
-            if (agRes.ok) {
-                const agData = await agRes.json();
-                const adGroupsList = agData.results || [];
-                for (const ag of adGroupsList) {
-                    // Pular IDLE (não patrocinado atualmente) — só salvar ACTIVE
-                    if (ag.status && ag.status !== 'ACTIVE') continue;
-
-                    await client.from('ml_ad_groups').upsert({
-                        user_id: authUser.id,
-                        advertiser_id: Number(advertiser_id),
-                        campaign_id: Number(ag.campaign_id || 0),
-                        ad_group_id: Number(ag.id),
-                        item_id: ag.ad_group_external_id || '',  // NÃO existe item_id — usar external_id
-                        status: ag.status || '',
-                        cpc_bid: ag.cpc_bid || ag.bid || 0,
-                        roas_target: ag.roas_target || null,
-                        clicks: ag.metrics?.clicks || 0,
-                        prints: ag.metrics?.prints || 0,
-                        cost: ag.metrics?.cost || 0,
-                        sales_amount: ag.metrics?.sales_amount || 0,
-                        roas: ag.metrics?.roas || null,
-                        raw_payload: ag,
-                        last_synced_at: new Date().toISOString()
-                    }, { onConflict: 'advertiser_id,ad_group_id' });
-                    adGroupsSynced++;
-                }
+        if (agRes.ok) {
+            const agData = await agRes.json();
+            const adGroupsList = agData.results || [];
+            for (const ag of adGroupsList) {
+                const m = ag.metrics || {};
+                await client.from('ml_ad_groups').upsert({
+                    user_id: authUser.id,
+                    advertiser_id: Number(advertiser_id),
+                    campaign_id: Number(ag.campaign_id || 0),
+                    ad_group_id: Number(ag.id),
+                    item_id: ag.ad_group_external_id || '',
+                    title: ag.title || '',
+                    thumbnail: ag.thumbnail || '',
+                    status: ag.status || '',
+                    cpc_bid: ag.cpc_bid || 0,
+                    roas_target: ag.roas_target || null,
+                    // Métricas (chaves corretas):
+                    clicks: m.clicks || 0,
+                    prints: m.prints || 0,
+                    cost: m.cost || 0,
+                    ctr: m.ctr || 0,
+                    cpc: m.cpc || 0,
+                    direct_amount: m.direct_amount || 0,
+                    indirect_amount: m.indirect_amount || 0,
+                    total_amount: m.total_amount || 0,
+                    units_quantity: m.units_quantity || 0,
+                    roas: m.roas || null,
+                    sales_amount: m.total_amount || 0,  // manter compatibilidade
+                    raw_payload: ag,
+                    last_synced_at: new Date().toISOString()
+                }, { onConflict: 'advertiser_id,ad_group_id' });
+                adGroupsSynced++;
             }
-        } catch (agErr) {
-            console.error('[ML Advertising Sync] Erro ao buscar ad_groups:', agErr);
         }
-
+        
         res.json({
             ok: true,
             campaigns_synced: campaignsSynced,
             ad_groups_synced: adGroupsSynced,
-            message: `${campaignsSynced} campanhas e ${adGroupsSynced} anúncios sincronizados com sucesso`
+            period: { from: dateFromStr, to: dateToStr },
+            message: `${campaignsSynced} campanhas e ${adGroupsSynced} anúncios sincronizados com métricas`
         });
     } catch (err) {
         console.error('[ML Advertising Sync] Erro:', err);
@@ -9505,13 +9520,14 @@ app.get('/api/ml/advertising/campaigns', async (req, res) => {
 
         const result = (campaigns || []).map(camp => {
             const campGroups = (adGroups || []).filter(g => Number(g.campaign_id) === Number(camp.campaign_id));
-            const total_clicks = campGroups.reduce((acc, g) => acc + (Number(g.clicks) || 0), 0);
-            const total_prints = campGroups.reduce((acc, g) => acc + (Number(g.prints) || 0), 0);
-            const total_cost = campGroups.reduce((acc, g) => acc + (Number(g.cost) || 0), 0);
-            const total_sales = campGroups.reduce((acc, g) => acc + (Number(g.sales_amount) || 0), 0);
-            const total_roas = total_cost > 0 ? (total_sales / total_cost) : null;
+            const total_clicks = camp.clicks || campGroups.reduce((s, g) => s + (Number(g.clicks) || 0), 0);
+            const total_prints = camp.prints || campGroups.reduce((s, g) => s + (Number(g.prints) || 0), 0);
+            const total_cost = camp.cost || campGroups.reduce((s, g) => s + (Number(g.cost) || 0), 0);
+            const total_sales = camp.total_amount || campGroups.reduce((s, g) => s + (Number(g.total_amount || g.sales_amount) || 0), 0);
+            const total_roas = camp.roas || (total_cost > 0 ? (total_sales / total_cost) : null);
 
             return {
+                ...camp,
                 id: camp.id,
                 campaign_id: camp.campaign_id,
                 advertiser_id: camp.advertiser_id,
@@ -9524,12 +9540,18 @@ app.get('/api/ml/advertising/campaigns', async (req, res) => {
                 created_at_ml: camp.created_at_ml,
                 updated_at_ml: camp.updated_at_ml,
                 last_synced_at: camp.last_synced_at,
+                clicks: camp.clicks || total_clicks,
+                prints: camp.prints || total_prints,
+                cost: camp.cost || total_cost,
+                total_amount: camp.total_amount || total_sales,
+                roas: camp.roas || total_roas,
                 total_clicks,
                 total_prints,
                 total_cost,
                 total_sales,
                 total_roas,
                 ad_groups_count: campGroups.length,
+                ad_groups: campGroups,
                 raw_payload: camp.raw_payload
             };
         });
