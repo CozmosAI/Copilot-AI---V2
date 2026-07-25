@@ -9325,6 +9325,585 @@ app.get('/api/ml/dashboard', async (req, res) => {
     }
 });
 
+// -----------------------------------------------------------------------------
+// MERCADO LIVRE ADVERTISING (PRODUCT ADS) & ITEMS MANAGEMENT API
+// -----------------------------------------------------------------------------
+
+// Helper: Discover & cache advertiser_id for Mercado Livre Advertising API
+async function getMlAdvertiserId(userId) {
+    const client = supabaseAdmin || supabase;
+
+    // 1. Tentar buscar do cache (ml_advertisers)
+    const { data: cached } = await client.from('ml_advertisers')
+        .select('advertiser_id, site_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (cached?.advertiser_id) return cached;
+
+    // 2. Buscar ml_user_id
+    const { data: conn } = await client.from('ml_connections')
+        .select('ml_user_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (!conn?.ml_user_id) throw new Error('Mercado Livre não conectado para este usuário');
+
+    // 3. Descobrir advertiser_id via API
+    const token = await getValidMlToken(userId);
+    const res = await fetch('https://api.mercadolibre.com/advertising/advertisers?product_id=PADS', {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Api-Version': '1' // CAPITALIZADO!
+        }
+    });
+
+    if (!res.ok) throw new Error(`Erro ao buscar advertisers no ML: ${await res.text()}`);
+    const data = await res.json();
+
+    const adv = data.advertisers?.[0];
+    if (!adv) throw new Error('Nenhum advertiser de Product Ads encontrado no Mercado Livre');
+
+    // 4. Salvar no cache
+    await client.from('ml_advertisers').upsert({
+        user_id: userId,
+        ml_user_id: Number(conn.ml_user_id),
+        advertiser_id: Number(adv.advertiser_id),
+        product_id: 'PADS',
+        site_id: adv.site_id || 'MLB',
+        discovered_at: new Date().toISOString()
+    }, { onConflict: 'user_id,ml_user_id' });
+
+    return { advertiser_id: Number(adv.advertiser_id), site_id: adv.site_id || 'MLB' };
+}
+
+// 1) POST /api/ml/advertising/sync (Sincronizar campanhas e ad_groups do Product Ads)
+app.post('/api/ml/advertising/sync', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const { advertiser_id, site_id } = await getMlAdvertiserId(authUser.id);
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        // Buscar campanhas
+        const campRes = await fetch(
+            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/campaigns/search`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'api-version': '2' // minúsculo!
+                }
+            }
+        );
+
+        if (!campRes.ok) throw new Error(`Erro ao buscar campanhas de PADS: ${await campRes.text()}`);
+        const campData = await campRes.json();
+
+        let campaignsSynced = 0;
+        const campaignsList = campData.campaigns || campData.results || [];
+        for (const camp of campaignsList) {
+            await client.from('ml_ad_campaigns').upsert({
+                user_id: authUser.id,
+                advertiser_id: Number(advertiser_id),
+                campaign_id: Number(camp.id || camp.campaign_id),
+                name: camp.name || '',
+                status: camp.status || '',
+                campaign_type: camp.campaign_type || 'PADS',
+                budget_amount: camp.budget?.amount || camp.budget_amount || 0,
+                budget_type: camp.budget?.type || camp.budget_type || '',
+                roas_target: camp.roas_target || camp.acos_target || null,
+                created_at_ml: camp.date_created ? new Date(camp.date_created).toISOString() : null,
+                updated_at_ml: camp.last_updated ? new Date(camp.last_updated).toISOString() : null,
+                raw_payload: camp,
+                last_synced_at: new Date().toISOString()
+            }, { onConflict: 'advertiser_id,campaign_id' });
+            campaignsSynced++;
+        }
+
+        // Buscar ad_groups (items patrocinados)
+        let adGroupsSynced = 0;
+        for (const camp of campaignsList) {
+            const campId = camp.id || camp.campaign_id;
+            const agRes = await fetch(
+                `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/ad_groups/search?filters[campaign_id]=${campId}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'api-version': '2'
+                    }
+                }
+            );
+
+            if (!agRes.ok) continue;
+            const agData = await agRes.json();
+
+            for (const ag of (agData.ad_groups || agData.results || [])) {
+                await client.from('ml_ad_groups').upsert({
+                    user_id: authUser.id,
+                    advertiser_id: Number(advertiser_id),
+                    campaign_id: Number(campId),
+                    ad_group_id: Number(ag.id || ag.ad_group_id),
+                    item_id: ag.item_id || ag.filters?.item_id || '',
+                    status: ag.status || '',
+                    cpc_bid: ag.cpc_bid || ag.bid || 0,
+                    roas_target: ag.roas_target || null,
+                    clicks: ag.metrics?.clicks || ag.clicks || 0,
+                    prints: ag.metrics?.prints || ag.prints || 0,
+                    cost: ag.metrics?.cost || ag.cost || 0,
+                    sales_amount: ag.metrics?.sales_amount || ag.sales_amount || 0,
+                    roas: ag.metrics?.roas || ag.roas || null,
+                    raw_payload: ag,
+                    last_synced_at: new Date().toISOString()
+                }, { onConflict: 'advertiser_id,ad_group_id' });
+                adGroupsSynced++;
+            }
+
+            // Delay de 200ms para rate limit
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        res.json({
+            ok: true,
+            campaigns_synced: campaignsSynced,
+            ad_groups_synced: adGroupsSynced,
+            message: `${campaignsSynced} campanhas e ${adGroupsSynced} anúncios sincronizados com sucesso`
+        });
+    } catch (err) {
+        console.error('[ML Advertising Sync] Erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 2) GET /api/ml/advertising/campaigns (Listar campanhas sincronizadas)
+app.get('/api/ml/advertising/campaigns', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const { data: campaigns, error: campErr } = await client
+            .from('ml_ad_campaigns')
+            .select('*')
+            .eq('user_id', authUser.id)
+            .order('updated_at_ml', { ascending: false });
+
+        if (campErr) throw campErr;
+
+        const { data: adGroups } = await client
+            .from('ml_ad_groups')
+            .select('*')
+            .eq('user_id', authUser.id);
+
+        const result = (campaigns || []).map(camp => {
+            const campGroups = (adGroups || []).filter(g => Number(g.campaign_id) === Number(camp.campaign_id));
+            const total_clicks = campGroups.reduce((acc, g) => acc + (Number(g.clicks) || 0), 0);
+            const total_prints = campGroups.reduce((acc, g) => acc + (Number(g.prints) || 0), 0);
+            const total_cost = campGroups.reduce((acc, g) => acc + (Number(g.cost) || 0), 0);
+            const total_sales = campGroups.reduce((acc, g) => acc + (Number(g.sales_amount) || 0), 0);
+            const total_roas = total_cost > 0 ? (total_sales / total_cost) : null;
+
+            return {
+                id: camp.id,
+                campaign_id: camp.campaign_id,
+                advertiser_id: camp.advertiser_id,
+                name: camp.name,
+                status: camp.status,
+                campaign_type: camp.campaign_type,
+                budget_amount: camp.budget_amount,
+                budget_type: camp.budget_type,
+                roas_target: camp.roas_target,
+                created_at_ml: camp.created_at_ml,
+                updated_at_ml: camp.updated_at_ml,
+                last_synced_at: camp.last_synced_at,
+                total_clicks,
+                total_prints,
+                total_cost,
+                total_sales,
+                total_roas,
+                ad_groups_count: campGroups.length,
+                raw_payload: camp.raw_payload
+            };
+        });
+
+        res.json({ ok: true, campaigns: result });
+    } catch (err) {
+        console.error('[ML Advertising] GET Campaigns erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3) GET /api/ml/advertising/campaigns/:id (Detalhes de uma campanha e seus ad_groups)
+app.get('/api/ml/advertising/campaigns/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const campaignIdParam = req.params.id;
+
+        const { data: campaign } = await client
+            .from('ml_ad_campaigns')
+            .select('*')
+            .eq('user_id', authUser.id)
+            .or(`campaign_id.eq.${campaignIdParam},id.eq.${isNaN(Number(campaignIdParam)) ? 0 : campaignIdParam}`)
+            .maybeSingle();
+
+        if (!campaign) {
+            return res.status(404).json({ error: 'Campanha não encontrada' });
+        }
+
+        const { data: adGroups } = await client
+            .from('ml_ad_groups')
+            .select('*')
+            .eq('user_id', authUser.id)
+            .eq('campaign_id', campaign.campaign_id);
+
+        res.json({
+            ok: true,
+            campaign,
+            ad_groups: adGroups || []
+        });
+    } catch (err) {
+        console.error('[ML Advertising] GET Campaign Details erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 4) POST /api/ml/advertising/campaigns (Criar nova campanha de Product Ads)
+app.post('/api/ml/advertising/campaigns', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const { name, budget_amount, budget_type, roas_target, item_ids } = req.body;
+        if (!name || !budget_amount) {
+            return res.status(400).json({ error: 'Nome e valor do orçamento são obrigatórios' });
+        }
+
+        const { advertiser_id, site_id } = await getMlAdvertiserId(authUser.id);
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        const payload = {
+            name,
+            budget: {
+                amount: Number(budget_amount),
+                type: budget_type || 'daily'
+            },
+            roas_target: roas_target ? Number(roas_target) : undefined
+        };
+
+        if (Array.isArray(item_ids) && item_ids.length > 0) {
+            payload.item_ids = item_ids;
+        }
+
+        const mlRes = await fetch(
+            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/advertisers/${advertiser_id}/product_ads/campaigns`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'api-version': '2'
+                },
+                body: JSON.stringify(payload)
+            }
+        );
+
+        const mlData = await mlRes.json();
+        if (!mlRes.ok) {
+            return res.status(mlRes.status).json({ error: mlData.message || mlData.error || 'Erro ao criar campanha no Mercado Livre', details: mlData });
+        }
+
+        const createdCampId = mlData.id || mlData.campaign_id;
+        if (createdCampId) {
+            await client.from('ml_ad_campaigns').upsert({
+                user_id: authUser.id,
+                advertiser_id: Number(advertiser_id),
+                campaign_id: Number(createdCampId),
+                name: mlData.name || name,
+                status: mlData.status || 'active',
+                campaign_type: mlData.campaign_type || 'PADS',
+                budget_amount: mlData.budget?.amount || Number(budget_amount),
+                budget_type: mlData.budget?.type || budget_type || 'daily',
+                roas_target: mlData.roas_target || roas_target || null,
+                created_at_ml: mlData.date_created ? new Date(mlData.date_created).toISOString() : new Date().toISOString(),
+                updated_at_ml: new Date().toISOString(),
+                raw_payload: mlData,
+                last_synced_at: new Date().toISOString()
+            }, { onConflict: 'advertiser_id,campaign_id' });
+        }
+
+        res.json({ ok: true, campaign: mlData });
+    } catch (err) {
+        console.error('[ML Advertising] POST Campaign erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 5) PATCH /api/ml/advertising/campaigns/:id (Editar campanha existente)
+app.patch('/api/ml/advertising/campaigns/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const campaignId = req.params.id;
+        const { name, budget_amount, budget_type, roas_target, status } = req.body;
+
+        const { advertiser_id, site_id } = await getMlAdvertiserId(authUser.id);
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        const payload = {};
+        if (name) payload.name = name;
+        if (status) payload.status = status;
+        if (budget_amount) {
+            payload.budget = {
+                amount: Number(budget_amount),
+                type: budget_type || 'daily'
+            };
+        }
+        if (roas_target !== undefined) {
+            payload.roas_target = Number(roas_target);
+        }
+
+        const mlRes = await fetch(
+            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/product_ads/campaigns/${campaignId}`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'api-version': '2'
+                },
+                body: JSON.stringify(payload)
+            }
+        );
+
+        const mlData = await mlRes.json();
+        if (!mlRes.ok) {
+            return res.status(mlRes.status).json({ error: mlData.message || mlData.error || 'Erro ao atualizar campanha no Mercado Livre', details: mlData });
+        }
+
+        const updateData = {
+            updated_at_ml: new Date().toISOString(),
+            last_synced_at: new Date().toISOString()
+        };
+        if (name) updateData.name = name;
+        if (status) updateData.status = status;
+        if (budget_amount) updateData.budget_amount = Number(budget_amount);
+        if (budget_type) updateData.budget_type = budget_type;
+        if (roas_target !== undefined) updateData.roas_target = Number(roas_target);
+        if (mlData) updateData.raw_payload = mlData;
+
+        await client.from('ml_ad_campaigns')
+            .update(updateData)
+            .eq('user_id', authUser.id)
+            .eq('campaign_id', campaignId);
+
+        res.json({ ok: true, campaign: mlData });
+    } catch (err) {
+        console.error('[ML Advertising] PATCH Campaign erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 6) DELETE /api/ml/advertising/campaigns/:id (Deletar campanha de Product Ads)
+app.delete('/api/ml/advertising/campaigns/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const campaignId = req.params.id;
+        const { site_id } = await getMlAdvertiserId(authUser.id);
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        const mlRes = await fetch(
+            `https://api.mercadolibre.com/marketplace/advertising/${site_id}/product_ads/campaigns/${campaignId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'api-version': '2'
+                }
+            }
+        );
+
+        if (!mlRes.ok && mlRes.status !== 404) {
+            const mlData = await mlRes.json().catch(() => ({}));
+            return res.status(mlRes.status).json({ error: mlData.message || mlData.error || 'Erro ao excluir campanha no Mercado Livre' });
+        }
+
+        await client.from('ml_ad_campaigns')
+            .delete()
+            .eq('user_id', authUser.id)
+            .eq('campaign_id', campaignId);
+
+        res.json({ ok: true, message: 'Campanha excluída com sucesso' });
+    } catch (err) {
+        console.error('[ML Advertising] DELETE Campaign erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 7) PUT /api/ml/items/:itemId (Editar anúncio orgânico no Mercado Livre)
+app.put('/api/ml/items/:itemId', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const { itemId } = req.params;
+        const { title, price, available_quantity, status } = req.body;
+
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        const payload = {};
+        if (title !== undefined) payload.title = title;
+        if (price !== undefined) payload.price = Number(price);
+        if (available_quantity !== undefined) payload.available_quantity = Number(available_quantity);
+        if (status !== undefined) payload.status = status;
+
+        if (Object.keys(payload).length === 0) {
+            return res.status(400).json({ error: 'Nenhum campo fornecido para atualização' });
+        }
+
+        const mlRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const mlData = await mlRes.json();
+        if (!mlRes.ok) {
+            return res.status(mlRes.status).json({ error: mlData.message || mlData.error || 'Erro ao atualizar anúncio no Mercado Livre', details: mlData });
+        }
+
+        const updateDb = {
+            updated_at: new Date().toISOString()
+        };
+        if (mlData.title) updateDb.title = mlData.title;
+        if (mlData.price !== undefined) updateDb.price = mlData.price;
+        if (mlData.available_quantity !== undefined) updateDb.available_quantity = mlData.available_quantity;
+        if (mlData.status) updateDb.status = mlData.status;
+        if (mlData.pictures?.[0]?.url) updateDb.thumbnail = mlData.pictures[0].url;
+
+        await client.from('ml_items')
+            .update(updateDb)
+            .eq('user_id', authUser.id)
+            .eq('item_id', itemId);
+
+        res.json({ ok: true, item: mlData });
+    } catch (err) {
+        console.error('[ML Items] PUT Item erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 8) POST /api/ml/items/:itemId/listing-type-upgrade (Destacar anúncio)
+app.post('/api/ml/items/:itemId/listing-type-upgrade', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const { itemId } = req.params;
+        const { listing_type_id } = req.body;
+
+        if (!listing_type_id) {
+            return res.status(400).json({ error: 'listing_type_id é obrigatório' });
+        }
+
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        const mlRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/listing_type`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ id: listing_type_id })
+        });
+
+        const mlData = await mlRes.json();
+        if (!mlRes.ok) {
+            return res.status(mlRes.status).json({ error: mlData.message || mlData.error || 'Erro ao alterar tipo de anúncio no Mercado Livre', details: mlData });
+        }
+
+        await client.from('ml_items')
+            .update({ listing_type_id: listing_type_id, updated_at: new Date().toISOString() })
+            .eq('user_id', authUser.id)
+            .eq('item_id', itemId);
+
+        res.json({ ok: true, item: mlData });
+    } catch (err) {
+        console.error('[ML Items] Upgrade Listing Type erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 9) POST /api/ml/items (Criar novo anúncio no Mercado Livre)
+app.post('/api/ml/items', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const token = await getValidMlToken(authUser.id);
+        const client = supabaseAdmin || supabase;
+
+        const itemBody = req.body;
+        if (!itemBody.title || !itemBody.category_id || !itemBody.price) {
+            return res.status(400).json({ error: 'Campos obrigatórios ausentes (title, category_id, price)' });
+        }
+
+        const mlRes = await fetch('https://api.mercadolibre.com/items', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(itemBody)
+        });
+
+        const mlData = await mlRes.json();
+        if (!mlRes.ok) {
+            return res.status(mlRes.status).json({ error: mlData.message || mlData.error || 'Erro ao criar anúncio no Mercado Livre', details: mlData });
+        }
+
+        if (mlData.id) {
+            await client.from('ml_items').upsert({
+                user_id: authUser.id,
+                item_id: mlData.id,
+                title: mlData.title,
+                price: mlData.price,
+                currency_id: mlData.currency_id || 'BRL',
+                available_quantity: mlData.available_quantity,
+                sold_quantity: mlData.sold_quantity || 0,
+                status: mlData.status || 'active',
+                listing_type_id: mlData.listing_type_id,
+                condition: mlData.condition,
+                permalink: mlData.permalink,
+                thumbnail: mlData.thumbnail || mlData.pictures?.[0]?.url || '',
+                catalog_listing: mlData.catalog_listing === true,
+                tags: mlData.tags || [],
+                raw_payload: mlData,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id,item_id' });
+        }
+
+        res.json({ ok: true, item: mlData });
+    } catch (err) {
+        console.error('[ML Items] POST Item erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 7) POST /api/ml/webhook (Webhooks Mercado Livre - Fast Handler + HMAC Signature Validation)
 function validateMlWebhookSignature(headers, body, secret) {
     const signatureHeader = headers['x-signature'] || headers['X-Signature'];
