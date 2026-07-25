@@ -1131,8 +1131,8 @@ const App: React.FC = () => {
         <div className={`fixed inset-y-0 left-0 z-50 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:visible transition-all duration-300 ease-in-out shadow-2xl md:shadow-none`}>
           <Sidebar activeSection={activeSection} onNavigate={(s) => { setActiveSection(s); setSidebarOpen(false); }} />
         </div>
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 relative custom-scrollbar fade-enter">
-          <div className="max-w-[1600px] mx-auto pb-20">{renderContent()}</div>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 relative custom-scrollbar fade-enter">
+          <div className="w-full pb-20">{renderContent()}</div>
         </main>
       </div>
 
