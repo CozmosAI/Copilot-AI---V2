@@ -24,17 +24,51 @@ export async function safeJsonResponse(response: Response): Promise<any> {
 }
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers || {});
+
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      options.headers = {
-        ...options.headers,
-        'Authorization': `Bearer ${session.access_token}`
-      };
+    let { data: { session } } = await supabase.auth.getSession();
+
+    // Se session expirou ou vai expirar em < 60s, tentar refresh
+    if (session?.expires_at) {
+      const now = Math.floor(Date.now() / 1000);
+      if (session.expires_at - now < 60) {
+        const { data: { session: newSession } } = await supabase.auth.refreshSession();
+        if (newSession) session = newSession;
+      }
+    }
+
+    // Se ainda não tem session, tentar refresh uma vez
+    if (!session?.access_token) {
+      const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+      if (refreshed) session = refreshed;
+    }
+
+    if (session?.access_token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${session.access_token}`);
     }
   } catch (e) {
-    console.warn('apiFetch: não foi possível obter session:', e);
+    console.warn('apiFetch: session error:', e);
   }
-  return fetch(apiUrl(path), options);
+
+  const fetchOptions = { ...options, headers };
+  const response = await fetch(apiUrl(path), fetchOptions);
+
+  // Se 401, tentar refresh e refazer UMA vez
+  if (response.status === 401 && !headers.has('X-Retry')) {
+    try {
+      const { data: { session: newSession } } = await supabase.auth.refreshSession();
+      if (newSession?.access_token) {
+        const retryHeaders = new Headers(headers);
+        retryHeaders.set('Authorization', `Bearer ${newSession.access_token}`);
+        retryHeaders.set('X-Retry', '1');
+        return fetch(apiUrl(path), { ...options, headers: retryHeaders });
+      }
+    } catch (e) {
+      /* refresh failed */
+    }
+  }
+
+  return response;
 }
 

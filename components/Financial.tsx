@@ -5,7 +5,7 @@ import {
   ArrowUpCircle, ArrowDownCircle,
   TrendingUp, TrendingDown, PiggyBank,
   Bot, Target, Calendar, Filter, X, Save,
-  AlertTriangle, CheckCircle2, AlertCircle, FileText, Settings
+  AlertTriangle, CheckCircle2, AlertCircle, FileText, Settings, Download
 } from 'lucide-react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, 
@@ -454,6 +454,28 @@ const Financial: React.FC = () => {
     });
   };
 
+  const handleExportCSV = () => {
+    const headers = ['ID', 'Data', 'Tipo', 'Categoria', 'Nome', 'Status', 'Valor (R$)'];
+    const rows = filteredEntries.map(e => [
+      e.id,
+      e.date,
+      e.type === 'receivable' ? 'Entrada' : 'Saída',
+      `"${(e.category || '').replace(/"/g, '""')}"`,
+      `"${(e.name || '').replace(/"/g, '""')}"`,
+      e.status,
+      e.total.toFixed(2)
+    ]);
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `financeiro_${dashboardDateFilter.start}_${dashboardDateFilter.end}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const StatusBadge = ({ status }: { status: FinancialEntryStatus }) => {
     switch (status) {
       case 'efetuada': return <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase border border-emerald-100">Efetuada</span>;
@@ -493,6 +515,14 @@ const Financial: React.FC = () => {
             title="Gerenciar Categorias Customizadas"
           >
             <Settings size={12} /> Categorias
+          </button>
+          <button 
+            type="button"
+            onClick={handleExportCSV}
+            className="px-3 py-2 text-[10px] font-black uppercase tracking-tighter text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all flex items-center gap-1 shrink-0 ml-1 border border-emerald-200"
+            title="Exportar dados para CSV com acentuação correta no Excel"
+          >
+            <Download size={12} /> Exportar CSV
           </button>
         </div>
       </header>

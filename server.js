@@ -9189,8 +9189,9 @@ app.get('/api/ml/dashboard', async (req, res) => {
 
         // Buscar pedidos no período
         const { data: orders } = await client.from('ml_orders')
-            .select('status, shipping_status, total_amount, date_created')
+            .select('status, shipping_status, payment_status, total_amount, date_created')
             .eq('user_id', authUser.id)
+            .neq('payment_status', 'cancelled')
             .gte('date_created', fromDate)
             .lte('date_created', toDate);
 
@@ -9248,11 +9249,11 @@ app.get('/api/ml/dashboard', async (req, res) => {
         const cancelledOrders = orderList.filter(o => o.status === 'cancelled').length;
 
         const revenue = orderList
-            .filter(o => o.status !== 'cancelled')
+            .filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled')
             .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
         // Totais de vendas: hoje, esta semana, este mês
-        const validOrders = orderList.filter(o => o.status !== 'cancelled');
+        const validOrders = orderList.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
         const salesToday = validOrders.filter(o => o.date_created && o.date_created >= startOfToday);
         const salesWeek = validOrders.filter(o => o.date_created && o.date_created >= startOf7d);
         const salesMonth = validOrders.filter(o => o.date_created && o.date_created >= startOfMonth);

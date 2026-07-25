@@ -53,6 +53,12 @@ interface Alert {
 
 type SortConfig = { key: string; direction: 'asc' | 'desc' } | null;
 
+function safeDivide(numerator: number, denominator: number): number {
+  if (!denominator || !isFinite(denominator) || denominator === 0) return 0;
+  const result = numerator / denominator;
+  return isFinite(result) ? result : 0;
+}
+
 const PREBUILT_METRICS: CustomMetric[] = [
     { id: 'roas', name: 'ROAS', numerator: 'conversionsValue', operator: '/', denominator: 'spend', format: 'currency', color: '#10b981' },
     { id: 'convRate', name: 'Taxa de Conv.', numerator: 'conversions', operator: '/', denominator: 'clicks', multiplier: 100, format: 'percent', color: '#f59e0b' },
@@ -388,19 +394,19 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
 
   // --- METRIC CALCULATION ---
   const calculateMetricValue = (metric: CustomMetric, dataPoint: any) => {
-      const num = dataPoint[metric.numerator] || 0;
-      const den = dataPoint[metric.denominator] || 0;
+      const num = Number(dataPoint[metric.numerator]) || 0;
+      const den = Number(dataPoint[metric.denominator]) || 0;
       let result = 0;
 
       switch (metric.operator) {
-          case '/': result = den !== 0 ? num / den : 0; break;
+          case '/': result = safeDivide(num, den); break;
           case '*': result = num * den; break;
           case '+': result = num + den; break;
           case '-': result = num - den; break;
       }
 
       if (metric.multiplier) result *= metric.multiplier;
-      return result;
+      return isFinite(result) ? result : 0;
   };
 
   const formatMetricValue = (val: number, format: MetricFormat) => {

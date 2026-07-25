@@ -85,6 +85,12 @@ const formatDate = (dateStr?: string) => {
   }
 };
 
+function safeDivide(numerator: number, denominator: number): number {
+  if (!denominator || !isFinite(denominator) || denominator === 0) return 0;
+  const result = numerator / denominator;
+  return isFinite(result) ? result : 0;
+}
+
 export function MercadoLivreDashboard() {
   const [activeTab, setActiveTab] = useState<'resumo' | 'anuncios' | 'vendas' | 'perguntas' | 'publicidade' | 'reputacao' | 'financeiro'>('resumo');
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('30d');
@@ -506,9 +512,12 @@ export function MercadoLivreDashboard() {
   // Sync Anúncios (Backfill)
   const syncItems = async () => {
     setIsSyncingItems(true);
-    showToast('Sincronizando anúncios com o Mercado Livre...', 'info');
+    showToast('Sincronizando anúncios... (pode levar 30s)', 'info');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const res = await apiFetch('/api/ml/items/sync', { method: 'POST' });
+      const res = await apiFetch('/api/ml/items/sync', { method: 'POST', signal: controller.signal });
+      clearTimeout(timeout);
       const data = await safeJsonResponse(res);
       if (res.ok && data.ok) {
         showToast(`Sucesso! ${data.synced || 0} anúncios sincronizados.`, 'success');
@@ -518,7 +527,12 @@ export function MercadoLivreDashboard() {
         showToast(data.error || 'Erro ao sincronizar anúncios.', 'error');
       }
     } catch (err: any) {
-      showToast(err.message || 'Erro na requisição.', 'error');
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') {
+        showToast('Sincronização cancelada (timeout 30s). Tente novamente.', 'info');
+      } else {
+        showToast(err.message || 'Erro na requisição.', 'error');
+      }
     } finally {
       setIsSyncingItems(false);
     }
@@ -527,13 +541,17 @@ export function MercadoLivreDashboard() {
   // Sync Pedidos (Backfill)
   const syncOrders = async () => {
     setIsSyncingOrders(true);
-    showToast('Sincronizando pedidos históricos...', 'info');
+    showToast('Sincronizando pedidos históricos... (pode levar 30s)', 'info');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
     try {
       const res = await apiFetch('/api/ml/orders/sync', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: 90 })
+        body: JSON.stringify({ days: 90 }),
+        signal: controller.signal
       });
+      clearTimeout(timeout);
       const data = await safeJsonResponse(res);
       if (res.ok && data.ok) {
         showToast(`Sucesso! ${data.synced || 0} pedidos sincronizados.`, 'success');
@@ -543,7 +561,12 @@ export function MercadoLivreDashboard() {
         showToast(data.error || 'Erro ao sincronizar pedidos.', 'error');
       }
     } catch (err: any) {
-      showToast(err.message || 'Erro na requisição.', 'error');
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') {
+        showToast('Sincronização cancelada (timeout 30s). Tente novamente.', 'info');
+      } else {
+        showToast(err.message || 'Erro na requisição.', 'error');
+      }
     } finally {
       setIsSyncingOrders(false);
     }
@@ -552,11 +575,15 @@ export function MercadoLivreDashboard() {
   // Sync Tudo
   const syncAllData = async () => {
     setIsSyncingAll(true);
-    showToast('Iniciando sincronização completa...', 'info');
+    showToast('Iniciando sincronização completa (pode levar 60s)...', 'info');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
     try {
-      await Promise.all([syncItems(), syncOrders(), fetchCampaigns(true)]);
+      await Promise.allSettled([syncItems(), syncOrders(), fetchCampaigns(true)]);
+      clearTimeout(timeout);
       showToast('Sincronização completa finalizada com sucesso!', 'success');
-    } catch (err) {
+    } catch (err: any) {
+      clearTimeout(timeout);
       console.error('[Sync All error]:', err);
     } finally {
       setIsSyncingAll(false);
@@ -598,10 +625,15 @@ export function MercadoLivreDashboard() {
 
   // Efeitos ao montar / mudar período
   useEffect(() => {
-    fetchMlStatus();
-    fetchDashboardData();
-    fetchReputation();
-    fetchCampaigns(false);
+    Promise.allSettled([
+      fetchMlStatus(),
+      fetchDashboardData(),
+      fetchReputation(),
+      fetchCampaigns(false),
+      fetchItems(),
+      fetchOrders(),
+      fetchQuestions()
+    ]);
   }, [period]);
 
   // Efeito ao mudar de tab
@@ -631,9 +663,9 @@ export function MercadoLivreDashboard() {
   const activeAdsCampaignsCount = campaigns.filter(c => c.status === 'active').length;
   const totalAdsSpend = campaigns.reduce((acc, c) => acc + (Number(c.spend) || 0), 0);
   const totalAdsSales = campaigns.reduce((acc, c) => acc + (Number(c.sales) || 0), 0);
-  const avgAdsRoas = totalAdsSpend > 0 ? (totalAdsSales / totalAdsSpend).toFixed(2) : '0.00';
+  const avgAdsRoas = safeDivide(totalAdsSales, totalAdsSpend).toFixed(2);
 
-  // Render Badge de Tipo do Anúncio
+  // Render Badge de Tipo do Anúncio (Design System Andes ML)
   const renderTypeBadge = (item: any) => {
     const isCat = item.catalog_listing === true;
     const isSpon = item.is_sponsored === true || sponsoredItemIds.has(item.item_id);
@@ -641,15 +673,15 @@ export function MercadoLivreDashboard() {
 
     if (isCat && isSpon) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gradient-to-r from-purple-100 to-blue-100 text-purple-800 border border-purple-200">
-          <Zap size={10} className="text-purple-600 fill-purple-600" />
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#7B1FA2] text-white uppercase">
+          <Zap size={10} className="fill-white" />
           Catálogo Patrocinado
         </span>
       );
     }
     if (isCat) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#7B1FA2] text-white uppercase">
           <Boxes size={10} />
           Catálogo
         </span>
@@ -657,22 +689,22 @@ export function MercadoLivreDashboard() {
     }
     if (isSpon) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-          <Flame size={10} className="text-blue-600 fill-blue-600" />
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#3483FA] text-white uppercase">
+          <Flame size={10} className="fill-white" />
           Patrocinado
         </span>
       );
     }
     if (isPrem) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-          <Star size={10} className="text-amber-600 fill-amber-600" />
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#FFE600] text-[#333333] uppercase">
+          <Star size={10} className="fill-[#333333]" />
           Premium
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#F5F5F5] text-[#666666] border border-[#E0E0E0] uppercase">
         Clássico
       </span>
     );
@@ -714,211 +746,203 @@ export function MercadoLivreDashboard() {
   });
 
   return (
-    <div className="space-y-6 pb-12 font-sans">
+    <div className="space-y-6 pb-12 font-sans bg-[#F5F5F5] min-h-screen text-[#333333] -m-6 p-6">
       {/* TOAST ALERTA */}
       {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-2xl flex items-center gap-3 max-w-md border animate-in slide-in-from-top-2 duration-300 ${
-          toastMessage.type === 'success' ? 'bg-emerald-900 text-white border-emerald-700' :
-          toastMessage.type === 'error' ? 'bg-rose-900 text-white border-rose-700' :
-          'bg-slate-900 text-white border-slate-700'
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center gap-3 max-w-md border animate-in slide-in-from-top-2 duration-300 ${
+          toastMessage.type === 'success' ? 'bg-[#00A650] text-white border-emerald-600' :
+          toastMessage.type === 'error' ? 'bg-[#E53935] text-white border-red-600' :
+          'bg-[#333333] text-white border-[#666666]'
         }`}>
-          {toastMessage.type === 'success' && <CheckCircle className="text-emerald-400 shrink-0" size={20} />}
-          {toastMessage.type === 'error' && <AlertTriangle className="text-rose-400 shrink-0" size={20} />}
-          {toastMessage.type === 'info' && <Info className="text-blue-400 shrink-0" size={20} />}
+          {toastMessage.type === 'success' && <CheckCircle className="text-white shrink-0" size={20} />}
+          {toastMessage.type === 'error' && <AlertTriangle className="text-white shrink-0" size={20} />}
+          {toastMessage.type === 'info' && <Info className="text-white shrink-0" size={20} />}
           <span className="text-xs font-semibold">{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="ml-auto text-slate-400 hover:text-white">
+          <button onClick={() => setToastMessage(null)} className="ml-auto text-white/80 hover:text-white">
             <X size={16} />
           </button>
         </div>
       )}
 
-      {/* HEADER PRINCIPAL ML */}
-      <div className="bg-gradient-to-r from-[#2D3277] to-[#1f2354] text-white p-6 rounded-3xl shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#FFE600]/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-[#FFE600] text-[#2D3277] rounded-2xl flex items-center justify-center font-black shadow-lg text-2xl shrink-0">
-              ML
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-black tracking-tight">Mercado Livre Hub</h1>
-                {connectionStatus === 'connected' && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    CONECTADO
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                {nickname ? `@${nickname} • ID: ${userMlId}` : 'Gestão Unificada de Vendas, Anúncios e Product Ads'}
-              </p>
-            </div>
+      {/* HEADER PRINCIPAL ML (DESIGN SYSTEM ANDES: AMARelo #FFE600, ALTURA 48-56px, STICKY) */}
+      <header className="bg-[#FFE600] text-[#333333] h-14 sticky top-0 z-50 px-4 flex items-center justify-between shadow-sm rounded-lg border border-[#E0E0E0]">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-[#333333] text-[#FFE600] rounded-md flex items-center justify-center font-black text-sm shrink-0">
+            ML
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Seletor Período */}
-            <div className="bg-white/10 p-1 rounded-xl border border-white/10 flex items-center">
-              {(['7d', '30d', '90d'] as const).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                    period === p ? 'bg-[#FFE600] text-[#2D3277] shadow' : 'text-white hover:bg-white/10'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-semibold text-[#333333]">Mercado Livre Hub</h1>
+              {connectionStatus === 'connected' && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00A650] text-white uppercase flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                  Conectado
+                </span>
+              )}
             </div>
-
-            {/* Sync All Button */}
-            <button
-              onClick={syncAllData}
-              disabled={isSyncingAll}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/20 transition-all flex items-center gap-2 disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={isSyncingAll ? 'animate-spin' : ''} />
-              <span>{isSyncingAll ? 'Sincronizando...' : 'Sincronizar Tudo'}</span>
-            </button>
+            <p className="text-[11px] text-[#666666] -mt-0.5">
+              {nickname ? `@${nickname} • ID: ${userMlId}` : 'Gestão Unificada de Vendas, Anúncios e Product Ads'}
+            </p>
           </div>
         </div>
-      </div>
 
-      {/* BANNER KPI RESUMO RAPIDO */}
+        <div className="flex items-center gap-2">
+          {/* Seletor Período */}
+          <div className="bg-white/80 p-0.5 rounded-md border border-[#E0E0E0] flex items-center">
+            {(['7d', '30d', '90d'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded transition-all ${
+                  period === p ? 'bg-[#3483FA] text-white' : 'text-[#666666] hover:text-[#333333]'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {/* Sync All Button */}
+          <button
+            onClick={syncAllData}
+            disabled={isSyncingAll}
+            className="px-3 py-1.5 bg-[#3483FA] hover:bg-[#2968C8] text-white font-medium text-xs rounded-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isSyncingAll ? 'animate-spin' : ''} />
+            <span>{isSyncingAll ? 'Sincronizando...' : 'Sincronizar Tudo'}</span>
+          </button>
+        </div>
+      </header>
+
+      {/* CARDS DE KPI (GRID DE 5, CARDS BRANCOS, SHADOW-SM, BORDA SUTIL, FONTES CORRETAS) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Card 1: Pedidos */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+        <div className="bg-white p-4 rounded-lg border border-[#E0E0E0] shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Vendas Totais</p>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">{ordersMetrics.total}</h3>
+              <p className="text-xs text-[#999999] font-semibold uppercase tracking-wide">Vendas Totais</p>
+              <h3 className="text-2xl font-bold text-[#333333] mt-1">{ordersMetrics.total}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-              <ShoppingCart size={20} />
+            <div className="w-9 h-9 rounded-md bg-[#F5F5F5] text-[#3483FA] flex items-center justify-center">
+              <ShoppingCart size={18} />
             </div>
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-            <span>A caminho: <strong className="text-blue-600">{ordersMetrics.shipped}</strong></span>
-            <span>Entregues: <strong className="text-emerald-600">{ordersMetrics.delivered}</strong></span>
+          <div className="mt-3 pt-2 border-t border-[#EBEBEB] flex items-center justify-between text-xs text-[#666666]">
+            <span>A caminho: <strong className="text-[#3483FA]">{ordersMetrics.shipped}</strong></span>
+            <span>Entregues: <strong className="text-[#00A650]">{ordersMetrics.delivered}</strong></span>
           </div>
         </div>
 
         {/* Card 2: Receita / Vendas */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+        <div className="bg-white p-4 rounded-lg border border-[#E0E0E0] shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Faturamento</p>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(ordersMetrics.revenue)}</h3>
+              <p className="text-xs text-[#999999] font-semibold uppercase tracking-wide">Faturamento</p>
+              <h3 className="text-2xl font-bold text-[#333333] mt-1">{formatCurrency(ordersMetrics.revenue)}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-              <DollarSign size={20} />
+            <div className="w-9 h-9 rounded-md bg-[#F5F5F5] text-[#00A650] flex items-center justify-center">
+              <DollarSign size={18} />
             </div>
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-            <span>Hoje: <strong className="text-slate-900">{formatCurrency(salesTotals.today?.revenue)}</strong></span>
-            <span>Mês: <strong className="text-slate-900">{formatCurrency(salesTotals.this_month?.revenue)}</strong></span>
+          <div className="mt-3 pt-2 border-t border-[#EBEBEB] flex items-center justify-between text-xs text-[#666666]">
+            <span>Hoje: <strong className="text-[#333333]">{formatCurrency(salesTotals.today?.revenue)}</strong></span>
+            <span>Mês: <strong className="text-[#333333]">{formatCurrency(salesTotals.this_month?.revenue)}</strong></span>
           </div>
         </div>
 
         {/* Card 3: Product Ads */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+        <div className="bg-white p-4 rounded-lg border border-[#E0E0E0] shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Ads</p>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(totalAdsSales)}</h3>
+              <p className="text-xs text-[#999999] font-semibold uppercase tracking-wide">Product Ads</p>
+              <h3 className="text-2xl font-bold text-[#333333] mt-1">{formatCurrency(totalAdsSales)}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-              <Flame size={20} />
+            <div className="w-9 h-9 rounded-md bg-[#F5F5F5] text-[#FF6B00] flex items-center justify-center">
+              <Flame size={18} />
             </div>
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-            <span>Gasto: <strong className="text-rose-600">{formatCurrency(totalAdsSpend)}</strong></span>
-            <span>ROAS: <strong className="text-amber-700">{avgAdsRoas}x</strong></span>
+          <div className="mt-3 pt-2 border-t border-[#EBEBEB] flex items-center justify-between text-xs text-[#666666]">
+            <span>Gasto: <strong className="text-[#E53935]">{formatCurrency(totalAdsSpend)}</strong></span>
+            <span>ROAS: <strong className="text-[#FF6B00]">{avgAdsRoas}x</strong></span>
           </div>
         </div>
 
         {/* Card 4: Anúncios */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+        <div className="bg-white p-4 rounded-lg border border-[#E0E0E0] shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Anúncios Ativos</p>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">{itemsMetrics.total_active}</h3>
+              <p className="text-xs text-[#999999] font-semibold uppercase tracking-wide">Anúncios Ativos</p>
+              <h3 className="text-2xl font-bold text-[#333333] mt-1">{itemsMetrics.total_active}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
-              <Package size={20} />
+            <div className="w-9 h-9 rounded-md bg-[#F5F5F5] text-[#7B1FA2] flex items-center justify-center">
+              <Package size={18} />
             </div>
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-            <span className="text-purple-700 font-semibold">{itemsMetrics.breakdown?.catalog || 0} Catálogo</span>
+          <div className="mt-3 pt-2 border-t border-[#EBEBEB] flex items-center justify-between text-xs text-[#666666]">
+            <span className="text-[#7B1FA2] font-semibold">{itemsMetrics.breakdown?.catalog || 0} Catálogo</span>
             <span>•</span>
-            <span className="text-blue-700 font-semibold">{sponsoredItemIds.size || itemsMetrics.breakdown?.sponsored || 0} Ads</span>
+            <span className="text-[#3483FA] font-semibold">{sponsoredItemIds.size || itemsMetrics.breakdown?.sponsored || 0} Ads</span>
           </div>
         </div>
 
         {/* Card 5: Atendimento & Perguntas */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+        <div className="bg-white p-4 rounded-lg border border-[#E0E0E0] shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Atendimento Px</p>
+              <p className="text-xs text-[#999999] font-semibold uppercase tracking-wide">Perguntas Pendentes</p>
               <div className="flex items-baseline gap-2 mt-1">
-                <h3 className="text-2xl font-black text-slate-900">{questionsMetrics.unanswered}</h3>
-                <span className="text-xs text-amber-600 font-semibold">s/ resposta</span>
+                <h3 className="text-2xl font-bold text-[#333333]">{questionsMetrics.unanswered}</h3>
+                <span className="text-xs text-[#FF6B00] font-semibold">s/ resposta</span>
               </div>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-              <MessageCircle size={20} />
+            <div className="w-9 h-9 rounded-md bg-[#F5F5F5] text-[#FF6B00] flex items-center justify-center">
+              <MessageCircle size={18} />
             </div>
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-            <span>Perguntas Totais: <strong className="text-slate-900">{questionsMetrics.total}</strong></span>
+          <div className="mt-3 pt-2 border-t border-[#EBEBEB] flex items-center justify-between text-xs text-[#666666]">
+            <span>Perguntas Totais: <strong className="text-[#333333]">{questionsMetrics.total}</strong></span>
           </div>
         </div>
       </div>
 
-      {/* ABAS NATIVAS ML (7 TABS) */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="border-b border-slate-100 overflow-x-auto custom-scrollbar bg-slate-50/50 p-2">
-          <div className="flex gap-1 min-w-max">
-            {[
-              { id: 'resumo', label: 'Resumo', icon: BarChart2 },
-              { id: 'anuncios', label: 'Anúncios', icon: Package, badge: itemsMetrics.total_active },
-              { id: 'vendas', label: 'Vendas', icon: ShoppingCart, badge: ordersMetrics.total },
-              { id: 'perguntas', label: 'Perguntas', icon: MessageCircle, badge: questionsMetrics.unanswered, badgeColor: 'bg-amber-500 text-white' },
-              { id: 'publicidade', label: 'Publicidade', icon: Flame, badge: activeAdsCampaignsCount, badgeColor: 'bg-blue-600 text-white' },
-              { id: 'reputacao', label: 'Reputação', icon: Star },
-              { id: 'financeiro', label: 'Financeiro', icon: DollarSign }
-            ].map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    isActive 
-                      ? 'bg-white text-[#2D3277] shadow-sm border border-slate-200/80' 
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-                  }`}
-                >
-                  <Icon size={16} className={isActive ? 'text-[#2D3277]' : 'text-slate-400'} />
-                  <span>{tab.label}</span>
-                  {tab.badge !== undefined && tab.badge > 0 && (
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                      tab.badgeColor || 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+      {/* ABAS NATIVAS MERCADO LIVRE (7 TABS COM UNDERLINE AZUL #3483FA E CONTADOR LARANJA #FF6B00) */}
+      <div className="bg-white rounded-lg border border-[#E0E0E0] shadow-sm overflow-hidden">
+        <div className="flex border-b border-[#E0E0E0] px-4 gap-6 bg-white overflow-x-auto">
+          {[
+            { id: 'resumo', label: 'Resumo', icon: BarChart2 },
+            { id: 'anuncios', label: 'Anúncios', icon: Package, badge: itemsMetrics.total_active },
+            { id: 'vendas', label: 'Vendas', icon: ShoppingCart, badge: ordersMetrics.total },
+            { id: 'perguntas', label: 'Perguntas', icon: MessageCircle, badge: questionsMetrics.unanswered },
+            { id: 'publicidade', label: 'Publicidade', icon: Flame, badge: activeAdsCampaignsCount },
+            { id: 'reputacao', label: 'Reputação', icon: Star },
+            { id: 'financeiro', label: 'Financeiro', icon: DollarSign }
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`py-3 px-1 flex items-center gap-2 text-sm font-medium transition-all shrink-0 border-b-2 -mb-[2px] ${
+                  isActive 
+                    ? 'text-[#3483FA] border-[#3483FA] font-semibold' 
+                    : 'text-[#666666] border-transparent hover:text-[#333333]'
+                }`}
+              >
+                <Icon size={16} className={isActive ? 'text-[#3483FA]' : 'text-[#999999]'} />
+                <span>{tab.label}</span>
+                {tab.badge !== undefined && tab.badge > 0 && (
+                  <span className="bg-[#FF6B00] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-0.5">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* CONTEÚDO DAS ABAS */}
-        <div className="p-5 md:p-6">
+        <div className="p-5">
           {/* ========================================================================= */}
           {/* TAB 1: RESUMO */}
           {/* ========================================================================= */}
@@ -927,10 +951,10 @@ export function MercadoLivreDashboard() {
               {/* Grid 2x2 de Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Gráfico 1: Área Receita / Vendas */}
-                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
-                  <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center justify-between">
+                <div className="bg-white p-4 rounded-lg border border-[#E0E0E0]">
+                  <h4 className="text-base font-semibold text-[#333333] mb-4 flex items-center justify-between">
                     <span>Desempenho de Vendas</span>
-                    <span className="text-xs font-normal text-slate-500">Últimos {period}</span>
+                    <span className="text-xs text-[#999999] font-normal">Últimos {period}</span>
                   </h4>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
@@ -945,38 +969,38 @@ export function MercadoLivreDashboard() {
                       ]}>
                         <defs>
                           <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3483fa" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#3483fa" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="#3483FA" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#3483FA" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
-                        <YAxis stroke="#94a3b8" fontSize={12} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E0E0E0" />
+                        <XAxis dataKey="name" stroke="#999999" fontSize={12} />
+                        <YAxis stroke="#999999" fontSize={12} />
                         <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
-                        <Area type="monotone" dataKey="receita" stroke="#3483fa" strokeWidth={3} fillOpacity={1} fill="url(#colorRec)" name="Receita (R$)" />
+                        <Area type="monotone" dataKey="receita" stroke="#3483FA" strokeWidth={2} fillOpacity={1} fill="url(#colorRec)" name="Receita (R$)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 {/* Gráfico 2: Barra Distribuição por Tipo de Anúncio */}
-                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
-                  <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center justify-between">
+                <div className="bg-white p-4 rounded-lg border border-[#E0E0E0]">
+                  <h4 className="text-base font-semibold text-[#333333] mb-4 flex items-center justify-between">
                     <span>Distribuição de Anúncios</span>
-                    <span className="text-xs font-normal text-slate-500">Por Categoria</span>
+                    <span className="text-xs text-[#999999] font-normal">Por Categoria</span>
                   </h4>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={[
-                        { name: 'Orgânicos', total: itemsMetrics.breakdown?.organic || items.length, fill: '#64748b' },
-                        { name: 'Patrocinados', total: sponsoredItemIds.size || itemsMetrics.breakdown?.sponsored || 0, fill: '#2563eb' },
-                        { name: 'Catálogo', total: itemsMetrics.breakdown?.catalog || 0, fill: '#7c3aed' }
+                        { name: 'Orgânicos', total: itemsMetrics.breakdown?.organic || items.length, fill: '#666666' },
+                        { name: 'Patrocinados', total: sponsoredItemIds.size || itemsMetrics.breakdown?.sponsored || 0, fill: '#3483FA' },
+                        { name: 'Catálogo', total: itemsMetrics.breakdown?.catalog || 0, fill: '#7B1FA2' }
                       ]}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
-                        <YAxis stroke="#94a3b8" fontSize={12} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E0E0E0" />
+                        <XAxis dataKey="name" stroke="#999999" fontSize={12} />
+                        <YAxis stroke="#999999" fontSize={12} />
                         <Tooltip />
-                        <Bar dataKey="total" radius={[8, 8, 0, 0]} name="Quantidade" />
+                        <Bar dataKey="total" radius={[4, 4, 0, 0]} name="Quantidade" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -984,42 +1008,44 @@ export function MercadoLivreDashboard() {
               </div>
 
               {/* Tabela Top Anúncios */}
-              <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
-                <h4 className="text-sm font-bold text-slate-900 mb-3">Top Anúncios</h4>
+              <div className="bg-white rounded-lg border border-[#E0E0E0] shadow-sm overflow-hidden">
+                <div className="p-4 bg-[#F5F5F5] border-b border-[#E0E0E0]">
+                  <h4 className="text-base font-semibold text-[#333333]">Top Anúncios</h4>
+                </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase">
-                        <th className="py-2 px-3">Anúncio</th>
-                        <th className="py-2 px-3">Tipo</th>
-                        <th className="py-2 px-3">Preço</th>
-                        <th className="py-2 px-3">Estoque</th>
-                        <th className="py-2 px-3">Vendidos</th>
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#F5F5F5] border-b border-[#E0E0E0]">
+                      <tr>
+                        <th className="py-2.5 px-4 text-[#999999] text-xs uppercase font-medium">Anúncio</th>
+                        <th className="py-2.5 px-4 text-[#999999] text-xs uppercase font-medium">Tipo</th>
+                        <th className="py-2.5 px-4 text-[#999999] text-xs uppercase font-medium">Preço</th>
+                        <th className="py-2.5 px-4 text-[#999999] text-xs uppercase font-medium">Estoque</th>
+                        <th className="py-2.5 px-4 text-[#999999] text-xs uppercase font-medium">Vendidos</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200/60">
+                    <tbody className="divide-y divide-[#EBEBEB]">
                       {items.slice(0, 5).map((item, i) => (
-                        <tr key={item.item_id || i} className="hover:bg-white transition-all">
-                          <td className="py-2.5 px-3 flex items-center gap-3">
+                        <tr key={item.item_id || i} className="hover:bg-[#F9F9F9] transition">
+                          <td className="py-3 px-4 flex items-center gap-3">
                             <img 
                               src={item.thumbnail || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100'} 
                               alt="" 
-                              className="w-9 h-9 rounded-lg object-cover border border-slate-200 bg-white"
+                              className="w-10 h-10 rounded-md object-cover border border-[#E0E0E0] bg-[#F5F5F5]"
                             />
                             <div>
-                              <p className="font-bold text-slate-900 line-clamp-1">{item.title}</p>
-                              <span className="text-[10px] text-slate-400 font-mono">{item.item_id}</span>
+                              <p className="font-semibold text-[#333333] line-clamp-1">{item.title}</p>
+                              <span className="text-xs text-[#999999] font-mono">{item.item_id}</span>
                             </div>
                           </td>
-                          <td className="py-2.5 px-3">{renderTypeBadge(item)}</td>
-                          <td className="py-2.5 px-3 font-bold text-slate-900">{formatCurrency(item.price)}</td>
-                          <td className="py-2.5 px-3 text-slate-700 font-medium">{item.available_quantity} un</td>
-                          <td className="py-2.5 px-3 font-extrabold text-emerald-600">{item.sold_quantity} un</td>
+                          <td className="py-3 px-4">{renderTypeBadge(item)}</td>
+                          <td className="py-3 px-4 font-semibold text-[#333333]">{formatCurrency(item.price)}</td>
+                          <td className="py-3 px-4 text-[#666666]">{item.available_quantity} un</td>
+                          <td className="py-3 px-4 font-semibold text-[#00A650]">{item.sold_quantity} un</td>
                         </tr>
                       ))}
                       {items.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="py-6 text-center text-slate-400">
+                          <td colSpan={5} className="py-6 text-center text-[#999999]">
                             Nenhum anúncio carregado. Clique em "Sincronizar Tudo" para carregar seus produtos.
                           </td>
                         </tr>
@@ -1037,24 +1063,24 @@ export function MercadoLivreDashboard() {
           {activeTab === 'anuncios' && (
             <div className="space-y-4">
               {/* Barra de Ações & Filtros */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#F5F5F5] p-3 rounded-lg border border-[#E0E0E0]">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative min-w-[240px]">
-                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                    <Search className="absolute left-3 top-2.5 text-[#BBBBBB]" size={16} />
                     <input
                       type="text"
                       placeholder="Buscar por título ou SKU..."
                       value={itemsSearch}
                       onChange={e => setItemsSearch(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && fetchItems()}
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+                      className="w-full h-10 pl-9 pr-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA] focus:ring-2 focus:ring-[#3483FA]/10 placeholder-[#BBBBBB]"
                     />
                   </div>
 
                   <select
                     value={itemsStatus}
                     onChange={e => setItemsStatus(e.target.value)}
-                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   >
                     <option value="">Todos os Status</option>
                     <option value="active">Ativos</option>
@@ -1065,7 +1091,7 @@ export function MercadoLivreDashboard() {
                   <select
                     value={itemsType}
                     onChange={e => setItemsType(e.target.value)}
-                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   >
                     <option value="">Todos os Tipos</option>
                     <option value="sponsored">Patrocinados</option>
@@ -1075,7 +1101,7 @@ export function MercadoLivreDashboard() {
 
                   <button
                     onClick={fetchItems}
-                    className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all"
+                    className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 h-10 text-sm hover:bg-[#F5F5F5] transition font-medium"
                   >
                     Filtrar
                   </button>
@@ -1085,7 +1111,7 @@ export function MercadoLivreDashboard() {
                   <button
                     onClick={syncItems}
                     disabled={isSyncingItems}
-                    className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                    className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 h-10 text-sm hover:bg-[#F5F5F5] transition flex items-center gap-1.5 disabled:opacity-50 font-medium"
                   >
                     <RefreshCw size={14} className={isSyncingItems ? 'animate-spin' : ''} />
                     <span>Sincronizar ML</span>
@@ -1106,7 +1132,7 @@ export function MercadoLivreDashboard() {
                       });
                       setModalNewItemOpen(true);
                     }}
-                    className="px-4 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+                    className="bg-[#3483FA] text-white rounded-md px-4 h-10 text-sm font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5"
                   >
                     <Plus size={16} />
                     <span>Novo Anúncio</span>
@@ -1115,62 +1141,62 @@ export function MercadoLivreDashboard() {
               </div>
 
               {/* Tabela de Anúncios */}
-              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="bg-white rounded-lg border border-[#E0E0E0] overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
-                        <th className="py-3 px-4">Anúncio</th>
-                        <th className="py-3 px-3">Tipo / Exposição</th>
-                        <th className="py-3 px-3">Preço</th>
-                        <th className="py-3 px-3">Estoque</th>
-                        <th className="py-3 px-3">Vendidos</th>
-                        <th className="py-3 px-3">Status</th>
-                        <th className="py-3 px-4 text-right">Ações</th>
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#F5F5F5] border-b border-[#E0E0E0]">
+                      <tr>
+                        <th className="py-3 px-4 text-[#999999] text-xs uppercase font-medium">Anúncio</th>
+                        <th className="py-3 px-3 text-[#999999] text-xs uppercase font-medium">Tipo / Exposição</th>
+                        <th className="py-3 px-3 text-[#999999] text-xs uppercase font-medium">Preço</th>
+                        <th className="py-3 px-3 text-[#999999] text-xs uppercase font-medium">Estoque</th>
+                        <th className="py-3 px-3 text-[#999999] text-xs uppercase font-medium">Vendidos</th>
+                        <th className="py-3 px-3 text-[#999999] text-xs uppercase font-medium">Status</th>
+                        <th className="py-3 px-4 text-[#999999] text-xs uppercase font-medium text-right">Ações</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-[#EBEBEB]">
                       {itemsLoading ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-slate-400">
+                          <td colSpan={7} className="py-12 text-center text-[#999999]">
                             <RefreshCw className="animate-spin inline-block mr-2" size={18} />
                             Carregando anúncios...
                           </td>
                         </tr>
                       ) : items.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-slate-400">
+                          <td colSpan={7} className="py-12 text-center text-[#999999]">
                             Nenhum anúncio encontrado. Clique em "Sincronizar ML" ou "Novo Anúncio".
                           </td>
                         </tr>
                       ) : (
                         items.map(item => (
-                          <tr key={item.item_id} className="hover:bg-slate-50/80 transition-all">
+                          <tr key={item.item_id} className="hover:bg-[#F9F9F9] transition">
                             <td className="py-3 px-4 flex items-center gap-3">
                               <img 
                                 src={item.thumbnail || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100'} 
                                 alt="" 
-                                className="w-10 h-10 rounded-lg object-cover border border-slate-200 bg-slate-50 shrink-0" 
+                                className="w-10 h-10 rounded-md object-cover border border-[#E0E0E0] bg-[#F5F5F5] shrink-0" 
                               />
                               <div className="max-w-md">
                                 <p 
                                   onClick={() => setSelectedItem(item)}
-                                  className="font-bold text-slate-900 hover:text-blue-600 cursor-pointer line-clamp-1"
+                                  className="font-semibold text-[#333333] hover:text-[#3483FA] cursor-pointer line-clamp-1"
                                 >
                                   {item.title}
                                 </p>
-                                <span className="text-[10px] text-slate-400 font-mono">MLB: {item.item_id}</span>
+                                <span className="text-xs text-[#999999] font-mono">MLB: {item.item_id}</span>
                               </div>
                             </td>
                             <td className="py-3 px-3">{renderTypeBadge(item)}</td>
-                            <td className="py-3 px-3 font-bold text-slate-900">{formatCurrency(item.price)}</td>
-                            <td className="py-3 px-3 font-semibold text-slate-700">{item.available_quantity} un</td>
-                            <td className="py-3 px-3 font-extrabold text-emerald-600">{item.sold_quantity} un</td>
+                            <td className="py-3 px-3 font-semibold text-[#333333]">{formatCurrency(item.price)}</td>
+                            <td className="py-3 px-3 text-[#666666]">{item.available_quantity} un</td>
+                            <td className="py-3 px-3 font-semibold text-[#00A650]">{item.sold_quantity} un</td>
                             <td className="py-3 px-3">
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
                                 item.status === 'active' 
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
+                                  ? 'bg-[#00A650] text-white' 
+                                  : 'bg-[#F5F5F5] text-[#666666] border border-[#E0E0E0]'
                               }`}>
                                 {item.status === 'active' ? 'Ativo' : 'Pausado'}
                               </span>
@@ -1194,22 +1220,22 @@ export function MercadoLivreDashboard() {
                                     });
                                   }}
                                   title="Editar Anúncio"
-                                  className="p-1.5 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition-all"
+                                  className="p-2 rounded-md hover:bg-[#F5F5F5] text-[#666666] hover:text-[#333333] transition"
                                 >
-                                  <Edit3 size={14} />
+                                  <Edit3 size={15} />
                                 </button>
 
                                 {/* Pausar / Ativar */}
                                 <button
                                   onClick={() => handleToggleItemStatus(item)}
                                   title={item.status === 'active' ? 'Pausar Anúncio' : 'Ativar Anúncio'}
-                                  className={`p-1.5 rounded-lg transition-all ${
+                                  className={`p-2 rounded-md transition ${
                                     item.status === 'active' 
-                                      ? 'hover:bg-amber-50 text-amber-600' 
-                                      : 'hover:bg-emerald-50 text-emerald-600'
+                                      ? 'hover:bg-[#F5F5F5] text-[#FF6B00]' 
+                                      : 'hover:bg-[#F5F5F5] text-[#00A650]'
                                   }`}
                                 >
-                                  {item.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
+                                  {item.status === 'active' ? <Pause size={15} /> : <Play size={15} />}
                                 </button>
 
                                 {/* Destacar */}
@@ -1219,9 +1245,9 @@ export function MercadoLivreDashboard() {
                                     setUpgradeListingTypeId(item.listing_type_id === 'gold_pro' ? 'gold_special' : 'gold_pro');
                                   }}
                                   title="Mudar Tipo de Exposição"
-                                  className="p-1.5 hover:bg-amber-50 text-amber-600 rounded-lg transition-all"
+                                  className="p-2 rounded-md hover:bg-[#F5F5F5] text-[#FF6B00] transition"
                                 >
-                                  <Star size={14} />
+                                  <Star size={15} />
                                 </button>
 
                                 {/* Patrocinar (Product Ads) */}
@@ -1237,9 +1263,9 @@ export function MercadoLivreDashboard() {
                                     setModalNewCampaignOpen(true);
                                   }}
                                   title="Patrocinar no Product Ads"
-                                  className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-all"
+                                  className="p-2 rounded-md hover:bg-[#F5F5F5] text-[#3483FA] transition"
                                 >
-                                  <Flame size={14} />
+                                  <Flame size={15} />
                                 </button>
                               </div>
                             </td>
@@ -1254,26 +1280,26 @@ export function MercadoLivreDashboard() {
           )}
 
           {/* ========================================================================= */}
-          {/* TAB 3: VENDAS (KANBAN 4 COLUNAS) */}
+          {/* TAB 3: VENDAS (KANBAN 4 COLUNAS ESTILO ML) */}
           {/* ========================================================================= */}
           {activeTab === 'vendas' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#F5F5F5] p-3 rounded-lg border border-[#E0E0E0]">
                 <div className="relative w-full sm:w-80">
-                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                  <Search className="absolute left-3 top-2.5 text-[#BBBBBB]" size={16} />
                   <input
                     type="text"
                     placeholder="Buscar pedido por ID ou comprador..."
                     value={ordersSearch}
                     onChange={e => setOrdersSearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 pl-9 pr-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA] placeholder-[#BBBBBB]"
                   />
                 </div>
 
                 <button
                   onClick={syncOrders}
                   disabled={isSyncingOrders}
-                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 h-10 text-sm hover:bg-[#F5F5F5] transition flex items-center gap-1.5 disabled:opacity-50 font-medium"
                 >
                   <RefreshCw size={14} className={isSyncingOrders ? 'animate-spin' : ''} />
                   <span>Sincronizar Pedidos</span>
@@ -1282,158 +1308,158 @@ export function MercadoLivreDashboard() {
 
               {/* Kanban Grid 4 Colunas */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Coluna 1: Envios de Hoje */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                {/* Coluna 1: Envios Urgentes */}
+                <div className="bg-[#F5F5F5] rounded-lg p-3 border border-[#E0E0E0] space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E0E0E0]">
+                    <h4 className="font-semibold text-sm text-[#333333] flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#3483FA]"></span>
                       Envios Urgentes
                     </h4>
-                    <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-extrabold">
+                    <span className="bg-white px-2 py-0.5 rounded-full text-xs text-[#666666] border border-[#E0E0E0] font-medium">
                       {colEnviosHoje.length}
                     </span>
                   </div>
 
-                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                  <div className="space-y-2 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
                     {colEnviosHoje.map(order => (
                       <div 
                         key={order.ml_order_id} 
                         onClick={() => setSelectedOrder(order)}
-                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer space-y-2"
+                        className="bg-white rounded-md p-3 shadow-sm border border-[#E0E0E0] hover:shadow-md transition cursor-pointer space-y-2"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
-                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          <span className="text-xs font-mono text-[#999999]">#{order.ml_order_id}</span>
+                          <span className="text-[10px] font-semibold text-[#3483FA] bg-[#F5F5F5] px-1.5 py-0.5 rounded border border-[#E0E0E0]">
                             Aguardando Envio
                           </span>
                         </div>
-                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
-                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        <p className="font-medium text-xs text-[#333333] line-clamp-2">{order.item_title || 'Item sem título'}</p>
+                        <div className="flex items-center justify-between pt-2 border-t border-[#EBEBEB] text-xs">
+                          <span className="text-[#666666]">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-semibold text-[#333333]">{formatCurrency(order.total_amount)}</span>
                         </div>
                       </div>
                     ))}
                     {colEnviosHoje.length === 0 && (
-                      <p className="text-center text-xs text-slate-400 py-8">Nenhum pedido urgente pendente.</p>
+                      <p className="text-center text-xs text-[#999999] py-8">Nenhum pedido urgente pendente.</p>
                     )}
                   </div>
                 </div>
 
                 {/* Coluna 2: Aguardando Pagamento */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <div className="bg-[#F5F5F5] rounded-lg p-3 border border-[#E0E0E0] space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E0E0E0]">
+                    <h4 className="font-semibold text-sm text-[#333333] flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#FF6B00]"></span>
                       Aguardando Pagamento
                     </h4>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold">
+                    <span className="bg-white px-2 py-0.5 rounded-full text-xs text-[#666666] border border-[#E0E0E0] font-medium">
                       {colAguardando.length}
                     </span>
                   </div>
 
-                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                  <div className="space-y-2 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
                     {colAguardando.map(order => (
                       <div 
                         key={order.ml_order_id} 
                         onClick={() => setSelectedOrder(order)}
-                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-amber-300 transition-all cursor-pointer space-y-2"
+                        className="bg-white rounded-md p-3 shadow-sm border border-[#E0E0E0] hover:shadow-md transition cursor-pointer space-y-2"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
-                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          <span className="text-xs font-mono text-[#999999]">#{order.ml_order_id}</span>
+                          <span className="text-[10px] font-semibold text-[#FF6B00] bg-[#F5F5F5] px-1.5 py-0.5 rounded border border-[#E0E0E0]">
                             Pendente
                           </span>
                         </div>
-                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
-                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        <p className="font-medium text-xs text-[#333333] line-clamp-2">{order.item_title || 'Item sem título'}</p>
+                        <div className="flex items-center justify-between pt-2 border-t border-[#EBEBEB] text-xs">
+                          <span className="text-[#666666]">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-semibold text-[#333333]">{formatCurrency(order.total_amount)}</span>
                         </div>
                       </div>
                     ))}
                     {colAguardando.length === 0 && (
-                      <p className="text-center text-xs text-slate-400 py-8">Nenhum pedido pendente.</p>
+                      <p className="text-center text-xs text-[#999999] py-8">Nenhum pedido pendente.</p>
                     )}
                   </div>
                 </div>
 
                 {/* Coluna 3: A Caminho */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                <div className="bg-[#F5F5F5] rounded-lg p-3 border border-[#E0E0E0] space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E0E0E0]">
+                    <h4 className="font-semibold text-sm text-[#333333] flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#3483FA]"></span>
                       A Caminho
                     </h4>
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-extrabold">
+                    <span className="bg-white px-2 py-0.5 rounded-full text-xs text-[#666666] border border-[#E0E0E0] font-medium">
                       {colACaminho.length}
                     </span>
                   </div>
 
-                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                  <div className="space-y-2 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
                     {colACaminho.map(order => (
                       <div 
                         key={order.ml_order_id} 
                         onClick={() => setSelectedOrder(order)}
-                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer space-y-2"
+                        className="bg-white rounded-md p-3 shadow-sm border border-[#E0E0E0] hover:shadow-md transition cursor-pointer space-y-2"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
-                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          <span className="text-xs font-mono text-[#999999]">#{order.ml_order_id}</span>
+                          <span className="text-[10px] font-semibold text-[#3483FA] bg-[#F5F5F5] px-1.5 py-0.5 rounded border border-[#E0E0E0]">
                             🚚 Enviado
                           </span>
                         </div>
-                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
-                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        <p className="font-medium text-xs text-[#333333] line-clamp-2">{order.item_title || 'Item sem título'}</p>
+                        <div className="flex items-center justify-between pt-2 border-t border-[#EBEBEB] text-xs">
+                          <span className="text-[#666666]">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-semibold text-[#333333]">{formatCurrency(order.total_amount)}</span>
                         </div>
                       </div>
                     ))}
                     {colACaminho.length === 0 && (
-                      <p className="text-center text-xs text-slate-400 py-8">Nenhum pedido em trânsito.</p>
+                      <p className="text-center text-xs text-[#999999] py-8">Nenhum pedido em trânsito.</p>
                     )}
                   </div>
                 </div>
 
                 {/* Coluna 4: Finalizadas */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <div className="bg-[#F5F5F5] rounded-lg p-3 border border-[#E0E0E0] space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E0E0E0]">
+                    <h4 className="font-semibold text-sm text-[#333333] flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#00A650]"></span>
                       Finalizadas
                     </h4>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                    <span className="bg-white px-2 py-0.5 rounded-full text-xs text-[#666666] border border-[#E0E0E0] font-medium">
                       {colFinalizadas.length}
                     </span>
                   </div>
 
-                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                  <div className="space-y-2 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
                     {colFinalizadas.map(order => (
                       <div 
                         key={order.ml_order_id} 
                         onClick={() => setSelectedOrder(order)}
-                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all cursor-pointer space-y-2 opacity-90"
+                        className="bg-white rounded-md p-3 shadow-sm border border-[#E0E0E0] hover:shadow-md transition cursor-pointer space-y-2 opacity-95"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          <span className="text-xs font-mono text-[#999999]">#{order.ml_order_id}</span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                             order.status === 'cancelled' 
-                              ? 'text-rose-700 bg-rose-50 border border-rose-200' 
-                              : 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                              ? 'text-[#E53935] bg-[#F5F5F5] border border-[#E0E0E0]' 
+                              : 'text-[#00A650] bg-[#F5F5F5] border border-[#E0E0E0]'
                           }`}>
                             {order.status === 'cancelled' ? 'Cancelada' : '✓ Entregue'}
                           </span>
                         </div>
-                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
-                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        <p className="font-medium text-xs text-[#333333] line-clamp-2">{order.item_title || 'Item sem título'}</p>
+                        <div className="flex items-center justify-between pt-2 border-t border-[#EBEBEB] text-xs">
+                          <span className="text-[#666666]">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-semibold text-[#333333]">{formatCurrency(order.total_amount)}</span>
                         </div>
                       </div>
                     ))}
                     {colFinalizadas.length === 0 && (
-                      <p className="text-center text-xs text-slate-400 py-8">Nenhuma venda finalizada listada.</p>
+                      <p className="text-center text-xs text-[#999999] py-8">Nenhuma venda finalizada listada.</p>
                     )}
                   </div>
                 </div>
@@ -1442,71 +1468,67 @@ export function MercadoLivreDashboard() {
           )}
 
           {/* ========================================================================= */}
-          {/* TAB 4: PERGUNTAS */}
+          {/* TAB 4: PERGUNTAS (ESTILO SETTINGS ML) */}
           {/* ========================================================================= */}
           {activeTab === 'perguntas' && (
             <div className="space-y-4 max-w-4xl mx-auto">
               {/* Filtros */}
-              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between bg-[#F5F5F5] p-3 rounded-lg border border-[#E0E0E0]">
                 <div className="flex gap-2">
                   {(['unanswered', 'answered', 'all'] as const).map(f => (
                     <button
                       key={f}
                       onClick={() => setQuestionsFilter(f)}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                         questionsFilter === f 
-                          ? 'bg-white text-[#2D3277] shadow-sm border border-slate-200' 
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-[#3483FA] text-white' 
+                          : 'bg-white text-[#666666] border border-[#E0E0E0] hover:text-[#333333]'
                       }`}
                     >
                       {f === 'unanswered' ? 'Não Respondidas' : f === 'answered' ? 'Respondidas' : 'Todas'}
                     </button>
                   ))}
                 </div>
-                <span className="text-xs text-slate-500 font-medium">{questions.length} perguntas</span>
+                <span className="text-xs text-[#666666]">{questions.length} perguntas</span>
               </div>
 
-              {/* Lista de Cards de Perguntas */}
-              <div className="space-y-3">
+              {/* Lista de Perguntas (Container Branco, bordas sutis) */}
+              <div className="bg-white rounded-lg shadow-sm border border-[#E0E0E0] overflow-hidden">
                 {questionsLoading ? (
-                  <div className="py-12 text-center text-slate-400">
+                  <div className="py-12 text-center text-[#999999]">
                     <RefreshCw className="animate-spin inline-block mr-2" size={18} />
                     Carregando perguntas...
                   </div>
                 ) : questions.length === 0 ? (
-                  <div className="bg-slate-50 p-8 rounded-2xl text-center border border-slate-200">
-                    <CheckCircle className="mx-auto text-emerald-500 mb-2" size={32} />
-                    <h4 className="font-bold text-slate-900">Tudo em dia!</h4>
-                    <p className="text-xs text-slate-500 mt-1">Nenhuma pergunta pendente no momento.</p>
+                  <div className="p-8 text-center">
+                    <CheckCircle className="mx-auto text-[#00A650] mb-2" size={32} />
+                    <h4 className="font-semibold text-[#333333]">Tudo em dia!</h4>
+                    <p className="text-xs text-[#999999] mt-1">Nenhuma pergunta pendente no momento.</p>
                   </div>
                 ) : (
                   questions.map(q => (
-                    <div key={q.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3 hover:border-slate-300 transition-all">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-xs">
-                            {q.from_nickname?.substring(0, 2).toUpperCase() || 'ML'}
-                          </div>
-                          <div>
-                            <span className="font-bold text-xs text-slate-900">@{q.from_nickname || 'comprador'}</span>
-                            <p className="text-[11px] text-slate-400">Item: {q.item_id || 'Anúncio'}</p>
-                          </div>
+                    <div 
+                      key={q.id} 
+                      className="px-5 py-4 border-b border-[#EBEBEB] last:border-0 hover:bg-[#F9F9F9] transition flex items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm text-[#333333]">@{q.from_nickname || 'comprador'}</span>
+                          <span className="text-xs text-[#999999]">{formatDate(q.date_created)}</span>
                         </div>
-                        <span className="text-[10px] text-slate-400">{formatDate(q.date_created)}</span>
+                        <p className="text-sm text-[#333333]">"{q.text}"</p>
+                        <p className="text-xs text-[#999999]">MLB: {q.item_id || 'Anúncio'}</p>
                       </div>
 
-                      <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-800 font-medium border border-slate-100">
-                        "{q.text}"
-                      </div>
-
-                      <div className="flex items-center justify-end">
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => setReplyingQuestion(q)}
-                          className="px-4 py-1.5 bg-[#2D3277] hover:bg-[#1f2354] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5"
+                          className="bg-[#3483FA] text-white rounded-md px-3 py-1.5 text-xs font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5"
                         >
                           <Send size={12} />
                           <span>Responder</span>
                         </button>
+                        <ChevronRight size={18} className="text-[#BBBBBB]" />
                       </div>
                     </div>
                   ))
@@ -1521,14 +1543,14 @@ export function MercadoLivreDashboard() {
           {activeTab === 'publicidade' && (
             <div className="space-y-6">
               {/* Top Banner & Ações */}
-              <div className="bg-gradient-to-r from-blue-900 to-[#2D3277] text-white p-6 rounded-2xl shadow-sm relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="bg-[#333333] text-white p-5 rounded-lg shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/30 border border-blue-400/30 text-xs font-bold text-blue-200 mb-2">
-                    <Flame size={14} className="text-amber-400 fill-amber-400" />
-                    Mercado Livre Product Ads (Advertising API)
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#FF6B00] text-white text-[10px] font-bold uppercase mb-2">
+                    <Flame size={12} />
+                    Mercado Livre Product Ads
                   </div>
-                  <h3 className="text-xl font-black">Gestor de Campanhas Patrocinadas</h3>
-                  <p className="text-xs text-blue-200 mt-1 max-w-lg">
+                  <h3 className="text-lg font-semibold text-white">Gestor de Campanhas Patrocinadas</h3>
+                  <p className="text-xs text-[#999999] mt-0.5 max-w-lg">
                     Sincronize, crie e gerencie o orçamento e meta de ROAS das suas campanhas de anúncios patrocinados.
                   </p>
                 </div>
@@ -1537,7 +1559,7 @@ export function MercadoLivreDashboard() {
                   <button
                     onClick={() => fetchCampaigns(true)}
                     disabled={isSyncingAds}
-                    className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                    className="bg-white/10 hover:bg-white/20 text-white font-medium text-xs px-3 py-2 rounded-md border border-white/20 transition flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <RefreshCw size={14} className={isSyncingAds ? 'animate-spin' : ''} />
                     <span>Sincronizar Ads</span>
@@ -1554,7 +1576,7 @@ export function MercadoLivreDashboard() {
                       setModalEditCampaign(null);
                       setModalNewCampaignOpen(true);
                     }}
-                    className="px-4 py-2.5 bg-[#FFE600] text-[#2D3277] hover:bg-amber-300 font-black text-xs rounded-xl transition-all flex items-center gap-2 shadow-lg"
+                    className="bg-[#FFE600] text-[#333333] hover:bg-[#F9D735] font-semibold text-xs px-4 py-2 rounded-md transition flex items-center gap-1.5"
                   >
                     <Plus size={16} />
                     <span>Nova Campanha</span>
@@ -1563,39 +1585,39 @@ export function MercadoLivreDashboard() {
               </div>
 
               {/* Tabela de Campanhas */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <div className="bg-white rounded-lg border border-[#E0E0E0] p-4 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-slate-900">Campanhas Ativas ({campaigns.length})</h4>
-                  <span className="text-xs text-slate-500">Clique na linha para ver anúncios patrocinados</span>
+                  <h4 className="text-base font-semibold text-[#333333]">Campanhas Ativas ({campaigns.length})</h4>
+                  <span className="text-xs text-[#999999]">Clique na linha para ver anúncios patrocinados</span>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-bold uppercase">
-                        <th className="py-3 px-3">Nome da Campanha</th>
-                        <th className="py-3 px-3">Status</th>
-                        <th className="py-3 px-3">Orçamento</th>
-                        <th className="py-3 px-3">ROAS Alvo</th>
-                        <th className="py-3 px-3">Cliques</th>
-                        <th className="py-3 px-3">Impressões</th>
-                        <th className="py-3 px-3">Gasto</th>
-                        <th className="py-3 px-3">Vendas</th>
-                        <th className="py-3 px-3">ROAS Real</th>
-                        <th className="py-3 px-3 text-right">Ações</th>
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#F5F5F5] border-b border-[#E0E0E0]">
+                      <tr>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Nome da Campanha</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Status</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Orçamento</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">ROAS Alvo</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Cliques</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Impressões</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Gasto</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">Vendas</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium">ROAS Real</th>
+                        <th className="py-2.5 px-3 text-[#999999] text-xs uppercase font-medium text-right">Ações</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-[#EBEBEB]">
                       {campaignsLoading ? (
                         <tr>
-                          <td colSpan={10} className="py-12 text-center text-slate-400">
+                          <td colSpan={10} className="py-12 text-center text-[#999999]">
                             <RefreshCw className="animate-spin inline-block mr-2" size={18} />
                             Carregando campanhas do Product Ads...
                           </td>
                         </tr>
                       ) : campaigns.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="py-12 text-center text-slate-400">
+                          <td colSpan={10} className="py-12 text-center text-[#999999]">
                             Nenhuma campanha de Product Ads encontrada. Clique em "Sincronizar Ads" ou "Nova Campanha".
                           </td>
                         </tr>
@@ -1607,36 +1629,36 @@ export function MercadoLivreDashboard() {
                           return (
                             <React.Fragment key={c.campaign_id}>
                               <tr 
-                                className="hover:bg-slate-50 cursor-pointer transition-all"
+                                className="hover:bg-[#F9F9F9] cursor-pointer transition"
                                 onClick={() => setExpandedCampaignId(isExpanded ? null : c.campaign_id)}
                               >
-                                <td className="py-3 px-3 font-bold text-slate-900 flex items-center gap-2">
+                                <td className="py-3 px-3 font-semibold text-[#333333] flex items-center gap-2">
                                   {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                   <span>{c.name}</span>
                                 </td>
                                 <td className="py-3 px-3">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
                                     c.status === 'active' 
-                                      ? 'bg-emerald-100 text-emerald-800' 
-                                      : 'bg-slate-100 text-slate-600'
+                                      ? 'bg-[#00A650] text-white' 
+                                      : 'bg-[#F5F5F5] text-[#666666] border border-[#E0E0E0]'
                                   }`}>
                                     {c.status === 'active' ? 'Ativa' : 'Pausada'}
                                   </span>
                                 </td>
-                                <td className="py-3 px-3 font-semibold">{formatCurrency(c.budget_amount)}/dia</td>
-                                <td className="py-3 px-3 font-bold text-amber-700">{c.roas_target || 10}x</td>
-                                <td className="py-3 px-3 font-medium">{c.clicks || 0}</td>
-                                <td className="py-3 px-3 text-slate-500">{c.impressions || 0}</td>
-                                <td className="py-3 px-3 font-bold text-rose-600">{formatCurrency(c.spend || 0)}</td>
-                                <td className="py-3 px-3 font-extrabold text-emerald-600">{formatCurrency(c.sales || 0)}</td>
-                                <td className="py-3 px-3 font-black text-amber-600">{c.roas ? Number(c.roas).toFixed(2) + 'x' : '0.0x'}</td>
+                                <td className="py-3 px-3 font-medium">{formatCurrency(c.budget_amount)}/dia</td>
+                                <td className="py-3 px-3 font-semibold text-[#FF6B00]">{c.roas_target || 10}x</td>
+                                <td className="py-3 px-3 text-[#666666]">{c.clicks || 0}</td>
+                                <td className="py-3 px-3 text-[#999999]">{c.impressions || 0}</td>
+                                <td className="py-3 px-3 font-semibold text-[#E53935]">{formatCurrency(c.spend || 0)}</td>
+                                <td className="py-3 px-3 font-semibold text-[#00A650]">{formatCurrency(c.sales || 0)}</td>
+                                <td className="py-3 px-3 font-bold text-[#FF6B00]">{c.roas ? Number(c.roas).toFixed(2) + 'x' : '0.0x'}</td>
                                 <td className="py-3 px-3 text-right" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center justify-end gap-1">
                                     <button
                                       onClick={() => handleToggleCampaignStatus(c)}
                                       title={c.status === 'active' ? 'Pausar Campanha' : 'Ativar Campanha'}
-                                      className={`p-1.5 rounded-lg transition-all ${
-                                        c.status === 'active' ? 'hover:bg-amber-50 text-amber-600' : 'hover:bg-emerald-50 text-emerald-600'
+                                      className={`p-1.5 rounded-md transition ${
+                                        c.status === 'active' ? 'hover:bg-[#F5F5F5] text-[#FF6B00]' : 'hover:bg-[#F5F5F5] text-[#00A650]'
                                       }`}
                                     >
                                       {c.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
@@ -1653,7 +1675,7 @@ export function MercadoLivreDashboard() {
                                         });
                                       }}
                                       title="Editar Campanha"
-                                      className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-lg transition-all"
+                                      className="p-1.5 hover:bg-[#F5F5F5] text-[#666666] rounded-md transition"
                                     >
                                       <Edit3 size={14} />
                                     </button>
@@ -1661,7 +1683,7 @@ export function MercadoLivreDashboard() {
                                     <button
                                       onClick={() => handleDeleteCampaign(c.campaign_id)}
                                       title="Excluir Campanha"
-                                      className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-all"
+                                      className="p-1.5 hover:bg-[#F5F5F5] text-[#E53935] rounded-md transition"
                                     >
                                       <Trash2 size={14} />
                                     </button>
@@ -1672,20 +1694,20 @@ export function MercadoLivreDashboard() {
                               {/* Linha Expandida: Anúncios Patrocinados (ad_groups) */}
                               {isExpanded && (
                                 <tr>
-                                  <td colSpan={10} className="bg-slate-50/80 p-4 border-t border-b border-slate-200">
+                                  <td colSpan={10} className="bg-[#F5F5F5] p-4 border-t border-b border-[#E0E0E0]">
                                     <div className="space-y-2 max-w-4xl">
-                                      <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                                        <Flame size={14} className="text-amber-500" />
+                                      <h5 className="font-semibold text-xs text-[#333333] flex items-center gap-1.5">
+                                        <Flame size={14} className="text-[#FF6B00]" />
                                         Anúncios Patrocinados nesta Campanha ({adGroups.length})
                                       </h5>
 
                                       {adGroups.length === 0 ? (
-                                        <p className="text-xs text-slate-400 italic">Nenhum anúncio vinculado individualmente nesta campanha.</p>
+                                        <p className="text-xs text-[#999999] italic">Nenhum anúncio vinculado individualmente nesta campanha.</p>
                                       ) : (
-                                        <div className="overflow-x-auto bg-white rounded-xl border border-slate-200">
-                                          <table className="w-full text-left text-[11px]">
+                                        <div className="overflow-x-auto bg-white rounded-md border border-[#E0E0E0]">
+                                          <table className="w-full text-left text-xs">
                                             <thead>
-                                              <tr className="bg-slate-100 border-b border-slate-200 font-bold text-slate-600">
+                                              <tr className="bg-[#F5F5F5] border-b border-[#E0E0E0] font-medium text-[#999999]">
                                                 <th className="py-2 px-3">Item ID</th>
                                                 <th className="py-2 px-3">Lance CPC</th>
                                                 <th className="py-2 px-3">Cliques</th>
@@ -1694,15 +1716,15 @@ export function MercadoLivreDashboard() {
                                                 <th className="py-2 px-3">ROAS</th>
                                               </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-100">
+                                            <tbody className="divide-y divide-[#EBEBEB]">
                                               {adGroups.map((ag: any, idx: number) => (
                                                 <tr key={ag.ad_group_id || idx}>
-                                                  <td className="py-2 px-3 font-mono font-bold text-slate-800">{ag.item_id || '-'}</td>
-                                                  <td className="py-2 px-3 font-medium">{formatCurrency(ag.cpc_bid)}</td>
+                                                  <td className="py-2 px-3 font-mono font-semibold text-[#333333]">{ag.item_id || '-'}</td>
+                                                  <td className="py-2 px-3">{formatCurrency(ag.cpc_bid)}</td>
                                                   <td className="py-2 px-3">{ag.clicks || 0}</td>
-                                                  <td className="py-2 px-3 font-bold text-rose-600">{formatCurrency(ag.spend || 0)}</td>
-                                                  <td className="py-2 px-3 font-extrabold text-emerald-600">{formatCurrency(ag.sales || 0)}</td>
-                                                  <td className="py-2 px-3 font-black text-amber-600">{ag.roas ? Number(ag.roas).toFixed(2) + 'x' : '0.0x'}</td>
+                                                  <td className="py-2 px-3 font-semibold text-[#E53935]">{formatCurrency(ag.spend || 0)}</td>
+                                                  <td className="py-2 px-3 font-semibold text-[#00A650]">{formatCurrency(ag.sales || 0)}</td>
+                                                  <td className="py-2 px-3 font-bold text-[#FF6B00]">{ag.roas ? Number(ag.roas).toFixed(2) + 'x' : '0.0x'}</td>
                                                 </tr>
                                               ))}
                                             </tbody>
@@ -1725,38 +1747,50 @@ export function MercadoLivreDashboard() {
           )}
 
           {/* ========================================================================= */}
-          {/* TAB 6: REPUTAÇÃO */}
+          {/* TAB 6: REPUTAÇÃO (TERMÔMETRO 5 BARRAS GRADUAIS ML) */}
           {/* ========================================================================= */}
           {activeTab === 'reputacao' && (
             <div className="space-y-6 max-w-4xl mx-auto">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+              <div className="bg-white p-6 rounded-lg border border-[#E0E0E0] shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-base font-black text-slate-900">Termômetro de Reputação</h3>
-                    <p className="text-xs text-slate-500">Com base no desempenho dos últimos 60 dias no Mercado Livre</p>
+                    <h3 className="text-base font-semibold text-[#333333]">Termômetro de Reputação</h3>
+                    <p className="text-xs text-[#999999] mt-0.5">Com base no desempenho dos últimos 60 dias no Mercado Livre</p>
                   </div>
                   {repMetrics?.power_seller_status && (
-                    <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
-                      <Award size={14} className="text-amber-600" />
+                    <span className="px-3 py-1 rounded-md text-xs font-semibold bg-[#FFE600] text-[#333333] flex items-center gap-1">
+                      <Award size={14} />
                       MercadoLíder {repMetrics.power_seller_status.toUpperCase()}
                     </span>
                   )}
                 </div>
 
-                <div className="grid grid-cols-5 gap-2 pt-2">
-                  {['Vermelho', 'Laranja', 'Amarelo', 'Verde Claro', 'Verde'].map((lvl, idx) => (
-                    <div 
-                      key={lvl}
-                      className={`h-4 rounded-lg flex items-center justify-center text-[10px] font-bold text-white transition-all ${
-                        idx === 0 ? 'bg-rose-500' :
-                        idx === 1 ? 'bg-orange-500' :
-                        idx === 2 ? 'bg-amber-400' :
-                        idx === 3 ? 'bg-emerald-400' : 'bg-emerald-600'
-                      } ${repMetrics?.level_id === `${idx + 1}_green` || idx === 4 ? 'ring-4 ring-slate-900/20 scale-105' : 'opacity-40'}`}
-                    >
-                      {lvl}
-                    </div>
-                  ))}
+                {/* 5 BARRAS DO TERMÔMETRO DE REPUTAÇÃO */}
+                <div className="space-y-2">
+                  <div className="grid grid-cols-5 gap-2 pt-2">
+                    {[
+                      { name: 'Vermelho', color: '#E53935' },
+                      { name: 'Laranja', color: '#FF6B00' },
+                      { name: 'Amarelo', color: '#FFC107' },
+                      { name: 'Verde Claro', color: '#8BC34A' },
+                      { name: 'Verde Escuro', color: '#00A650' }
+                    ].map((lvl, idx) => {
+                      const isActiveLevel = repMetrics?.level_id === `${idx + 1}_green` || idx === 4;
+                      return (
+                        <div key={lvl.name} className="space-y-1">
+                          <div 
+                            style={{ backgroundColor: lvl.color }}
+                            className={`h-2.5 w-full rounded-full transition-all ${
+                              isActiveLevel ? 'opacity-100 ring-2 ring-[#333333] scale-105' : 'opacity-30'
+                            }`}
+                          />
+                          <span className={`text-[11px] text-center block ${isActiveLevel ? 'font-semibold text-[#333333]' : 'text-[#999999]'}`}>
+                            {lvl.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1767,20 +1801,20 @@ export function MercadoLivreDashboard() {
           {/* ========================================================================= */}
           {activeTab === 'financeiro' && (
             <div className="space-y-6 max-w-4xl mx-auto">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                <h3 className="text-base font-black text-slate-900">Resumo Financeiro & Tarifas</h3>
+              <div className="bg-white p-6 rounded-lg border border-[#E0E0E0] shadow-sm space-y-4">
+                <h3 className="text-base font-semibold text-[#333333]">Resumo Financeiro & Tarifas</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-xs text-slate-500 font-medium">Faturamento Bruto</span>
-                    <p className="text-lg font-black text-slate-900 mt-1">{formatCurrency(ordersMetrics.revenue)}</p>
+                  <div className="p-4 bg-[#F5F5F5] rounded-lg border border-[#E0E0E0]">
+                    <span className="text-xs text-[#999999] font-medium">Faturamento Bruto</span>
+                    <p className="text-lg font-bold text-[#333333] mt-1">{formatCurrency(ordersMetrics.revenue)}</p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-xs text-slate-500 font-medium">Gasto com Ads</span>
-                    <p className="text-lg font-black text-rose-600 mt-1">{formatCurrency(totalAdsSpend)}</p>
+                  <div className="p-4 bg-[#F5F5F5] rounded-lg border border-[#E0E0E0]">
+                    <span className="text-xs text-[#999999] font-medium">Gasto com Ads</span>
+                    <p className="text-lg font-bold text-[#E53935] mt-1">{formatCurrency(totalAdsSpend)}</p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-xs text-slate-500 font-medium">Vendas Líquidas Ads</span>
-                    <p className="text-lg font-black text-emerald-600 mt-1">{formatCurrency(totalAdsSales - totalAdsSpend)}</p>
+                  <div className="p-4 bg-[#F5F5F5] rounded-lg border border-[#E0E0E0]">
+                    <span className="text-xs text-[#999999] font-medium">Vendas Líquidas Ads</span>
+                    <p className="text-lg font-bold text-[#00A650] mt-1">{formatCurrency(totalAdsSales - totalAdsSpend)}</p>
                   </div>
                 </div>
               </div>
@@ -1791,11 +1825,11 @@ export function MercadoLivreDashboard() {
 
       {/* MODAL NOVA / EDITAR CAMPANHA (PRODUCT ADS) */}
       {(modalNewCampaignOpen || modalEditCampaign) && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Flame className="text-amber-500" size={18} />
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-lg shadow-xl p-6 space-y-4 border border-[#E0E0E0]">
+            <div className="flex items-center justify-between border-b border-[#E0E0E0] pb-3">
+              <h3 className="font-semibold text-[#333333] text-sm flex items-center gap-2">
+                <Flame className="text-[#FF6B00]" size={18} />
                 <span>{modalEditCampaign ? 'Editar Campanha' : 'Nova Campanha Product Ads'}</span>
               </h3>
               <button 
@@ -1803,50 +1837,50 @@ export function MercadoLivreDashboard() {
                   setModalNewCampaignOpen(false);
                   setModalEditCampaign(null);
                 }} 
-                className="text-slate-400 hover:text-slate-600"
+                className="text-[#999999] hover:text-[#333333]"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3 text-sm">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Nome da Campanha</label>
+                <label className="font-medium text-[#333333] block mb-1 text-xs">Nome da Campanha</label>
                 <input
                   type="text"
                   value={formCampaign.name}
                   onChange={e => setFormCampaign({ ...formCampaign, name: e.target.value })}
                   placeholder="Ex: Campanha Eletrônicos Top Vendas"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                  className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Orçamento Diário (R$)</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Orçamento Diário (R$)</label>
                   <input
                     type="number"
                     value={formCampaign.budget_amount}
                     onChange={e => setFormCampaign({ ...formCampaign, budget_amount: Number(e.target.value) })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">ROAS Target (Alvo)</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">ROAS Target (Alvo)</label>
                   <input
                     type="number"
                     step="0.5"
                     value={formCampaign.roas_target}
                     onChange={e => setFormCampaign({ ...formCampaign, roas_target: Number(e.target.value) })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   />
                 </div>
               </div>
 
               {!modalEditCampaign && (
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Anúncios para Vincular</label>
-                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-2 space-y-1.5 custom-scrollbar bg-slate-50">
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Anúncios para Vincular</label>
+                  <div className="max-h-40 overflow-y-auto border border-[#E0E0E0] rounded-md p-2 space-y-1.5 custom-scrollbar bg-[#F5F5F5]">
                     {items.map(item => {
                       const isSelected = formCampaign.selected_item_ids.includes(item.item_id);
                       return (
@@ -1860,12 +1894,12 @@ export function MercadoLivreDashboard() {
                                 : [...prev.selected_item_ids, item.item_id]
                             }));
                           }}
-                          className={`p-2 rounded-lg cursor-pointer flex items-center justify-between text-[11px] transition-all ${
-                            isSelected ? 'bg-blue-100 text-blue-900 border border-blue-300 font-bold' : 'bg-white hover:bg-slate-100'
+                          className={`p-2 rounded-md cursor-pointer flex items-center justify-between text-xs transition ${
+                            isSelected ? 'bg-[#3483FA] text-white font-semibold' : 'bg-white hover:bg-[#F5F5F5] text-[#333333]'
                           }`}
                         >
                           <span className="line-clamp-1">{item.title}</span>
-                          <span className="font-mono text-slate-500 shrink-0 ml-2">{formatCurrency(item.price)}</span>
+                          <span className="font-mono shrink-0 ml-2">{formatCurrency(item.price)}</span>
                         </div>
                       );
                     })}
@@ -1874,19 +1908,19 @@ export function MercadoLivreDashboard() {
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E0E0E0]">
               <button
                 onClick={() => {
                   setModalNewCampaignOpen(false);
                   setModalEditCampaign(null);
                 }}
-                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+                className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 py-2 text-sm hover:bg-[#F5F5F5] transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSaveCampaign}
-                className="px-5 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
+                className="bg-[#3483FA] text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5"
               >
                 <span>{modalEditCampaign ? 'Salvar Alterações' : 'Criar Campanha'}</span>
               </button>
@@ -1897,59 +1931,59 @@ export function MercadoLivreDashboard() {
 
       {/* MODAL NOVO ANÚNCIO (ORGÂNICO) */}
       {modalNewItemOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Package size={18} className="text-[#2D3277]" />
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6 space-y-4 border border-[#E0E0E0]">
+            <div className="flex items-center justify-between border-b border-[#E0E0E0] pb-3">
+              <h3 className="font-semibold text-[#333333] text-sm flex items-center gap-2">
+                <Package size={18} className="text-[#3483FA]" />
                 <span>Novo Anúncio no Mercado Livre</span>
               </h3>
-              <button onClick={() => setModalNewItemOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setModalNewItemOpen(false)} className="text-[#999999] hover:text-[#333333]">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3 text-sm">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Título do Anúncio *</label>
+                <label className="font-medium text-[#333333] block mb-1 text-xs">Título do Anúncio *</label>
                 <input
                   type="text"
                   value={formItem.title}
                   onChange={e => setFormItem({ ...formItem, title: e.target.value })}
                   placeholder="Ex: Smartphone Galaxy S23 256GB Preto Novo"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                  className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Preço (R$) *</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Preço (R$) *</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formItem.price}
                     onChange={e => setFormItem({ ...formItem, price: Number(e.target.value) })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Estoque Inicial *</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Estoque Inicial *</label>
                   <input
                     type="number"
                     value={formItem.available_quantity}
                     onChange={e => setFormItem({ ...formItem, available_quantity: Number(e.target.value) })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Exposição</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Exposição</label>
                   <select
                     value={formItem.listing_type_id}
                     onChange={e => setFormItem({ ...formItem, listing_type_id: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   >
                     <option value="gold_special">Clássico</option>
                     <option value="gold_pro">Premium (Sem juros)</option>
@@ -1957,11 +1991,11 @@ export function MercadoLivreDashboard() {
                 </div>
 
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Condição</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Condição</label>
                   <select
                     value={formItem.condition}
                     onChange={e => setFormItem({ ...formItem, condition: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   >
                     <option value="new">Novo</option>
                     <option value="used">Usado</option>
@@ -1970,27 +2004,27 @@ export function MercadoLivreDashboard() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">URL da Imagem (Thumbnail)</label>
+                <label className="font-medium text-[#333333] block mb-1 text-xs">URL da Imagem (Thumbnail)</label>
                 <input
                   type="text"
                   value={formItem.thumbnail}
                   onChange={e => setFormItem({ ...formItem, thumbnail: e.target.value })}
                   placeholder="https://..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                  className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E0E0E0]">
               <button
                 onClick={() => setModalNewItemOpen(false)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+                className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 py-2 text-sm hover:bg-[#F5F5F5] transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCreateItem}
-                className="px-5 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
+                className="bg-[#3483FA] text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5"
               >
                 <span>Criar Anúncio</span>
               </button>
@@ -2001,57 +2035,57 @@ export function MercadoLivreDashboard() {
 
       {/* MODAL EDITAR ANÚNCIO (ORGÂNICO) */}
       {modalEditItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Edit3 size={18} className="text-blue-600" />
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6 space-y-4 border border-[#E0E0E0]">
+            <div className="flex items-center justify-between border-b border-[#E0E0E0] pb-3">
+              <h3 className="font-semibold text-[#333333] text-sm flex items-center gap-2">
+                <Edit3 size={18} className="text-[#3483FA]" />
                 <span>Editar Anúncio</span>
               </h3>
-              <button onClick={() => setModalEditItem(null)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setModalEditItem(null)} className="text-[#999999] hover:text-[#333333]">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3 text-sm">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Título</label>
+                <label className="font-medium text-[#333333] block mb-1 text-xs">Título</label>
                 <input
                   type="text"
                   value={formItem.title}
                   onChange={e => setFormItem({ ...formItem, title: e.target.value })}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                  className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Preço (R$)</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Preço (R$)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formItem.price}
                     onChange={e => setFormItem({ ...formItem, price: Number(e.target.value) })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Estoque</label>
+                  <label className="font-medium text-[#333333] block mb-1 text-xs">Estoque</label>
                   <input
                     type="number"
                     value={formItem.available_quantity}
                     onChange={e => setFormItem({ ...formItem, available_quantity: Number(e.target.value) })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                    className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Status do Anúncio</label>
+                <label className="font-medium text-[#333333] block mb-1 text-xs">Status do Anúncio</label>
                 <select
                   value={formItem.status}
                   onChange={e => setFormItem({ ...formItem, status: e.target.value })}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2D3277]"
+                  className="w-full h-10 px-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA]"
                 >
                   <option value="active">Ativo</option>
                   <option value="paused">Pausado</option>
@@ -2059,16 +2093,16 @@ export function MercadoLivreDashboard() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E0E0E0]">
               <button
                 onClick={() => setModalEditItem(null)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+                className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 py-2 text-sm hover:bg-[#F5F5F5] transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSaveItemEdit}
-                className="px-5 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
+                className="bg-[#3483FA] text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5"
               >
                 <span>Salvar Alterações</span>
               </button>
@@ -2079,60 +2113,60 @@ export function MercadoLivreDashboard() {
 
       {/* MODAL DESTACAR ANÚNCIO (UPGRADE LISTING) */}
       {modalUpgradeItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Star size={18} className="text-amber-500 fill-amber-500" />
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-6 space-y-4 border border-[#E0E0E0]">
+            <div className="flex items-center justify-between border-b border-[#E0E0E0] pb-3">
+              <h3 className="font-semibold text-[#333333] text-sm flex items-center gap-2">
+                <Star size={18} className="text-[#FF6B00] fill-[#FF6B00]" />
                 <span>Mudar Exposição</span>
               </h3>
-              <button onClick={() => setModalUpgradeItem(null)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setModalUpgradeItem(null)} className="text-[#999999] hover:text-[#333333]">
                 <X size={18} />
               </button>
             </div>
 
-            <p className="text-xs text-slate-600">
-              Escolha o novo tipo de exposição para o anúncio <strong className="text-slate-900">{modalUpgradeItem.title}</strong>:
+            <p className="text-xs text-[#666666]">
+              Escolha o novo tipo de exposição para o anúncio <strong className="text-[#333333]">{modalUpgradeItem.title}</strong>:
             </p>
 
             <div className="space-y-2">
               <label 
                 onClick={() => setUpgradeListingTypeId('gold_special')}
-                className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                  upgradeListingTypeId === 'gold_special' ? 'border-[#2D3277] bg-blue-50/50' : 'border-slate-200 hover:bg-slate-50'
+                className={`p-3 rounded-md border flex items-center justify-between cursor-pointer transition ${
+                  upgradeListingTypeId === 'gold_special' ? 'border-[#3483FA] bg-[#F5F5F5]' : 'border-[#E0E0E0] hover:bg-[#F5F5F5]'
                 }`}
               >
                 <div>
-                  <span className="font-bold text-xs text-slate-900 block">Clássico (gold_special)</span>
-                  <span className="text-[11px] text-slate-500">Exposição alta, com comissão padrão</span>
+                  <span className="font-semibold text-xs text-[#333333] block">Clássico (gold_special)</span>
+                  <span className="text-[11px] text-[#666666]">Exposição alta, com comissão padrão</span>
                 </div>
-                {upgradeListingTypeId === 'gold_special' && <CheckCircle size={16} className="text-[#2D3277]" />}
+                {upgradeListingTypeId === 'gold_special' && <CheckCircle size={16} className="text-[#3483FA]" />}
               </label>
 
               <label 
                 onClick={() => setUpgradeListingTypeId('gold_pro')}
-                className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                  upgradeListingTypeId === 'gold_pro' ? 'border-[#2D3277] bg-blue-50/50' : 'border-slate-200 hover:bg-slate-50'
+                className={`p-3 rounded-md border flex items-center justify-between cursor-pointer transition ${
+                  upgradeListingTypeId === 'gold_pro' ? 'border-[#3483FA] bg-[#F5F5F5]' : 'border-[#E0E0E0] hover:bg-[#F5F5F5]'
                 }`}
               >
                 <div>
-                  <span className="font-bold text-xs text-slate-900 block">Premium (gold_pro)</span>
-                  <span className="text-[11px] text-slate-500">Exposição máxima + Parcelamento sem juros</span>
+                  <span className="font-semibold text-xs text-[#333333] block">Premium (gold_pro)</span>
+                  <span className="text-[11px] text-[#666666]">Exposição máxima + Parcelamento sem juros</span>
                 </div>
-                {upgradeListingTypeId === 'gold_pro' && <CheckCircle size={16} className="text-[#2D3277]" />}
+                {upgradeListingTypeId === 'gold_pro' && <CheckCircle size={16} className="text-[#3483FA]" />}
               </label>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E0E0E0]">
               <button
                 onClick={() => setModalUpgradeItem(null)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+                className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 py-2 text-sm hover:bg-[#F5F5F5] transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleUpgradeListing}
-                className="px-5 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
+                className="bg-[#3483FA] text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5"
               >
                 <span>Atualizar</span>
               </button>
@@ -2143,45 +2177,45 @@ export function MercadoLivreDashboard() {
 
       {/* DRAWER LATERAL: DETALHES DO ANÚNCIO */}
       {selectedItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
-          <div className="w-full max-w-lg bg-white h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between">
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex justify-end">
+          <div className="w-full max-w-lg bg-white h-full shadow-xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between border-l border-[#E0E0E0]">
             <div className="space-y-5">
-              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-start justify-between border-b border-[#E0E0E0] pb-4">
                 <div className="flex items-center gap-3">
-                  <img src={selectedItem.thumbnail} alt="" className="w-12 h-12 rounded-xl object-cover border" />
+                  <img src={selectedItem.thumbnail} alt="" className="w-12 h-12 rounded-md object-cover border border-[#E0E0E0]" />
                   <div>
-                    <span className="text-xs font-mono text-slate-400">MLB #{selectedItem.item_id}</span>
-                    <h3 className="font-bold text-sm text-slate-900 line-clamp-2">{selectedItem.title}</h3>
+                    <span className="text-xs font-mono text-[#999999]">MLB #{selectedItem.item_id}</span>
+                    <h3 className="font-semibold text-sm text-[#333333] line-clamp-2">{selectedItem.title}</h3>
                   </div>
                 </div>
-                <button onClick={() => setSelectedItem(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                <button onClick={() => setSelectedItem(null)} className="text-[#999999] hover:text-[#333333] p-1">
                   <X size={20} />
                 </button>
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400">Preço Atual</span>
-                  <p className="font-bold text-slate-900 text-sm">{formatCurrency(selectedItem.price)}</p>
+                <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0]">
+                  <span className="text-[#999999]">Preço Atual</span>
+                  <p className="font-bold text-[#333333] text-sm">{formatCurrency(selectedItem.price)}</p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400">Estoque</span>
-                  <p className="font-bold text-slate-900 text-sm">{selectedItem.available_quantity} un</p>
+                <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0]">
+                  <span className="text-[#999999]">Estoque</span>
+                  <p className="font-bold text-[#333333] text-sm">{selectedItem.available_quantity} un</p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400">Vendidos</span>
-                  <p className="font-bold text-emerald-600 text-sm">{selectedItem.sold_quantity} un</p>
+                <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0]">
+                  <span className="text-[#999999]">Vendidos</span>
+                  <p className="font-bold text-[#00A650] text-sm">{selectedItem.sold_quantity} un</p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400">Status</span>
-                  <p className="font-bold text-slate-900 text-sm">{selectedItem.status}</p>
+                <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0]">
+                  <span className="text-[#999999]">Status</span>
+                  <p className="font-bold text-[#333333] text-sm uppercase">{selectedItem.status}</p>
                 </div>
               </div>
             </div>
 
             <button
               onClick={() => setSelectedItem(null)}
-              className="w-full py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800"
+              className="w-full py-2 bg-[#333333] text-white font-medium text-sm rounded-md hover:bg-[#666666] transition"
             >
               Fechar Detalhes
             </button>
@@ -2191,33 +2225,33 @@ export function MercadoLivreDashboard() {
 
       {/* DRAWER LATERAL: DETALHES DO PEDIDO */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
-          <div className="w-full max-w-lg bg-white h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between">
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex justify-end">
+          <div className="w-full max-w-lg bg-white h-full shadow-xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between border-l border-[#E0E0E0]">
             <div className="space-y-5">
-              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-start justify-between border-b border-[#E0E0E0] pb-4">
                 <div>
-                  <span className="text-xs font-mono text-slate-400">Pedido #{selectedOrder.ml_order_id}</span>
-                  <h3 className="font-bold text-base text-slate-900 mt-0.5">{selectedOrder.item_title || 'Pedido Mercado Livre'}</h3>
+                  <span className="text-xs font-mono text-[#999999]">Pedido #{selectedOrder.ml_order_id}</span>
+                  <h3 className="font-semibold text-base text-[#333333] mt-0.5">{selectedOrder.item_title || 'Pedido Mercado Livre'}</h3>
                 </div>
-                <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                <button onClick={() => setSelectedOrder(null)} className="text-[#999999] hover:text-[#333333] p-1">
                   <X size={20} />
                 </button>
               </div>
 
               <div className="space-y-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-xl space-y-1">
-                  <span className="text-slate-400 font-medium">Comprador</span>
-                  <p className="font-bold text-slate-900">@{selectedOrder.buyer_nickname || 'anônimo'}</p>
+                <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0] space-y-1">
+                  <span className="text-[#999999] font-medium">Comprador</span>
+                  <p className="font-semibold text-[#333333]">@{selectedOrder.buyer_nickname || 'anônimo'}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 bg-slate-50 rounded-xl">
-                    <span className="text-slate-400">Valor Total</span>
-                    <p className="font-black text-slate-900 text-sm">{formatCurrency(selectedOrder.total_amount)}</p>
+                  <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0]">
+                    <span className="text-[#999999]">Valor Total</span>
+                    <p className="font-bold text-[#333333] text-sm">{formatCurrency(selectedOrder.total_amount)}</p>
                   </div>
-                  <div className="p-3 bg-slate-50 rounded-xl">
-                    <span className="text-slate-400">Data da Venda</span>
-                    <p className="font-bold text-slate-900">{formatDate(selectedOrder.date_created)}</p>
+                  <div className="p-3 bg-[#F5F5F5] rounded-md border border-[#E0E0E0]">
+                    <span className="text-[#999999]">Data da Venda</span>
+                    <p className="font-semibold text-[#333333]">{formatDate(selectedOrder.date_created)}</p>
                   </div>
                 </div>
               </div>
@@ -2225,7 +2259,7 @@ export function MercadoLivreDashboard() {
 
             <button
               onClick={() => setSelectedOrder(null)}
-              className="w-full py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800"
+              className="w-full py-2 bg-[#333333] text-white font-medium text-sm rounded-md hover:bg-[#666666] transition"
             >
               Fechar Detalhes
             </button>
@@ -2235,18 +2269,18 @@ export function MercadoLivreDashboard() {
 
       {/* MODAL RESPONDER PERGUNTA */}
       {replyingQuestion && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-sm">Responder Pergunta</h3>
-              <button onClick={() => setReplyingQuestion(null)} className="text-slate-400 hover:text-slate-600">
+        <div className="fixed inset-0 z-50 bg-[#333333]/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6 space-y-4 border border-[#E0E0E0]">
+            <div className="flex items-center justify-between border-b border-[#E0E0E0] pb-3">
+              <h3 className="font-semibold text-[#333333] text-sm">Responder Pergunta</h3>
+              <button onClick={() => setReplyingQuestion(null)} className="text-[#999999] hover:text-[#333333]">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
-              <span className="font-bold text-slate-700">@{replyingQuestion.from_nickname}:</span>
-              <p className="text-slate-600">"{replyingQuestion.text}"</p>
+            <div className="p-3 bg-[#F5F5F5] rounded-md text-xs space-y-1 border border-[#E0E0E0]">
+              <span className="font-semibold text-[#333333]">@{replyingQuestion.from_nickname}:</span>
+              <p className="text-[#666666]">"{replyingQuestion.text}"</p>
             </div>
 
             <textarea
@@ -2254,20 +2288,20 @@ export function MercadoLivreDashboard() {
               onChange={e => setReplyText(e.target.value)}
               placeholder="Digite sua resposta para o comprador..."
               rows={4}
-              className="w-full p-3 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+              className="w-full p-3 bg-white border border-[#DDDDDD] rounded-md text-sm text-[#333333] focus:outline-none focus:border-[#3483FA] placeholder-[#BBBBBB]"
             />
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E0E0E0]">
               <button
                 onClick={() => setReplyingQuestion(null)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+                className="bg-white border border-[#E0E0E0] text-[#333333] rounded-md px-4 py-2 text-sm hover:bg-[#F5F5F5] transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSendReply}
                 disabled={isSendingReply || !replyText.trim()}
-                className="px-5 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 disabled:opacity-50"
+                className="bg-[#3483FA] text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-[#2968C8] transition flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Send size={14} />
                 <span>{isSendingReply ? 'Enviando...' : 'Enviar Resposta'}</span>

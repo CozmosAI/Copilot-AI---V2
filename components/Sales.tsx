@@ -1387,7 +1387,7 @@ const Sales: React.FC = () => {
   }, [leads, activeSegmentId, segments]);
 
   // --- STATS PARA O HEADER ---
-  const pipelineValue = filteredLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
+  const pipelineValue = filteredLeads.reduce((acc, l) => acc + (Number(l.potentialValue || (l as any).potential_value || 0) || 0), 0);
   const conversionRate = filteredLeads.length > 0 ? (filteredLeads.filter(l => l.status === 'Venda').length / filteredLeads.length) * 100 : 0;
   const activeLeadsCount = filteredLeads.filter(l => l.status !== 'Venda' && l.status !== 'Perdido').length;
 
@@ -1407,7 +1407,7 @@ const Sales: React.FC = () => {
       const sortedLeads = (aiConfig.scoringEnabled && sortByScore)
         ? [...columnLeads].sort((a, b) => (b.score || 0) - (a.score || 0))
         : columnLeads;
-      const totalValue = columnLeads.reduce((acc, l) => acc + (l.potentialValue || 0), 0);
+      const totalValue = columnLeads.reduce((acc, l) => acc + (Number(l.potentialValue || (l as any).potential_value || 0) || 0), 0);
       const isEditing = editingColumnId === status;
 
       return (
