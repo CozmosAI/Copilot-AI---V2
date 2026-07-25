@@ -795,6 +795,15 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       }
   };
 
+  // Check if we already have preloaded overview data from App context or state
+  const hasPreloadedOverview = useMemo(() => {
+      if (activePlatform === 'google') {
+          return (adsData?.marketing?.googleOverview && adsData.marketing.googleOverview.length > 0) || overviewData.length > 0 || campaigns.length > 0;
+      } else {
+          return (adsData?.marketing?.metaOverview && adsData.marketing.metaOverview.length > 0) || metaOverviewData.length > 0 || metaCampaigns.length > 0;
+      }
+  }, [activePlatform, adsData?.marketing?.googleOverview, adsData?.marketing?.metaOverview, overviewData, metaOverviewData, campaigns, metaCampaigns]);
+
   // --- PLATFORM ADAPTERS ---
   const currentOverviewData = useMemo(() => {
       if (activePlatform === 'google' && adsData?.marketing?.googleOverview) {
@@ -1222,6 +1231,11 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     ) : (
                         <span className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-widest border border-amber-100 flex items-center gap-1"><AlertCircle size={8} /> Desconectado</span>
                     )}
+                    {loading && hasPreloadedOverview && (
+                        <span className="bg-blue-50 text-blue-700 text-[9px] font-bold px-2.5 py-0.5 rounded uppercase tracking-widest border border-blue-100 flex items-center gap-1 animate-pulse">
+                            <Loader2 size={10} className="animate-spin text-blue-600" /> Sincronizando...
+                        </span>
+                    )}
                 </div>
             </div>
             
@@ -1416,7 +1430,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
           ))}
       </div>
 
-      {loading ? (
+      {loading && !hasPreloadedOverview ? (
         <div className="h-96 flex flex-col items-center justify-center gap-4 bg-white rounded-2xl border border-slate-200">
           <Loader2 size={32} className="text-navy animate-spin" />
           <p className="text-[10px] font-bold text-navy uppercase tracking-widest">Carregando dados do {activePlatform === 'meta' ? 'Meta' : 'Google'} Ads...</p>

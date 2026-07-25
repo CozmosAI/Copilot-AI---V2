@@ -1243,7 +1243,7 @@ export function MercadoLivreDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {itemsLoading ? (
+                        {itemsLoading && items.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="p-12 text-center text-slate-500">
                               <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-slate-700" />
@@ -1560,7 +1560,7 @@ export function MercadoLivreDashboard() {
 
                 {/* LISTA DE PERGUNTAS */}
                 <div className="space-y-3">
-                  {questionsLoading ? (
+                  {questionsLoading && questions.length === 0 ? (
                     <div className="p-12 text-center text-slate-500">
                       <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-slate-700" />
                       Carregando perguntas dos clientes...
@@ -1743,7 +1743,7 @@ export function MercadoLivreDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {campaignsLoading ? (
+                        {campaignsLoading && campaigns.length === 0 ? (
                           <tr>
                             <td colSpan={10} className="p-12 text-center text-slate-500">
                               <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-slate-700" />

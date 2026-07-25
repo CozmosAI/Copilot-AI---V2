@@ -526,7 +526,7 @@ const Dashboard: React.FC = () => {
          {(googleAccount !== null || metaAccount !== null) && (
            <div className="bg-white p-3.5 md:p-6 rounded-xl md:rounded-2xl border border-slate-200 shadow-sm relative hover:border-blue-300 transition-colors">
               <div className="flex justify-between items-start mb-2 md:mb-4"><span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Investimento (Mkt)</span><div className="p-1.5 md:p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0"><Megaphone size={14} className="md:w-[18px] md:h-[18px]" /></div></div>
-              {isLoading ? (
+              {isLoading && (googleStats.spend === 0 && metaStats.spend === 0 && metrics.marketing.investimento === 0) ? (
                 <div className="space-y-3 animate-pulse">
                   <div className="h-6 bg-slate-200 rounded w-2/3"></div>
                   <div className="space-y-1.5 pt-2 border-t border-slate-100">
