@@ -136,7 +136,113 @@ app.use('/api/', (req, res, next) => {
     record.count++;
     next();
 });
-app.use(express.json({ limit: '50mb' })); 
+// --- HELPER VALIDAÇÃO ASSINATURA META WEBHOOK ---
+function validateMetaWebhookSignature(rawBody, signatureHeader, appSecret) {
+    if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
+    if (!appSecret) return false;
+
+    let payloadBuffer;
+    if (Buffer.isBuffer(rawBody)) {
+        payloadBuffer = rawBody;
+    } else if (typeof rawBody === 'string') {
+        payloadBuffer = Buffer.from(rawBody, 'utf8');
+    } else {
+        payloadBuffer = Buffer.from(JSON.stringify(rawBody || {}), 'utf8');
+    }
+
+    const expectedSignature = 'sha256=' + crypto.createHmac('sha256', appSecret).update(payloadBuffer).digest('hex');
+
+    try {
+        const bufExpected = Buffer.from(expectedSignature, 'utf8');
+        const bufReceived = Buffer.from(signatureHeader, 'utf8');
+        if (bufExpected.length !== bufReceived.length) {
+            return false;
+        }
+        return crypto.timingSafeEqual(bufExpected, bufReceived);
+    } catch (e) {
+        return false;
+    }
+}
+
+// ROTA 3.2: POST /api/meta-ads/webhook (Receiver com RAW body + HMAC SHA256)
+app.post('/api/meta-ads/webhook', express.raw({ type: '*/*' }), async (req, res) => {
+    try {
+        const rawBody = Buffer.isBuffer(req.body) 
+            ? req.body 
+            : (req.rawBody || Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {})));
+        const signature = req.headers['x-hub-signature-256'] || req.headers['X-Hub-Signature-256'];
+        const appSecret = process.env.META_APP_SECRET;
+
+        if (!validateMetaWebhookSignature(rawBody, signature, appSecret)) {
+            console.warn('[Meta Webhook] Assinatura SHA256 inválida ou ausente.');
+            return res.status(401).json({ error: 'Assinatura inválida' });
+        }
+
+        // Responder 200 OK imediatamente para a Meta
+        res.status(200).send('EVENT_RECEIVED');
+
+        // Processar salvamento assíncrono na fila
+        let bodyJson;
+        try {
+            const rawString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : String(rawBody);
+            bodyJson = JSON.parse(rawString);
+        } catch (e) {
+            console.error('[Meta Webhook] Corrupt JSON body:', e);
+            return;
+        }
+
+        if (!bodyJson || !Array.isArray(bodyJson.entry)) {
+            return;
+        }
+
+        const eventsToInsert = [];
+        const client = supabaseAdmin || supabase;
+
+        bodyJson.entry.forEach((entry) => {
+            const adAccountId = entry.id || 'unknown';
+            const entryTime = entry.time || Math.floor(Date.now() / 1000);
+            const changes = Array.isArray(entry.changes) ? entry.changes : [];
+
+            changes.forEach((change, index) => {
+                const fieldName = change.field || 'unknown';
+                const idempotencyId = `${adAccountId}-${entryTime}-${fieldName}-${index}`;
+
+                eventsToInsert.push({
+                    idempotency_id: idempotencyId,
+                    ad_account_id: String(adAccountId),
+                    field: String(fieldName),
+                    raw_payload: change.value || change,
+                    status: 'pending',
+                    received_at: new Date().toISOString()
+                });
+            });
+        });
+
+        if (eventsToInsert.length > 0) {
+            const { error: insertError } = await client
+                .from('meta_webhook_events')
+                .upsert(eventsToInsert, { onConflict: 'idempotency_id', ignoreDuplicates: true });
+
+            if (insertError) {
+                console.error('[Meta Webhook] Erro ao salvar eventos na fila:', insertError);
+            } else {
+                console.log(`[Meta Webhook] ${eventsToInsert.length} eventos salvos na fila.`);
+            }
+        }
+    } catch (err) {
+        console.error('[Meta Webhook Error]:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    }
+});
+
+app.use(express.json({ 
+    limit: '50mb',
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+})); 
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Middleware de Log
@@ -1809,6 +1915,113 @@ app.post('/api/meta-ads/campaigns/update-budget', async (req, res) => {
     } catch (err) {
         console.error('[Meta Ads Update Budget Error]:', err);
         res.status(err.message === 'Meta Ads não conectado' ? 400 : 500).json({ error: err.message });
+    }
+});
+
+// --- META ADS WEBHOOK AUXILIARY ROUTES ---
+
+// 3.1) GET /api/meta-ads/webhook (Verificação inicial de desafio da Meta)
+app.get('/api/meta-ads/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
+
+    if (mode === 'subscribe' && token && expectedToken && token === expectedToken) {
+        console.log('[Meta Webhook Verification] Token verificado com sucesso.');
+        return res.status(200).send(challenge);
+    } else {
+        console.warn('[Meta Webhook Verification] Token ou modo inválido.');
+        return res.sendStatus(403);
+    }
+});
+
+// 3.3) POST /api/meta-ads/webhook/subscribe (Configurar inscrição - protegida por getAuthUser)
+app.post('/api/meta-ads/webhook/subscribe', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const { ad_account_id } = req.body || {};
+        const client = supabaseAdmin || supabase;
+
+        const { data: integration, error } = await client
+            .from('meta_ads_integrations')
+            .select('access_token, ad_account_id')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+
+        if (error || !integration || !integration.access_token) {
+            return res.status(400).json({ error: 'Conexão Meta Ads não encontrada para este usuário.' });
+        }
+
+        const targetAccountId = ad_account_id || integration.ad_account_id;
+        if (!targetAccountId) {
+            return res.status(400).json({ error: 'ID da conta de anúncio (ad_account_id) é obrigatório.' });
+        }
+
+        const cleanAccountId = String(targetAccountId).replace(/^act_/, '');
+        const accountPath = `act_${cleanAccountId}`;
+        const apiVersion = process.env.META_API_VERSION || 'v25.0';
+        const url = `https://graph.facebook.com/${apiVersion}/${accountPath}/subscribed_apps`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${integration.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                subscribed_fields: 'effective_status,with_issues_ad_objects'
+            })
+        });
+
+        const resData = await response.json();
+        if (!response.ok) {
+            console.error('[Meta Webhook Subscribe Error]:', resData);
+            return res.status(response.status).json({ 
+                error: resData.error?.message || 'Falha ao subscrever na Meta Graph API',
+                details: resData 
+            });
+        }
+
+        return res.json({ ok: true, subscribed: true, meta_response: resData });
+    } catch (err) {
+        console.error('[Meta Webhook Subscribe Exception]:', err);
+        return res.status(err.status || 500).json({ error: err.message || 'Erro ao configurar inscrição de Webhook' });
+    }
+});
+
+// 3.4) GET /api/meta-ads/webhook/status (Debug/Status - protegida)
+app.get('/api/meta-ads/webhook/status', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        const client = supabaseAdmin || supabase;
+
+        const { data: events, error } = await client
+            .from('meta_webhook_events')
+            .select('status, received_at')
+            .order('received_at', { ascending: false });
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        const total_events = events ? events.length : 0;
+        const pending = events ? events.filter(e => e.status === 'pending' || e.status === 'processing').length : 0;
+        const processed = events ? events.filter(e => e.status === 'processed').length : 0;
+        const failed = events ? events.filter(e => e.status === 'failed' || e.status === 'dead_letter').length : 0;
+        const last_event_at = events && events.length > 0 ? events[0].received_at : null;
+
+        return res.json({
+            ok: true,
+            total_events,
+            pending,
+            processed,
+            failed,
+            last_event_at
+        });
+    } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message || 'Erro interno' });
     }
 });
 
@@ -8626,14 +8839,14 @@ app.get('/api/ml/messages', async (req, res) => {
     }
 });
 
-// 6.3b) GET /api/ml/items (Listar anúncios do Mercado Livre)
+// 6.3b) GET /api/ml/items (Listar anúncios do Mercado Livre com filtro de tipo)
 app.get('/api/ml/items', async (req, res) => {
     try {
         const authUser = await getAuthUser(req);
         if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
 
         const client = supabaseAdmin || supabase;
-        const { status, limit: limitQuery, offset: offsetQuery, search } = req.query;
+        const { status, limit: limitQuery, offset: offsetQuery, search, type } = req.query;
 
         const limit = Math.min(Math.max(parseInt(String(limitQuery || '50'), 10) || 50, 1), 100);
         const offset = Math.max(parseInt(String(offsetQuery || '0'), 10) || 0, 0);
@@ -8644,6 +8857,14 @@ app.get('/api/ml/items', async (req, res) => {
 
         if (status) {
             query = query.ilike('status', String(status));
+        }
+
+        if (type === 'sponsored') {
+            query = query.eq('is_sponsored', true);
+        } else if (type === 'organic') {
+            query = query.eq('is_sponsored', false);
+        } else if (type === 'catalog') {
+            query = query.eq('catalog_listing', true);
         }
 
         if (search) {
@@ -8673,6 +8894,278 @@ app.get('/api/ml/items', async (req, res) => {
     }
 });
 
+// 6.3c) POST /api/ml/items/sync (Backfill completo de anúncios do Mercado Livre)
+app.post('/api/ml/items/sync', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+    
+    const client = supabaseAdmin || supabase;
+    
+    // 1. Buscar ml_user_id do usuário
+    const { data: conn } = await client.from('ml_connections')
+      .select('ml_user_id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    
+    if (!conn?.ml_user_id) {
+      return res.status(400).json({ error: 'Mercado Livre não conectado' });
+    }
+    
+    const sellerId = conn.ml_user_id;
+    const token = await getValidMlToken(authUser.id);
+    
+    // 2. Buscar TODOS os item_ids via paginação
+    const statusParam = req.query.status || req.body?.status;
+    const statusQuery = statusParam ? `&status=${statusParam}` : '';
+
+    const allItemIds = [];
+    let offset = 0;
+    const limit = 50;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const searchUrl = `https://api.mercadolibre.com/users/${sellerId}/items/search?limit=${limit}&offset=${offset}${statusQuery}`;
+      const searchRes = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!searchRes.ok) {
+        throw new Error(`Erro search (${searchRes.status}): ${await searchRes.text()}`);
+      }
+      
+      const searchData = await searchRes.json();
+      const results = searchData.results || [];
+      allItemIds.push(...results);
+      
+      const total = searchData.paging?.total || 0;
+      if (allItemIds.length >= total || offset + limit >= 10000 || results.length === 0) {
+        hasMore = false;
+      } else {
+        offset += limit;
+      }
+      
+      // Rate limit: aguardar 200ms entre páginas
+      await new Promise(r => setTimeout(r, 200));
+    }
+    
+    // 3. Para cada item_id, buscar detalhes + upsert em ml_items
+    let synced = 0;
+    let errors = 0;
+    const batchSize = 10;
+    
+    for (let i = 0; i < allItemIds.length; i += batchSize) {
+      const batch = allItemIds.slice(i, i + batchSize);
+      
+      await Promise.all(batch.map(async (itemId) => {
+        try {
+          const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!itemRes.ok) {
+            errors++;
+            return;
+          }
+          
+          const itemData = await itemRes.json();
+          const tags = Array.isArray(itemData.tags) ? itemData.tags : [];
+          const sku = itemData.seller_custom_field || itemData.attributes?.find(a => a.id === 'SELLER_SKU')?.value_name || '';
+          
+          await client.from('ml_items').upsert({
+            user_id: authUser.id,
+            ml_user_id: Number(sellerId),
+            item_id: String(itemData.id),
+            title: itemData.title || '',
+            category_id: itemData.category_id || '',
+            price: itemData.price || 0,
+            currency_id: itemData.currency_id || 'BRL',
+            available_quantity: itemData.available_quantity || 0,
+            sold_quantity: itemData.sold_quantity || 0,
+            condition: itemData.condition || '',
+            listing_type_id: itemData.listing_type_id || '',
+            status: itemData.status || '',
+            permalink: itemData.permalink || '',
+            thumbnail: itemData.thumbnail || '',
+            seller_sku: sku,
+            variation_id: itemData.variations?.[0]?.id ? String(itemData.variations[0].id) : null,
+            catalog_listing: itemData.catalog_listing === true,
+            is_sponsored: tags.includes('paid_listing'),
+            tags: tags,
+            raw_payload: itemData,
+            last_synced_at: new Date().toISOString()
+          }, { onConflict: 'item_id' });
+          
+          synced++;
+        } catch (e) {
+          errors++;
+          console.error(`[ML Sync] Erro no item ${itemId}:`, e.message);
+        }
+      }));
+      
+      await new Promise(r => setTimeout(r, 200));
+    }
+    
+    res.json({
+      ok: true,
+      total_found: allItemIds.length,
+      synced,
+      errors,
+      message: `Sincronizados ${synced} anúncios de ${allItemIds.length} encontrados`
+    });
+    
+  } catch (err) {
+    console.error('[ML Items Sync] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6.3d) POST /api/ml/orders/sync (Backfill de pedidos históricos do Mercado Livre)
+app.post('/api/ml/orders/sync', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+    
+    const client = supabaseAdmin || supabase;
+    
+    const { data: conn } = await client.from('ml_connections')
+      .select('ml_user_id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    
+    if (!conn?.ml_user_id) {
+      return res.status(400).json({ error: 'Mercado Livre não conectado' });
+    }
+    
+    const sellerId = conn.ml_user_id;
+    const token = await getValidMlToken(authUser.id);
+    
+    const days = parseInt(req.body?.days || req.query?.days || '90', 10) || 90;
+    const now = new Date();
+    const fromDateObj = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    
+    const dateFrom = req.body?.date_from || req.query?.date_from || fromDateObj.toISOString();
+    const dateTo = req.body?.date_to || req.query?.date_to || now.toISOString();
+    
+    let offset = 0;
+    const limit = 50;
+    let hasMore = true;
+    let synced = 0;
+    let totalFound = 0;
+    let errors = 0;
+    
+    while (hasMore) {
+      const searchUrl = `https://api.mercadolibre.com/orders/search?seller=${sellerId}&order.date_created.from=${encodeURIComponent(dateFrom)}&order.date_created.to=${encodeURIComponent(dateTo)}&limit=${limit}&offset=${offset}&sort=date_created_desc`;
+      
+      const searchRes = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!searchRes.ok) {
+        throw new Error(`Erro orders search (${searchRes.status}): ${await searchRes.text()}`);
+      }
+      
+      const searchData = await searchRes.json();
+      const results = searchData.results || [];
+      totalFound = searchData.paging?.total || results.length;
+      
+      for (const orderData of results) {
+        try {
+          const firstItem = orderData.order_items?.[0] || {};
+          const firstPayment = orderData.payments?.[0] || {};
+          
+          await client.from('ml_orders').upsert({
+            user_id: authUser.id,
+            ml_order_id: String(orderData.id),
+            buyer_nickname: orderData.buyer?.nickname || '',
+            buyer_email: orderData.buyer?.email || '',
+            buyer_phone: orderData.buyer?.phone?.number || '',
+            buyer_id: orderData.buyer?.id ? Number(orderData.buyer.id) : null,
+            item_id: firstItem.item?.id || '',
+            item_title: firstItem.item?.title || '',
+            quantity: firstItem.quantity || 1,
+            unit_price: firstItem.unit_price || 0,
+            total_amount: orderData.total_amount || 0,
+            currency: orderData.currency_id || 'BRL',
+            status: orderData.status || '',
+            payment_status: firstPayment.status || '',
+            payment_id: firstPayment.id ? String(firstPayment.id) : null,
+            payment_method_id: firstPayment.payment_method_id || '',
+            shipping_id: orderData.shipping?.id ? String(orderData.shipping.id) : null,
+            shipping_cost: orderData.shipping_cost || 0,
+            tags: orderData.tags || [],
+            pack_id: orderData.pack_id ? Number(orderData.pack_id) : null,
+            date_created: orderData.date_created ? new Date(orderData.date_created).toISOString() : null,
+            date_closed: orderData.date_closed ? new Date(orderData.date_closed).toISOString() : null,
+            raw: orderData,
+            imported_at: new Date().toISOString()
+          }, { onConflict: 'ml_order_id' });
+          
+          synced++;
+        } catch (e) {
+          errors++;
+          console.error(`[ML Orders Sync] Erro no pedido ${orderData.id}:`, e.message);
+        }
+      }
+      
+      if (offset + limit >= totalFound || offset + limit >= 10000 || results.length === 0) {
+        hasMore = false;
+      } else {
+        offset += limit;
+      }
+      
+      await new Promise(r => setTimeout(r, 200));
+    }
+    
+    res.json({
+      ok: true,
+      total_found: totalFound,
+      synced,
+      errors,
+      message: `Sincronizados ${synced} pedidos dos últimos ${days} dias (${totalFound} encontrados)`
+    });
+    
+  } catch (err) {
+    console.error('[ML Orders Sync] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6.3e) GET /api/ml/reputation (Reputação do vendedor no Mercado Livre)
+app.get('/api/ml/reputation', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+    
+    const client = supabaseAdmin || supabase;
+    const { data: conn } = await client.from('ml_connections')
+      .select('ml_user_id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    
+    if (!conn?.ml_user_id) return res.status(400).json({ error: 'Mercado Livre não conectado' });
+    
+    const token = await getValidMlToken(authUser.id);
+    
+    const repRes = await fetch(`https://api.mercadolibre.com/users/${conn.ml_user_id}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (!repRes.ok) return res.status(repRes.status).json({ error: await repRes.text() });
+    
+    const userData = await repRes.json();
+    res.json({
+      ok: true,
+      user_id: userData.id,
+      nickname: userData.nickname,
+      seller_reputation: userData.seller_reputation || null,
+      status: userData.status || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 6.4) GET /api/ml/dashboard (Métricas agregadas do Mercado Livre para o Painel)
 app.get('/api/ml/dashboard', async (req, res) => {
     try {
@@ -8690,9 +9183,13 @@ app.get('/api/ml/dashboard', async (req, res) => {
         const fromDate = fromDateObj.toISOString();
         const toDate = now.toISOString();
 
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const startOf7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
         // Buscar pedidos no período
         const { data: orders } = await client.from('ml_orders')
-            .select('status, total_amount')
+            .select('status, total_amount, date_created')
             .eq('user_id', authUser.id)
             .gte('date_created', fromDate)
             .lte('date_created', toDate);
@@ -8706,13 +9203,40 @@ app.get('/api/ml/dashboard', async (req, res) => {
 
         // Buscar itens cadastrados
         const { data: items } = await client.from('ml_items')
-            .select('status')
+            .select('status, catalog_listing, is_sponsored')
             .eq('user_id', authUser.id);
 
         // Buscar mensagens
         const { data: messages } = await client.from('ml_messages')
             .select('status')
             .eq('user_id', authUser.id);
+
+        // Reputação
+        let reputation = null;
+        try {
+            const { data: conn } = await client.from('ml_connections')
+                .select('ml_user_id')
+                .eq('user_id', authUser.id)
+                .maybeSingle();
+
+            if (conn?.ml_user_id) {
+                const token = await getValidMlToken(authUser.id);
+                const userRes = await fetch(`https://api.mercadolibre.com/users/${conn.ml_user_id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (userRes.ok) {
+                    const userData = await userRes.json();
+                    reputation = {
+                        level_id: userData.seller_reputation?.level_id || null,
+                        power_seller_status: userData.seller_reputation?.power_seller_status || null,
+                        transactions: userData.seller_reputation?.transactions || null,
+                        metrics: userData.seller_reputation?.metrics || null
+                    };
+                }
+            }
+        } catch (repErr) {
+            console.warn('[ML Dashboard] Reputação erro:', repErr.message);
+        }
 
         const orderList = orders || [];
         const totalOrders = orderList.length;
@@ -8725,6 +9249,27 @@ app.get('/api/ml/dashboard', async (req, res) => {
             .filter(o => o.status !== 'cancelled')
             .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
+        // Totais de vendas: hoje, esta semana, este mês
+        const validOrders = orderList.filter(o => o.status !== 'cancelled');
+        const salesToday = validOrders.filter(o => o.date_created && o.date_created >= startOfToday);
+        const salesWeek = validOrders.filter(o => o.date_created && o.date_created >= startOf7d);
+        const salesMonth = validOrders.filter(o => o.date_created && o.date_created >= startOfMonth);
+
+        const sales_totals = {
+            today: {
+                count: salesToday.length,
+                revenue: Number(salesToday.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0).toFixed(2))
+            },
+            this_week: {
+                count: salesWeek.length,
+                revenue: Number(salesWeek.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0).toFixed(2))
+            },
+            this_month: {
+                count: salesMonth.length,
+                revenue: Number(salesMonth.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0).toFixed(2))
+            }
+        };
+
         const questionList = questions || [];
         const totalQuestions = questionList.length;
         const unansweredQuestions = questionList.filter(q => String(q.status).toLowerCase() === 'unanswered').length;
@@ -8733,6 +9278,12 @@ app.get('/api/ml/dashboard', async (req, res) => {
         const itemList = items || [];
         const totalActiveItems = itemList.filter(i => String(i.status).toLowerCase() === 'active').length;
         const totalPausedItems = itemList.filter(i => String(i.status).toLowerCase() === 'paused').length;
+
+        const listing_breakdown = {
+            catalog: itemList.filter(i => i.catalog_listing === true).length,
+            sponsored: itemList.filter(i => i.is_sponsored === true).length,
+            organic: itemList.filter(i => !i.catalog_listing && !i.is_sponsored).length
+        };
 
         const messageList = messages || [];
         const totalMessages = messageList.length;
@@ -8747,6 +9298,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 cancelled: cancelledOrders,
                 revenue: Number(revenue.toFixed(2))
             },
+            sales_totals,
             questions: {
                 total: totalQuestions,
                 unanswered: unansweredQuestions,
@@ -8754,12 +9306,14 @@ app.get('/api/ml/dashboard', async (req, res) => {
             },
             items: {
                 total_active: totalActiveItems,
-                total_paused: totalPausedItems
+                total_paused: totalPausedItems,
+                breakdown: listing_breakdown
             },
             messages: {
                 total: totalMessages,
                 unread: unreadMessages
             },
+            reputation,
             period: {
                 from: fromDate.split('T')[0],
                 to: toDate.split('T')[0]
@@ -9155,9 +9709,102 @@ async function processWebhookQueue() {
     }
 }
 
-// Iniciar worker assíncrono de webhook polling
+// Iniciar worker assíncrono de webhook polling ML
 setInterval(processWebhookQueue, 5000);
 console.log('[ML Webhook Worker] Iniciado - polling a cada 5s');
+
+// --- WORKER ASSÍNCRONO META ADS WEBHOOKS ---
+let isMetaWebhookWorkerRunning = false;
+
+async function processMetaWebhookQueue() {
+    if (isMetaWebhookWorkerRunning) return;
+    isMetaWebhookWorkerRunning = true;
+    try {
+        const client = supabaseAdmin || supabase;
+        const { data: events, error } = await client.from('meta_webhook_events')
+            .select('*')
+            .eq('status', 'pending')
+            .order('received_at', { ascending: true })
+            .limit(10);
+
+        if (error || !events || events.length === 0) return;
+
+        for (const event of events) {
+            try {
+                // Claim atômico
+                const { data: claimed } = await client.from('meta_webhook_events')
+                    .update({ status: 'processing' })
+                    .eq('id', event.id)
+                    .eq('status', 'pending')
+                    .select('id')
+                    .maybeSingle();
+
+                if (!claimed) continue;
+
+                await processMetaWebhookEvent(event);
+
+                await client.from('meta_webhook_events').update({
+                    status: 'processed',
+                    processed_at: new Date().toISOString()
+                }).eq('id', event.id);
+
+            } catch (eventError) {
+                console.error(`[Meta Webhook Worker] Erro no evento #${event.id}:`, eventError);
+                const newAttempts = (event.attempts || 0) + 1;
+                const newStatus = newAttempts >= 5 ? 'dead_letter' : 'pending';
+                await client.from('meta_webhook_events').update({
+                    attempts: newAttempts,
+                    status: newStatus,
+                    last_error: eventError.message || String(eventError)
+                }).eq('id', event.id);
+            }
+        }
+    } catch (queueErr) {
+        console.error('[Meta Webhook Worker Exception]:', queueErr);
+    } finally {
+        isMetaWebhookWorkerRunning = false;
+    }
+}
+
+async function processMetaWebhookEvent(event) {
+    const client = supabaseAdmin || supabase;
+    const payload = event.raw_payload;
+    const field = event.field;
+
+    // Buscar user_id pelo ad_account_id se user_id for null
+    if (event.user_id === null && event.ad_account_id) {
+        try {
+            const cleanAccountId = String(event.ad_account_id).replace(/^act_/, '');
+            const { data: conn } = await client
+                .from('meta_ads_integrations')
+                .select('user_id')
+                .or(`ad_account_id.eq.${event.ad_account_id},ad_account_id.eq.act_${cleanAccountId},ad_account_id.eq.${cleanAccountId}`)
+                .maybeSingle();
+
+            if (conn && conn.user_id) {
+                await client.from('meta_webhook_events')
+                    .update({ user_id: conn.user_id })
+                    .eq('id', event.id);
+            }
+        } catch (e) {
+            console.warn(`[Meta Webhook Worker] Não foi possível mapear user_id para ad_account_id ${event.ad_account_id}:`, e.message);
+        }
+    }
+
+    if (field === 'effective_status') {
+        // Anúncio mudou de status (reprovado, bloqueado, voltou a ativo)
+        console.log(`[Meta Webhook] Status mudou: ad_id=${payload?.ad_id}, novo_status=${payload?.effective_status}`);
+    } else if (field === 'with_issues_ad_objects') {
+        // Anúncio com problemas
+        console.log(`[Meta Webhook] Anúncio com issues: ad_id=${payload?.ad_id}, error=${payload?.error_message}`);
+    } else {
+        console.log(`[Meta Webhook] Tópico sem handler específico: ${field}`);
+    }
+}
+
+// Iniciar worker assíncrono de webhook polling Meta Ads
+setInterval(processMetaWebhookQueue, 5000);
+console.log('[Meta Webhook Worker] Iniciado - polling a cada 5s');
 
 
 if (process.env.NODE_ENV !== "production") {

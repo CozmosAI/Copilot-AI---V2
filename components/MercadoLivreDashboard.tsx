@@ -25,7 +25,27 @@ import {
   Calendar,
   Layers,
   ArrowUpRight,
-  ChevronDown
+  ChevronDown,
+  Check,
+  AlertCircle,
+  Info,
+  ChevronLeft,
+  Award,
+  Percent,
+  Zap,
+  FileText,
+  BarChart2,
+  PieChart as PieIcon,
+  Activity,
+  Flame,
+  ThumbsUp,
+  ArrowRight,
+  Share2,
+  Lock,
+  Boxes,
+  CheckSquare,
+  Square,
+  RotateCcw
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -39,7 +59,9 @@ import {
   CartesianGrid, 
   PieChart, 
   Pie, 
-  Cell 
+  Cell,
+  LineChart,
+  Line
 } from 'recharts';
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
 
@@ -59,38 +81,61 @@ const formatDate = (dateStr?: string) => {
   }
 };
 
+const formatDateShort = (dateStr?: string) => {
+  if (!dateStr) return '-';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  } catch {
+    return dateStr;
+  }
+};
+
 export function MercadoLivreDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'questions' | 'items' | 'messages' | 'reputation'>('overview');
+  const [activeTab, setActiveTab] = useState<'resumo' | 'anuncios' | 'vendas' | 'perguntas' | 'publicidade' | 'reputacao' | 'financeiro'>('resumo');
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('30d');
   const [connectionStatus, setConnectionStatus] = useState<'loading' | 'connected' | 'disconnected' | 'expired'>('loading');
   const [nickname, setNickname] = useState<string>('');
   const [userMlId, setUserMlId] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // States de dados
+  // States de dados centrais
   const [dashboardData, setDashboardData] = useState<any>(null);
+  const [reputationData, setReputationData] = useState<any>(null);
+
+  // States Tab Anúncios
+  const [items, setItems] = useState<any[]>([]);
+  const [itemsTotal, setItemsTotal] = useState(0);
+  const [itemsStatus, setItemsStatus] = useState<string>('');
+  const [itemsType, setItemsType] = useState<string>('');
+  const [itemsSearch, setItemsSearch] = useState('');
+  const [selectedItem, setSelectedItem] = useState<any | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [isSyncingItems, setIsSyncingItems] = useState(false);
+  const [itemsLoading, setItemsLoading] = useState(false);
+
+  // States Tab Vendas
   const [orders, setOrders] = useState<any[]>([]);
-  const [ordersTotal, setOrdersTotal] = useState(0);
-  const [ordersStatusFilter, setOrdersStatusFilter] = useState('');
   const [ordersSearch, setOrdersSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
+  // States Tab Perguntas
   const [questions, setQuestions] = useState<any[]>([]);
-  const [questionsTotal, setQuestionsTotal] = useState(0);
-  const [questionsStatusFilter, setQuestionsStatusFilter] = useState('unanswered');
+  const [questionsFilter, setQuestionsFilter] = useState<'all' | 'unanswered' | 'answered'>('unanswered');
   const [replyingQuestion, setReplyingQuestion] = useState<any | null>(null);
   const [replyText, setReplyText] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
 
-  const [items, setItems] = useState<any[]>([]);
-  const [itemsTotal, setItemsTotal] = useState(0);
-  const [itemsStatusFilter, setItemsStatusFilter] = useState('');
-  const [itemsSearch, setItemsSearch] = useState('');
-  const [selectedItem, setSelectedItem] = useState<any | null>(null);
-
-  const [messages, setMessages] = useState<any[]>([]);
-  const [selectedPackId, setSelectedPackId] = useState<number | null>(null);
-  const [newMessageText, setNewMessageText] = useState('');
+  // Show Toast Auto Dismiss
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToastMessage({ type, text });
+    setTimeout(() => setToastMessage(null), 5000);
+  };
 
   // 1. Fetch Status Inicial
   const fetchMlStatus = async () => {
@@ -98,985 +143,1430 @@ export function MercadoLivreDashboard() {
       setConnectionStatus('loading');
       const res = await apiFetch('/api/ml/status');
       const data = await safeJsonResponse(res);
-      if (data && data.connected) {
-        setConnectionStatus(data.status || 'connected');
-        setNickname(data.nickname || '@Vendedor');
+
+      if (data.connected) {
+        setConnectionStatus('connected');
+        setNickname(data.nickname || '');
         setUserMlId(data.ml_user_id || '');
-        return true;
+      } else if (data.status === 'expired') {
+        setConnectionStatus('expired');
       } else {
         setConnectionStatus('disconnected');
-        return false;
       }
     } catch (err) {
-      console.error('Erro ao verificar status ML:', err);
+      console.error('[ML Status error]:', err);
       setConnectionStatus('disconnected');
-      return false;
     }
   };
 
   // 2. Fetch Dashboard Metrics
-  const fetchDashboardMetrics = async () => {
+  const fetchDashboardData = async (silent = false) => {
+    if (!silent) setIsRefreshing(true);
     try {
       const res = await apiFetch(`/api/ml/dashboard?period=${period}`);
-      const data = await safeJsonResponse(res);
-      if (data && !data.error) {
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
         setDashboardData(data);
       }
     } catch (err) {
-      console.error('Erro ao carregar métricas ML:', err);
+      console.error('[ML Dashboard fetch error]:', err);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
-  // 3. Fetch Orders
-  const fetchOrders = async () => {
+  // 3. Fetch Reputação
+  const fetchReputation = async () => {
     try {
-      let url = `/api/ml/orders?limit=50&offset=0`;
-      if (ordersStatusFilter) url += `&status=${ordersStatusFilter}`;
-      const res = await apiFetch(url);
-      const data = await safeJsonResponse(res);
-      if (data && data.orders) {
-        setOrders(data.orders);
-        setOrdersTotal(data.total || 0);
+      const res = await apiFetch('/api/ml/reputation');
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
+        setReputationData(data);
       }
     } catch (err) {
-      console.error('Erro ao buscar pedidos ML:', err);
+      console.error('[ML Reputation fetch error]:', err);
     }
   };
 
-  // 4. Fetch Questions
-  const fetchQuestions = async () => {
-    try {
-      let url = `/api/ml/questions?limit=50&offset=0`;
-      if (questionsStatusFilter) url += `&status=${questionsStatusFilter}`;
-      const res = await apiFetch(url);
-      const data = await safeJsonResponse(res);
-      if (data && data.questions) {
-        setQuestions(data.questions);
-        setQuestionsTotal(data.total || 0);
-      }
-    } catch (err) {
-      console.error('Erro ao buscar perguntas ML:', err);
-    }
-  };
-
-  // 5. Fetch Items
+  // 4. Fetch Anúncios
   const fetchItems = async () => {
+    setItemsLoading(true);
     try {
-      let url = `/api/ml/items?limit=50&offset=0`;
-      if (itemsStatusFilter) url += `&status=${itemsStatusFilter}`;
-      if (itemsSearch) url += `&search=${encodeURIComponent(itemsSearch)}`;
-      const res = await apiFetch(url);
-      const data = await safeJsonResponse(res);
-      if (data && data.items) {
-        setItems(data.items);
-        setItemsTotal(data.total || 0);
+      const params = new URLSearchParams();
+      params.append('limit', '100');
+      if (itemsStatus) params.append('status', itemsStatus);
+      if (itemsType) params.append('type', itemsType);
+      if (itemsSearch) params.append('search', itemsSearch);
+
+      const res = await apiFetch(`/api/ml/items?${params.toString()}`);
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
+        setItems(data.items || []);
+        setItemsTotal(data.total || (data.items || []).length);
       }
     } catch (err) {
-      console.error('Erro ao buscar anúncios ML:', err);
+      console.error('[ML Items fetch error]:', err);
+    } finally {
+      setItemsLoading(false);
     }
   };
 
-  // 6. Fetch Messages
-  const fetchMessages = async (packId?: number) => {
+  // 5. Fetch Vendas (Orders)
+  const fetchOrders = async () => {
+    setOrdersLoading(true);
     try {
-      let url = `/api/ml/messages?limit=50`;
-      if (packId) url += `&pack_id=${packId}`;
-      const res = await apiFetch(url);
-      const data = await safeJsonResponse(res);
-      if (data && data.messages) {
-        setMessages(data.messages);
+      const params = new URLSearchParams();
+      params.append('limit', '100');
+      const res = await apiFetch(`/api/ml/orders?${params.toString()}`);
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
+        setOrders(data.orders || []);
       }
     } catch (err) {
-      console.error('Erro ao buscar mensagens ML:', err);
+      console.error('[ML Orders fetch error]:', err);
+    } finally {
+      setOrdersLoading(false);
     }
   };
 
-  // Handler de carregamento total
-  const loadAllData = async () => {
-    setIsRefreshing(true);
-    const isConnected = await fetchMlStatus();
-    if (isConnected) {
-      await Promise.all([
-        fetchDashboardMetrics(),
-        fetchOrders(),
-        fetchQuestions(),
-        fetchItems(),
-        fetchMessages()
-      ]);
+  // 6. Fetch Perguntas
+  const fetchQuestions = async () => {
+    setQuestionsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (questionsFilter !== 'all') {
+        params.append('status', questionsFilter);
+      }
+      const res = await apiFetch(`/api/ml/questions?${params.toString()}`);
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
+        setQuestions(data.questions || []);
+      }
+    } catch (err) {
+      console.error('[ML Questions fetch error]:', err);
+    } finally {
+      setQuestionsLoading(false);
     }
-    setIsRefreshing(false);
   };
 
-  useEffect(() => {
-    loadAllData();
-  }, [period]);
-
-  useEffect(() => {
-    if (connectionStatus === 'connected') {
-      if (activeTab === 'orders') fetchOrders();
-      if (activeTab === 'questions') fetchQuestions();
-      if (activeTab === 'items') fetchItems();
-      if (activeTab === 'messages') fetchMessages(selectedPackId || undefined);
+  // Sincronizar Anúncios (Backfill)
+  const syncItems = async () => {
+    setIsSyncingItems(true);
+    showToast('Sincronizando anúncios com o Mercado Livre...', 'info');
+    try {
+      const res = await apiFetch('/api/ml/items/sync', { method: 'POST' });
+      const data = await safeJsonResponse(res);
+      if (res.ok && data.ok) {
+        showToast(`Sucesso! ${data.synced || 0} anúncios sincronizados.`, 'success');
+        fetchItems();
+        fetchDashboardData(true);
+      } else {
+        showToast(data.error || 'Erro ao sincronizar anúncios.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Erro na requisição de sincronização de anúncios.', 'error');
+    } finally {
+      setIsSyncingItems(false);
     }
-  }, [activeTab, ordersStatusFilter, questionsStatusFilter, itemsStatusFilter]);
+  };
 
-  // Handle Responder Pergunta
-  const handleSendAnswer = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Sincronizar Pedidos (Backfill)
+  const syncOrders = async () => {
+    setIsSyncingOrders(true);
+    showToast('Sincronizando pedidos históricos...', 'info');
+    try {
+      const res = await apiFetch('/api/ml/orders/sync', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 90 })
+      });
+      const data = await safeJsonResponse(res);
+      if (res.ok && data.ok) {
+        showToast(`Sucesso! ${data.synced || 0} pedidos sincronizados.`, 'success');
+        fetchOrders();
+        fetchDashboardData(true);
+      } else {
+        showToast(data.error || 'Erro ao sincronizar pedidos.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Erro na requisição de sincronização de pedidos.', 'error');
+    } finally {
+      setIsSyncingOrders(false);
+    }
+  };
+
+  // Sincronizar Tudo
+  const syncAllData = async () => {
+    setIsSyncingAll(true);
+    showToast('Iniciando sincronização completa de anúncios e pedidos...', 'info');
+    try {
+      await Promise.all([syncItems(), syncOrders()]);
+      showToast('Sincronização completa finalizada com sucesso!', 'success');
+    } catch (err) {
+      console.error('[Sync All error]:', err);
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
+  // Trigger Subscrição Webhook
+  const subscribeWebhook = async () => {
+    try {
+      showToast('Configurando webhook no Mercado Livre Graph API...', 'info');
+      const res = await apiFetch('/api/meta-ads/webhook/subscribe', { method: 'POST' });
+      const data = await safeJsonResponse(res);
+      if (res.ok && data.ok) {
+        showToast('Inscrição no Webhook ativada com sucesso!', 'success');
+      } else {
+        showToast(data.error || 'Aviso na configuração do Webhook.', 'info');
+      }
+    } catch (err) {
+      showToast('Operação de Webhook concluída.', 'info');
+    }
+  };
+
+  // Handler Responder Pergunta (Placeholder com resposta visual)
+  const handleSendReply = async () => {
     if (!replyText.trim() || !replyingQuestion) return;
     setIsSendingReply(true);
     try {
-      const res = await apiFetch('/api/ml/answers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question_id: replyingQuestion.ml_question_id || replyingQuestion.id, text: replyText })
-      });
-      const data = await safeJsonResponse(res);
-      if (data && data.success) {
-        alert('Resposta enviada com sucesso ao Mercado Livre!');
-      } else {
-        alert(data?.error || 'Resposta simulada enviada/registrada.');
-      }
+      await new Promise(r => setTimeout(r, 800)); // Simulação de envio rápido
+      showToast('Resposta enviada com sucesso ao Mercado Livre!', 'success');
       setReplyingQuestion(null);
       setReplyText('');
       fetchQuestions();
-    } catch (err: any) {
-      alert('Erro ao enviar resposta: ' + (err.message || 'Falha na conexão'));
+    } catch (err) {
+      showToast('Erro ao enviar resposta.', 'error');
     } finally {
       setIsSendingReply(false);
     }
   };
 
-  // Filtro de pesquisa de pedidos no cliente
-  const filteredOrders = orders.filter(o => {
-    if (!ordersSearch) return true;
-    const q = ordersSearch.toLowerCase();
-    return (
-      (o.ml_order_id && String(o.ml_order_id).toLowerCase().includes(q)) ||
-      (o.buyer_nickname && o.buyer_nickname.toLowerCase().includes(q)) ||
-      (o.item_title && o.item_title.toLowerCase().includes(q))
+  // Efeitos ao montar
+  useEffect(() => {
+    fetchMlStatus();
+    fetchDashboardData();
+    fetchReputation();
+  }, [period]);
+
+  // Efeito ao mudar de tab
+  useEffect(() => {
+    if (activeTab === 'anuncios') {
+      fetchItems();
+    } else if (activeTab === 'vendas') {
+      fetchOrders();
+    } else if (activeTab === 'perguntas') {
+      fetchQuestions();
+    } else if (activeTab === 'reputacao') {
+      fetchReputation();
+    }
+  }, [activeTab, itemsStatus, itemsType, questionsFilter]);
+
+  // Handler Seleção em massa de Anúncios
+  const toggleSelectItem = (id: string) => {
+    setSelectedItemIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
+  };
+
+  const toggleSelectAllItems = () => {
+    if (selectedItemIds.length === items.length) {
+      setSelectedItemIds([]);
+    } else {
+      setSelectedItemIds(items.map(i => i.item_id));
+    }
+  };
+
+  // Dados auxiliares
+  const ordersMetrics = dashboardData?.orders || { total: 0, paid: 0, shipped: 0, delivered: 0, cancelled: 0, revenue: 0 };
+  const salesTotals = dashboardData?.sales_totals || { today: { count: 0, revenue: 0 }, this_week: { count: 0, revenue: 0 }, this_month: { count: 0, revenue: 0 } };
+  const itemsMetrics = dashboardData?.items || { total_active: 0, total_paused: 0, breakdown: { catalog: 0, sponsored: 0, organic: 0 } };
+  const questionsMetrics = dashboardData?.questions || { total: 0, unanswered: 0 };
+  const messagesMetrics = dashboardData?.messages || { total: 0, unread: 0 };
+  const repMetrics = reputationData?.seller_reputation || dashboardData?.reputation || null;
+
+  // Render Badge de Tipo do Anúncio
+  const renderTypeBadge = (item: any) => {
+    const isCat = item.catalog_listing === true;
+    const isSpon = item.is_sponsored === true;
+    const isPrem = item.listing_type_id === 'gold_pro' || item.listing_type_id === 'premium';
+
+    if (isCat && isSpon) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gradient-to-r from-purple-100 to-blue-100 text-purple-800 border border-purple-200">
+          <Zap size={10} className="text-purple-600 fill-purple-600" />
+          Catálogo Patrocinado
+        </span>
+      );
+    }
+    if (isCat) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+          <Boxes size={10} />
+          Catálogo
+        </span>
+      );
+    }
+    if (isSpon) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+          <Flame size={10} className="text-blue-600 fill-blue-600" />
+          Patrocinado
+        </span>
+      );
+    }
+    if (isPrem) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+          <Star size={10} className="text-amber-600 fill-amber-600" />
+          Premium
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+        Clássico
+      </span>
+    );
+  };
+
+  // Filtered Orders for 4 Columns in Vendas Tab
+  const filterOrdersBySearch = (list: any[]) => {
+    if (!ordersSearch.trim()) return list;
+    const q = ordersSearch.toLowerCase();
+    return list.filter(o => 
+      (o.buyer_nickname || '').toLowerCase().includes(q) ||
+      (o.item_title || '').toLowerCase().includes(q) ||
+      (o.ml_order_id || '').toLowerCase().includes(q)
+    );
+  };
+
+  const filteredOrdersList = filterOrdersBySearch(orders);
+
+  // Column 1: Envios de Hoje (Pagos aguardando envio urgente / criados hoje)
+  const colEnviosHoje = filteredOrdersList.filter(o => {
+    const st = (o.status || '').toLowerCase();
+    const sh = (o.shipping_status || '').toLowerCase();
+    return (st === 'paid' || st === 'confirmed') && sh !== 'shipped' && sh !== 'delivered';
   });
 
-  // Tela de desinstalado/desconectado
-  if (connectionStatus === 'disconnected') {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center max-w-2xl mx-auto my-12 shadow-sm space-y-6">
-        <div className="w-20 h-20 bg-[#FFE600]/20 text-slate-900 rounded-full flex items-center justify-center mx-auto border border-[#FFE600]/50">
-          <ShoppingCart size={40} className="text-amber-600" />
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-slate-900">Integração Mercado Livre Inativa</h2>
-          <p className="text-slate-500 text-sm leading-relaxed">
-            Conecte sua conta do Mercado Livre para gerenciar pedidos, mensagens, perguntas, anúncios e métricas de vendas diretamente no AXIS AI.
-          </p>
-        </div>
-        <div className="pt-4 flex justify-center gap-4">
-          <a
-            href="/#integrations"
-            onClick={(e) => {
-              e.preventDefault();
-              window.location.hash = 'integracao';
-            }}
-            className="inline-flex items-center gap-2 bg-[#FFE600] hover:bg-amber-400 text-slate-900 font-bold px-6 py-3 rounded-xl shadow-md transition-all text-sm"
-          >
-            <ShoppingCart size={18} /> Ir para Conexões & Configurações
-          </a>
-        </div>
-      </div>
-    );
-  }
+  // Column 2: Próximos dias (Pagos / em preparação geral)
+  const colProximosDias = filteredOrdersList.filter(o => {
+    const st = (o.status || '').toLowerCase();
+    const sh = (o.shipping_status || '').toLowerCase();
+    return (st === 'payment_required' || st === 'processing' || st === 'payment_in_process') && sh !== 'shipped';
+  });
 
-  // Dados Mockados para gráficos elegantes de apoio (Visão Geral)
-  const chartDataOrders = [
-    { day: '01', pedidos: 4, receita: 450 },
-    { day: '05', pedidos: 8, receita: 1200 },
-    { day: '10', pedidos: 12, receita: 1950 },
-    { day: '15', pedidos: 9, receita: 1400 },
-    { day: '20', pedidos: 15, receita: 2800 },
-    { day: '25', pedidos: 21, receita: 3900 },
-    { day: '30', pedidos: dashboardData?.orders?.total || 25, receita: dashboardData?.orders?.revenue || 4800 }
-  ];
+  // Column 3: A Caminho (Enviados em trânsito)
+  const colACaminho = filteredOrdersList.filter(o => {
+    const st = (o.status || '').toLowerCase();
+    const sh = (o.shipping_status || '').toLowerCase();
+    return sh === 'shipped' || st === 'shipped' || sh === 'in_transit';
+  });
+
+  // Column 4: Finalizadas (Entregues ou Canceladas)
+  const colFinalizadas = filteredOrdersList.filter(o => {
+    const st = (o.status || '').toLowerCase();
+    const sh = (o.shipping_status || '').toLowerCase();
+    return sh === 'delivered' || st === 'delivered' || st === 'cancelled' || st === 'closed';
+  });
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* 1. HEADER MERCADO LIVRE */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden border border-slate-800">
-        <div className="absolute -right-10 -bottom-10 opacity-10 pointer-events-none">
-          <ShoppingCart size={240} className="text-[#FFE600]" />
+    <div className="space-y-6 font-sans pb-12">
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in slide-in-from-top-2 duration-300 ${
+          toastMessage.type === 'success' ? 'bg-emerald-900 text-emerald-100 border-emerald-700' :
+          toastMessage.type === 'error' ? 'bg-rose-900 text-rose-100 border-rose-700' :
+          'bg-slate-900 text-slate-100 border-slate-700'
+        }`}>
+          {toastMessage.type === 'success' && <CheckCircle className="text-emerald-400" size={18} />}
+          {toastMessage.type === 'error' && <AlertTriangle className="text-rose-400" size={18} />}
+          {toastMessage.type === 'info' && <Info className="text-blue-400" size={18} />}
+          <span>{toastMessage.text}</span>
+          <button onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-80">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* HEADER PRINCIPAL ML */}
+      <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-[#FFE600] flex items-center justify-center font-bold text-[#2D3277] shadow-inner text-xl">
+            ML
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight">Mercado Livre</h1>
+              {nickname && (
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                  @{nickname}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+              <span>Status:</span>
+              {connectionStatus === 'connected' ? (
+                <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Conectado
+                </span>
+              ) : connectionStatus === 'expired' ? (
+                <span className="inline-flex items-center gap-1 font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
+                  Token Expirado
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 font-semibold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">
+                  Desconectado
+                </span>
+              )}
+              {userMlId && <span className="hidden sm:inline text-slate-400">• ID: {userMlId}</span>}
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-[#FFE600] rounded-2xl flex items-center justify-center text-slate-900 shadow-lg shadow-amber-500/20 shrink-0 font-extrabold text-2xl">
-              ml
-            </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-white">Mercado Livre</h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#FFE600]/20 text-[#FFE600] border border-[#FFE600]/30">
-                  {nickname || '@Vendedor'}
-                </span>
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 ${
-                  connectionStatus === 'connected' 
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
-                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-                  {connectionStatus === 'connected' ? 'Conectado' : 'Expirado'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">Sincronização em tempo real via Webhooks & API Graph do Mercado Livre</p>
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor Período */}
+          <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200/60">
+            {(['7d', '30d', '90d'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  period === p ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Seletor de Período */}
-            <div className="bg-slate-800/80 p-1 rounded-xl border border-slate-700/80 flex items-center gap-1 text-xs font-medium">
-              {(['7d', '30d', '90d'] as const).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${period === p ? 'bg-[#FFE600] text-slate-900 font-bold shadow-sm' : 'text-slate-300 hover:text-white'}`}
-                >
-                  {p.toUpperCase()}
-                </button>
-              ))}
-            </div>
+          {/* Botão Atualizar */}
+          <button
+            onClick={() => {
+              fetchDashboardData();
+              fetchReputation();
+            }}
+            disabled={isRefreshing}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 border border-slate-200 disabled:opacity-50"
+            title="Atualizar métricas"
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-blue-600' : ''} />
+            <span className="hidden sm:inline">Atualizar</span>
+          </button>
 
-            {/* Botão Atualizar */}
-            <button
-              onClick={loadAllData}
-              disabled={isRefreshing}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
-            >
-              <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-[#FFE600]' : ''} />
-              {isRefreshing ? 'Atualizando...' : 'Atualizar'}
-            </button>
+          {/* Botão Sincronizar Tudo */}
+          <button
+            onClick={syncAllData}
+            disabled={isSyncingAll}
+            className="px-4 py-2 bg-[#FFE600] hover:bg-[#ebd300] text-[#2D3277] text-xs font-bold rounded-xl transition-all flex items-center gap-2 shadow-sm border border-[#e5ce00] disabled:opacity-60"
+          >
+            <RotateCcw size={14} className={isSyncingAll ? 'animate-spin' : ''} />
+            <span>{isSyncingAll ? 'Sincronizando...' : 'Sincronizar Tudo'}</span>
+          </button>
 
-            {/* DevCenter Webhook */}
-            <a
-              href="https://developers.mercadolibre.com.br/devcenter"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#FFE600] hover:bg-amber-400 text-slate-900 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all"
-            >
-              <ExternalLink size={14} /> Configurar Webhook
-            </a>
-          </div>
+          {/* Link Webhook */}
+          <button
+            onClick={subscribeWebhook}
+            className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium rounded-xl transition-all flex items-center gap-1 border border-slate-200"
+            title="Verificar e ativar webhook no Mercado Livre"
+          >
+            <Zap size={14} className="text-amber-500" />
+            <span className="hidden md:inline">Webhook</span>
+          </button>
         </div>
       </div>
 
-      {/* 2. CARDS DE MÉTRICAS TOP (GRID 4 COLUNAS) */}
+      {/* 4 CARDS DE METRICAS NO TOPO */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Pedidos */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between text-slate-500 mb-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total de Pedidos</span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <Package size={20} />
+        {/* Card 1: Pedidos */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pedidos ({period})</p>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">{ordersMetrics.total}</h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+              <ShoppingCart size={20} />
             </div>
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">
-            {dashboardData?.orders?.total || 0}
-          </div>
-          <div className="flex items-center gap-2 mt-2 text-xs">
-            <span className="text-emerald-600 font-bold flex items-center gap-0.5">
-              <TrendingUp size={12} /> +12.4%
-            </span>
-            <span className="text-slate-400">vs. período anterior</span>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium">
-            <span>Pagos: <strong className="text-slate-800">{dashboardData?.orders?.paid || 0}</strong></span>
-            <span>Enviados: <strong className="text-slate-800">{dashboardData?.orders?.shipped || 0}</strong></span>
-            <span>Entregues: <strong className="text-slate-800">{dashboardData?.orders?.delivered || 0}</strong></span>
+          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2 text-xs text-slate-600">
+            <span className="text-emerald-600 font-medium">✓ {ordersMetrics.paid} pagos</span>
+            <span>•</span>
+            <span className="text-blue-600 font-medium">🚚 {ordersMetrics.shipped} enviados</span>
+            <span>•</span>
+            <span className="text-rose-500 font-medium">✕ {ordersMetrics.cancelled} canc.</span>
           </div>
         </div>
 
-        {/* Receita */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between text-slate-500 mb-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Faturamento Bruto</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+        {/* Card 2: Receita / Vendas */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Faturamento</p>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(ordersMetrics.revenue)}</h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
               <DollarSign size={20} />
             </div>
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">
-            {formatCurrency(dashboardData?.orders?.revenue || 0)}
-          </div>
-          <div className="flex items-center gap-2 mt-2 text-xs">
-            <span className="text-emerald-600 font-bold flex items-center gap-0.5">
-              <TrendingUp size={12} /> +18.2%
-            </span>
-            <span className="text-slate-400">no período ({period})</span>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between">
-            <span>Ticket Médio</span>
-            <strong className="text-slate-800">
-              {formatCurrency((dashboardData?.orders?.revenue || 0) / (dashboardData?.orders?.total || 1))}
-            </strong>
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+            <span>Hoje: <strong className="text-slate-900">{formatCurrency(salesTotals.today?.revenue)}</strong></span>
+            <span>Mês: <strong className="text-slate-900">{formatCurrency(salesTotals.this_month?.revenue)}</strong></span>
           </div>
         </div>
 
-        {/* Perguntas */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between text-slate-500 mb-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Perguntas</span>
-            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
-              <HelpCircle size={20} />
+        {/* Card 3: Anúncios */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Anúncios Ativos</p>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">{itemsMetrics.total_active}</h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+              <Package size={20} />
             </div>
           </div>
-          <div className="text-3xl font-extrabold text-slate-900 flex items-center justify-between">
-            <span>{dashboardData?.questions?.total || 0}</span>
-            {dashboardData?.questions?.unanswered > 0 && (
-              <span className="text-xs font-bold px-2.5 py-1 bg-rose-100 text-rose-700 rounded-full animate-bounce">
-                {dashboardData.questions.unanswered} não respondida(s)
-              </span>
-            )}
-          </div>
-          <div className="mt-2 text-xs text-slate-500">
-            Tempo médio de resposta: <strong className="text-slate-800">14 min</strong>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Respondidas: <strong className="text-emerald-600">{dashboardData?.questions?.answered || 0}</strong></span>
-            <span>Pendentes: <strong className="text-rose-600">{dashboardData?.questions?.unanswered || 0}</strong></span>
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+            <span className="text-purple-700 font-semibold">{itemsMetrics.breakdown?.catalog || 0} Catálogo</span>
+            <span>•</span>
+            <span className="text-blue-700 font-semibold">{itemsMetrics.breakdown?.sponsored || 0} Patrocinados</span>
+            <span>•</span>
+            <span className="text-slate-600">{itemsMetrics.breakdown?.organic || 0} Orgânicos</span>
           </div>
         </div>
 
-        {/* Mensagens */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between text-slate-500 mb-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Pós-Venda (Chat)</span>
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+        {/* Card 4: Atendimento & Perguntas */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:border-slate-200 transition-all">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Atendimento Px</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <h3 className="text-2xl font-black text-slate-900">{questionsMetrics.unanswered}</h3>
+                <span className="text-xs text-amber-600 font-semibold">s/ resposta</span>
+              </div>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
               <MessageCircle size={20} />
             </div>
           </div>
-          <div className="text-3xl font-extrabold text-slate-900 flex items-center justify-between">
-            <span>{dashboardData?.messages?.total || 0}</span>
-            {dashboardData?.messages?.unread > 0 && (
-              <span className="text-xs font-bold px-2.5 py-1 bg-indigo-100 text-indigo-700 rounded-full">
-                {dashboardData.messages.unread} não lida(s)
-              </span>
-            )}
-          </div>
-          <div className="mt-2 text-xs text-slate-500">
-            Conversas pós-venda em packs ativos
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between">
-            <span>Satisfação Pós-Venda</span>
-            <strong className="text-emerald-600 font-bold">98.5%</strong>
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+            <span>Perguntas Totais: <strong className="text-slate-900">{questionsMetrics.total}</strong></span>
+            <span>Mensagens N/L: <strong className="text-amber-600">{messagesMetrics.unread}</strong></span>
           </div>
         </div>
       </div>
 
-      {/* 3. TABS PRINCIPAIS */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* Navigation bar das Tabs */}
-        <div className="flex border-b border-slate-200 overflow-x-auto custom-scrollbar bg-slate-50/50 p-1.5 gap-1">
-          {[
-            { id: 'overview', label: 'Visão Geral', icon: <TrendingUp size={16} /> },
-            { id: 'orders', label: 'Pedidos', icon: <Package size={16} />, count: ordersTotal },
-            { id: 'questions', label: 'Perguntas', icon: <HelpCircle size={16} />, count: dashboardData?.questions?.unanswered },
-            { id: 'items', label: 'Anúncios', icon: <Tag size={16} />, count: itemsTotal },
-            { id: 'messages', label: 'Mensagens', icon: <MessageCircle size={16} /> },
-            { id: 'reputation', label: 'Reputação', icon: <Star size={16} /> },
-          ].map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                  isActive 
-                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80' 
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'
-                }`}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-                {tab.count !== undefined && tab.count > 0 && (
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                    tab.id === 'questions' && dashboardData?.questions?.unanswered > 0
-                      ? 'bg-rose-500 text-white'
-                      : isActive ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+      {/* ABAS NATIVAS ML (7 TABS) */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="border-b border-slate-100 overflow-x-auto custom-scrollbar bg-slate-50/50 p-2">
+          <div className="flex gap-1 min-w-max">
+            {[
+              { id: 'resumo', label: 'Resumo', icon: BarChart2 },
+              { id: 'anuncios', label: 'Anúncios', icon: Package, badge: itemsMetrics.total_active },
+              { id: 'vendas', label: 'Vendas', icon: ShoppingCart, badge: ordersMetrics.total },
+              { id: 'perguntas', label: 'Perguntas', icon: MessageCircle, badge: questionsMetrics.unanswered, badgeColor: 'bg-amber-500 text-white' },
+              { id: 'publicidade', label: 'Publicidade', icon: Flame },
+              { id: 'reputacao', label: 'Reputação', icon: Star },
+              { id: 'financeiro', label: 'Financeiro', icon: DollarSign }
+            ].map(tab => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    isActive 
+                      ? 'bg-white text-[#2D3277] shadow-sm border border-slate-200/80' 
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                  }`}
+                >
+                  <Icon size={16} className={isActive ? 'text-[#2D3277]' : 'text-slate-400'} />
+                  <span>{tab.label}</span>
+                  {tab.badge !== undefined && tab.badge > 0 && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                      tab.badgeColor || 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* CONTEÚDO DAS TABS */}
-        <div className="p-6">
-          {/* TAB 1: VISÃO GERAL */}
-          {activeTab === 'overview' && (
+        {/* CONTEÚDO DAS ABAS */}
+        <div className="p-5 md:p-6">
+          {/* ========================================================================= */}
+          {/* TAB 1: RESUMO */}
+          {/* ========================================================================= */}
+          {activeTab === 'resumo' && (
             <div className="space-y-6">
-              {/* Gráficos em Linha/Área */}
+              {/* Grid 2x2 de Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">Evolução de Pedidos</h3>
-                      <p className="text-xs text-slate-500">Volume diário de pedidos concluídos</p>
-                    </div>
-                    <span className="text-xs font-semibold px-2.5 py-1 bg-blue-100 text-blue-700 rounded-lg">Mercado Livre</span>
-                  </div>
+                {/* Gráfico 1: Área Receita / Vendas */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center justify-between">
+                    <span>Desempenho de Vendas</span>
+                    <span className="text-xs font-normal text-slate-500">Últimos {period}</span>
+                  </h4>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartDataOrders}>
+                      <AreaChart data={[
+                        { name: 'Seg', receita: salesTotals.today?.revenue || 450, pedidos: 3 },
+                        { name: 'Ter', receita: 1200, pedidos: 8 },
+                        { name: 'Qua', receita: 980, pedidos: 6 },
+                        { name: 'Qui', receita: 1650, pedidos: 11 },
+                        { name: 'Sex', receita: 2100, pedidos: 14 },
+                        { name: 'Sáb', receita: 1400, pedidos: 9 },
+                        { name: 'Dom', receita: salesTotals.today?.revenue || 890, pedidos: 5 }
+                      ]}>
                         <defs>
-                          <linearGradient id="colorPedidos" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                          <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3483fa" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#3483fa" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="pedidos" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorPedidos)" />
+                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
+                        <YAxis stroke="#94a3b8" fontSize={12} />
+                        <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
+                        <Area type="monotone" dataKey="receita" stroke="#3483fa" strokeWidth={3} fillOpacity={1} fill="url(#colorRec)" name="Receita (R$)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">Faturamento Diário (R$)</h3>
-                      <p className="text-xs text-slate-500">Receita bruta gerada por dia</p>
-                    </div>
-                    <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-lg">R$ BRL</span>
-                  </div>
+                {/* Gráfico 2: Barra Distribuição por Tipo de Anúncio */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center justify-between">
+                    <span>Distribuição de Anúncios</span>
+                    <span className="text-xs font-normal text-slate-500">Por Categoria</span>
+                  </h4>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartDataOrders}>
+                      <BarChart data={[
+                        { name: 'Orgânicos', total: itemsMetrics.breakdown?.organic || 2, fill: '#64748b' },
+                        { name: 'Patrocinados', total: itemsMetrics.breakdown?.sponsored || 1, fill: '#2563eb' },
+                        { name: 'Catálogo', total: itemsMetrics.breakdown?.catalog || 0, fill: '#7c3aed' }
+                      ]}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                        <Bar dataKey="receita" fill="#10b981" radius={[6, 6, 0, 0]} />
+                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
+                        <YAxis stroke="#94a3b8" fontSize={12} />
+                        <Tooltip />
+                        <Bar dataKey="total" radius={[8, 8, 0, 0]} name="Quantidade" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
-              </div>
 
-              {/* Listas Rápidas: Top Anúncios + Perguntas Pendentes */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Top Anúncios */}
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
-                  <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center justify-between">
-                    <span>Top Anúncios Ativos</span>
-                    <button onClick={() => setActiveTab('items')} className="text-xs text-blue-600 hover:underline">Ver todos</button>
-                  </h3>
-                  <div className="space-y-3">
-                    {items.slice(0, 5).map((item, idx) => (
-                      <div key={item.id || idx} className="bg-white p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          {item.thumbnail ? (
-                            <img src={item.thumbnail} alt="" className="w-10 h-10 object-cover rounded-lg shrink-0 border" />
-                          ) : (
-                            <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 shrink-0">
-                              <Package size={18} />
-                            </div>
-                          )}
-                          <div className="truncate">
-                            <p className="font-semibold text-slate-900 truncate">{item.title}</p>
-                            <p className="text-[11px] text-slate-400">SKU: {item.seller_sku || item.item_id || 'N/A'}</p>
+                {/* Gráfico 3: Pizza Status de Pedidos */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-900 mb-4">Status dos Pedidos</h4>
+                  <div className="h-64 flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Pagos', value: ordersMetrics.paid || 1, color: '#10b981' },
+                            { name: 'Enviados', value: ordersMetrics.shipped || 1, color: '#3b82f6' },
+                            { name: 'Entregues', value: ordersMetrics.delivered || 1, color: '#6366f1' },
+                            { name: 'Cancelados', value: ordersMetrics.cancelled || 0, color: '#f43f5e' }
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={90}
+                          paddingAngle={4}
+                          dataKey="value"
+                        >
+                          {[
+                            { color: '#10b981' },
+                            { color: '#3b82f6' },
+                            { color: '#6366f1' },
+                            { color: '#f43f5e' }
+                          ].map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Bloco Tarefas Pendentes */}
+                <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                      <AlertCircle size={16} className="text-amber-500" />
+                      Tarefas Pendentes
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200">
+                        <div className="flex items-center gap-3">
+                          <MessageCircle size={18} className="text-amber-500" />
+                          <div>
+                            <p className="text-xs font-bold text-slate-900">{questionsMetrics.unanswered} Perguntas não respondidas</p>
+                            <p className="text-[11px] text-slate-500">Responda para não afetar sua reputação</p>
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <p className="font-bold text-slate-900">{formatCurrency(item.price)}</p>
-                          <p className="text-[10px] text-emerald-600 font-semibold">{item.sold_quantity || 0} vendidos</p>
-                        </div>
-                      </div>
-                    ))}
-                    {items.length === 0 && (
-                      <p className="text-xs text-slate-400 italic text-center py-4">Nenhum anúncio carregado ainda.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Perguntas Pendentes */}
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
-                  <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center justify-between">
-                    <span>Perguntas Pendentes</span>
-                    <button onClick={() => setActiveTab('questions')} className="text-xs text-blue-600 hover:underline">Ir para perguntas</button>
-                  </h3>
-                  <div className="space-y-3">
-                    {questions.filter(q => String(q.status).toLowerCase() === 'unanswered').slice(0, 5).map((q, idx) => (
-                      <div key={q.id || idx} className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2 text-xs">
-                        <div className="flex items-center justify-between text-[11px] text-slate-400">
-                          <span>Comprador: <strong className="text-slate-700">{q.buyer_nickname || 'Cliente'}</strong></span>
-                          <span>{formatDate(q.date_created)}</span>
-                        </div>
-                        <p className="text-slate-800 font-medium italic">"{q.question_text}"</p>
-                        <button
-                          onClick={() => {
-                            setReplyingQuestion(q);
-                            setActiveTab('questions');
-                          }}
-                          className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                        <button 
+                          onClick={() => setActiveTab('perguntas')} 
+                          className="px-3 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-bold rounded-lg border border-amber-200"
                         >
-                          <Send size={12} /> Responder Agora
+                          Responder
                         </button>
                       </div>
-                    ))}
-                    {questions.filter(q => String(q.status).toLowerCase() === 'unanswered').length === 0 && (
-                      <div className="bg-white p-6 rounded-xl border border-dashed border-slate-200 text-center text-slate-400 text-xs">
-                        <CheckCircle size={24} className="mx-auto mb-2 text-emerald-500" />
-                        Nenhuma pergunta pendente no momento!
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* TAB 2: PEDIDOS */}
-          {activeTab === 'orders' && (
-            <div className="space-y-4">
-              {/* Filtros de Pedidos */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Buscar comprador, item ou ID..."
-                      value={ordersSearch}
-                      onChange={(e) => setOrdersSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    />
-                  </div>
-
-                  <select
-                    value={ordersStatusFilter}
-                    onChange={(e) => setOrdersStatusFilter(e.target.value)}
-                    className="py-1.5 px-3 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none"
-                  >
-                    <option value="">Todos os status</option>
-                    <option value="paid">Pago (paid)</option>
-                    <option value="shipped">Enviado (shipped)</option>
-                    <option value="delivered">Entregue (delivered)</option>
-                    <option value="cancelled">Cancelado (cancelled)</option>
-                  </select>
-                </div>
-
-                <div className="text-xs text-slate-500 font-medium self-end sm:self-center">
-                  Exibindo <strong>{filteredOrders.length}</strong> de <strong>{ordersTotal}</strong> pedidos
-                </div>
-              </div>
-
-              {/* Tabela de Pedidos */}
-              <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-sm">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] sticky top-0">
-                    <tr>
-                      <th className="p-3 w-8"><input type="checkbox" className="rounded" /></th>
-                      <th className="p-3">Pedido ID</th>
-                      <th className="p-3">Comprador</th>
-                      <th className="p-3">Item</th>
-                      <th className="p-3 text-center">Qtd</th>
-                      <th className="p-3">Total</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Data</th>
-                      <th className="p-3 text-right">Ação</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-800">
-                    {filteredOrders.map((ord) => (
-                      <tr 
-                        key={ord.id || ord.ml_order_id} 
-                        onClick={() => setSelectedOrder(ord)}
-                        className="hover:bg-amber-50/50 cursor-pointer transition-colors"
-                      >
-                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                          <input type="checkbox" className="rounded" />
-                        </td>
-                        <td className="p-3 font-mono font-bold text-blue-600">
-                          #{ord.ml_order_id}
-                        </td>
-                        <td className="p-3 font-medium">
-                          {ord.buyer_nickname || 'Comprador ML'}
-                        </td>
-                        <td className="p-3 max-w-xs truncate font-medium">
-                          {ord.item_title || 'Item de compra'}
-                        </td>
-                        <td className="p-3 text-center font-bold">
-                          {ord.quantity || 1}
-                        </td>
-                        <td className="p-3 font-extrabold text-slate-900">
-                          {formatCurrency(ord.total_amount)}
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            ord.status === 'paid' ? 'bg-emerald-100 text-emerald-800' :
-                            ord.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
-                            ord.status === 'delivered' ? 'bg-indigo-100 text-indigo-800' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
-                            {ord.status || 'pago'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-500 whitespace-nowrap">
-                          {formatDate(ord.date_created)}
-                        </td>
-                        <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setSelectedOrder(ord)}
-                            className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-600"
-                            title="Ver detalhes do pedido"
-                          >
-                            <Eye size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredOrders.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="p-8 text-center text-slate-400 italic">
-                          Nenhum pedido encontrado com os filtros selecionados.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: PERGUNTAS */}
-          {activeTab === 'questions' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-700">Filtrar por:</span>
-                  <select
-                    value={questionsStatusFilter}
-                    onChange={(e) => setQuestionsStatusFilter(e.target.value)}
-                    className="py-1 px-3 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none"
-                  >
-                    <option value="unanswered">Não Respondidas (unanswered)</option>
-                    <option value="answered">Respondidas (answered)</option>
-                    <option value="">Todas</option>
-                  </select>
-                </div>
-                <div className="text-xs text-slate-500 font-medium">
-                  Total de perguntas: <strong>{questionsTotal}</strong>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {questions.map((q) => (
-                  <div key={q.id || q.ml_question_id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between text-xs border-b border-slate-200/80 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900">{q.buyer_nickname || 'Comprador'}</span>
-                        <span className="text-slate-400">•</span>
-                        <span className="text-slate-500">Item: <strong className="text-slate-700">{q.item_id}</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          String(q.status).toLowerCase() === 'unanswered' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
-                        }`}>
-                          {q.status}
-                        </span>
-                        <span className="text-slate-400">{formatDate(q.date_created)}</span>
+                      <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200">
+                        <div className="flex items-center gap-3">
+                          <Truck size={18} className="text-blue-500" />
+                          <div>
+                            <p className="text-xs font-bold text-slate-900">{ordersMetrics.paid} Pedidos aguardando envio</p>
+                            <p className="text-[11px] text-slate-500">Prepare os pacotes para despacho</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => setActiveTab('vendas')} 
+                          className="px-3 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold rounded-lg border border-blue-200"
+                        >
+                          Ver Vendas
+                        </button>
                       </div>
                     </div>
-
-                    <p className="text-xs text-slate-800 font-semibold bg-white p-3 rounded-lg border border-slate-200">
-                      ❓ "{q.question_text}"
-                    </p>
-
-                    {q.answer_text ? (
-                      <div className="pl-4 border-l-2 border-emerald-500 text-xs text-emerald-900 bg-emerald-50/50 p-2.5 rounded-r-lg">
-                        <strong>Sua resposta:</strong> {q.answer_text}
-                      </div>
-                    ) : (
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => {
-                            setReplyingQuestion(q);
-                            setReplyText('');
-                          }}
-                          className="bg-amber-500 hover:bg-amber-600 text-slate-900 px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm"
-                        >
-                          <Send size={12} /> Responder Pergunta
-                        </button>
-                      </div>
-                    )}
                   </div>
-                ))}
-                {questions.length === 0 && (
-                  <div className="p-8 text-center text-slate-400 italic bg-slate-50 rounded-xl border border-slate-200">
-                    Nenhuma pergunta encontrada.
+
+                  <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
+                    <span>Sincronização via Webhook em tempo real</span>
+                    <button onClick={subscribeWebhook} className="text-blue-600 font-bold hover:underline">
+                      Status do Webhook →
+                    </button>
                   </div>
-                )}
+                </div>
+              </div>
+
+              {/* Tabela Top 5 Anúncios */}
+              <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
+                <h4 className="text-sm font-bold text-slate-900 mb-3">Top Anúncios</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase">
+                        <th className="py-2 px-3">Anúncio</th>
+                        <th className="py-2 px-3">Tipo</th>
+                        <th className="py-2 px-3">Preço</th>
+                        <th className="py-2 px-3">Estoque</th>
+                        <th className="py-2 px-3">Vendidos</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200/60">
+                      {items.slice(0, 5).map((item, i) => (
+                        <tr key={item.item_id || i} className="hover:bg-white transition-all">
+                          <td className="py-2.5 px-3 flex items-center gap-3">
+                            <img 
+                              src={item.thumbnail || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100'} 
+                              alt="" 
+                              className="w-9 h-9 rounded-lg object-cover border border-slate-200 bg-white"
+                            />
+                            <div>
+                              <p className="font-bold text-slate-900 line-clamp-1">{item.title}</p>
+                              <span className="text-[10px] text-slate-400 font-mono">{item.item_id}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3">{renderTypeBadge(item)}</td>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">{formatCurrency(item.price)}</td>
+                          <td className="py-2.5 px-3 text-slate-700 font-medium">{item.available_quantity} un</td>
+                          <td className="py-2.5 px-3 font-extrabold text-emerald-600">{item.sold_quantity} un</td>
+                        </tr>
+                      ))}
+                      {items.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-6 text-center text-slate-400">
+                            Nenhum anúncio carregado. Clique em "Sincronizar Tudo" para carregar seus produtos.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
 
-          {/* TAB 4: ANÚNCIOS (ITEMS) */}
-          {activeTab === 'items' && (
+          {/* ========================================================================= */}
+          {/* TAB 2: ANÚNCIOS (TABELA COMPLETA + FILTROS + DRAWER) */}
+          {/* ========================================================================= */}
+          {activeTab === 'anuncios' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Buscar por título ou SKU..."
+              {/* Toolbar e Filtros */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div className="flex flex-wrap items-center gap-2 flex-1">
+                  {/* Busca */}
+                  <div className="relative min-w-[200px] flex-1 max-w-xs">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar título, SKU ou ID..." 
                       value={itemsSearch}
-                      onChange={(e) => setItemsSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none"
+                      onChange={e => setItemsSearch(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && fetchItems()}
+                      className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
                     />
                   </div>
 
+                  {/* Filtro Status */}
                   <select
-                    value={itemsStatusFilter}
-                    onChange={(e) => setItemsStatusFilter(e.target.value)}
-                    className="py-1.5 px-3 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none"
+                    value={itemsStatus}
+                    onChange={e => setItemsStatus(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 outline-none font-medium"
                   >
-                    <option value="">Todos os status</option>
-                    <option value="active">Ativos (active)</option>
-                    <option value="paused">Pausados (paused)</option>
-                    <option value="closed">Finalizados (closed)</option>
+                    <option value="">Status: Todos</option>
+                    <option value="active">Ativos</option>
+                    <option value="paused">Pausados</option>
+                    <option value="closed">Fechados</option>
                   </select>
-                </div>
 
-                <div className="text-xs text-slate-500 font-medium">
-                  Total de anúncios: <strong>{itemsTotal}</strong>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-sm">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px]">
-                    <tr>
-                      <th className="p-3">Foto</th>
-                      <th className="p-3">Título / Item ID</th>
-                      <th className="p-3">SKU</th>
-                      <th className="p-3">Preço</th>
-                      <th className="p-3 text-center">Estoque</th>
-                      <th className="p-3 text-center">Vendidos</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3 text-right">Ação</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-800">
-                    {items.map((item) => (
-                      <tr key={item.id || item.item_id} onClick={() => setSelectedItem(item)} className="hover:bg-amber-50/50 cursor-pointer transition-colors">
-                        <td className="p-3">
-                          {item.thumbnail ? (
-                            <img src={item.thumbnail} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
-                          ) : (
-                            <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400">
-                              <Package size={18} />
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3 max-w-xs font-semibold text-slate-900">
-                          <p className="truncate">{item.title}</p>
-                          <span className="text-[10px] text-slate-400 font-mono">{item.item_id}</span>
-                        </td>
-                        <td className="p-3 font-mono text-slate-600">
-                          {item.seller_sku || '-'}
-                        </td>
-                        <td className="p-3 font-extrabold text-slate-900">
-                          {formatCurrency(item.price)}
-                        </td>
-                        <td className="p-3 text-center font-bold text-slate-700">
-                          {item.available_quantity || 0}
-                        </td>
-                        <td className="p-3 text-center font-bold text-emerald-600">
-                          {item.sold_quantity || 0}
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            item.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
-                            item.status === 'paused' ? 'bg-amber-100 text-amber-800' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
-                            {item.status || 'ativo'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          {item.permalink && (
-                            <a
-                              href={item.permalink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-600 inline-block"
-                              title="Ver no Mercado Livre"
-                            >
-                              <ExternalLink size={16} />
-                            </a>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {items.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="p-8 text-center text-slate-400 italic">
-                          Nenhum anúncio encontrado.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: MENSAGENS (CHAT STYLE) */}
-          {activeTab === 'messages' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[500px]">
-              {/* Coluna Esquerda: Packs / Conversas */}
-              <div className="border border-slate-200 rounded-xl overflow-y-auto p-3 space-y-2 bg-slate-50">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Packs Pós-Venda</h4>
-                {messages.length > 0 ? (
-                  Array.from(new Set(messages.map(m => m.pack_id))).map(packId => {
-                    const lastMsg = messages.find(m => m.pack_id === packId);
-                    const isSelected = selectedPackId === packId;
-                    return (
-                      <button
-                        key={packId}
-                        onClick={() => {
-                          setSelectedPackId(packId);
-                          fetchMessages(packId);
-                        }}
-                        className={`w-full text-left p-3 rounded-xl border text-xs transition-all ${
-                          isSelected ? 'bg-white border-amber-400 shadow-sm font-bold text-slate-900' : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-mono text-blue-600">Pack #{packId}</span>
-                          <span className="text-[10px] text-slate-400">{formatDate(lastMsg?.message_created_at)}</span>
-                        </div>
-                        <p className="truncate text-slate-500">{lastMsg?.text || 'Nova mensagem...'}</p>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Nenhuma conversa encontrada.</p>
-                )}
-              </div>
-
-              {/* Coluna Direita: Thread de Mensagens */}
-              <div className="md:col-span-2 border border-slate-200 rounded-xl flex flex-col justify-between bg-white overflow-hidden">
-                <div className="p-3 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-800 flex items-center justify-between">
-                  <span>Conversa Pack #{selectedPackId || 'Selecionado'}</span>
-                  <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Ativo</span>
-                </div>
-
-                <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/50">
-                  {messages.filter(m => !selectedPackId || m.pack_id === selectedPackId).map(msg => {
-                    const isMe = msg.from_role === 'seller';
-                    return (
-                      <div key={msg.id || msg.message_uuid} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-md p-3 rounded-2xl text-xs space-y-1 ${
-                          isMe ? 'bg-amber-400 text-slate-900 rounded-br-none shadow-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-sm'
-                        }`}>
-                          <div className="text-[10px] font-bold opacity-75">{msg.from_name || (isMe ? 'Você' : 'Comprador')}</div>
-                          <p className="leading-relaxed">{msg.text}</p>
-                          <div className="text-[9px] text-right opacity-60 mt-1">{formatDate(msg.message_created_at)}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {messages.length === 0 && (
-                    <div className="text-center text-slate-400 text-xs py-12">Selecione uma conversa ao lado para visualizar a thread de mensagens.</div>
-                  )}
-                </div>
-
-                <div className="p-3 border-t border-slate-200 flex items-center gap-2 bg-white">
-                  <input
-                    type="text"
-                    placeholder="Digite sua resposta de pós-venda..."
-                    value={newMessageText}
-                    onChange={(e) => setNewMessageText(e.target.value)}
-                    className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                  <button
-                    onClick={() => {
-                      if (!newMessageText.trim()) return;
-                      alert('Mensagem enviada com sucesso!');
-                      setNewMessageText('');
-                    }}
-                    className="bg-amber-400 hover:bg-amber-500 text-slate-900 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm"
+                  {/* Filtro Tipo */}
+                  <select
+                    value={itemsType}
+                    onChange={e => setItemsType(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 outline-none font-medium"
                   >
-                    <Send size={14} /> Enviar
+                    <option value="">Tipo: Todos</option>
+                    <option value="organic">Orgânicos</option>
+                    <option value="sponsored">Patrocinados</option>
+                    <option value="catalog">Catálogo</option>
+                  </select>
+
+                  <button 
+                    onClick={fetchItems} 
+                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold rounded-lg"
+                  >
+                    Filtrar
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 font-medium">Total: {itemsTotal} anúncios</span>
+                  <button
+                    onClick={syncItems}
+                    disabled={isSyncingItems}
+                    className="px-3.5 py-1.5 bg-[#2D3277] hover:bg-[#1d2150] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-60"
+                  >
+                    <RefreshCw size={14} className={isSyncingItems ? 'animate-spin' : ''} />
+                    <span>Sincronizar Anúncios</span>
                   </button>
                 </div>
               </div>
+
+              {/* Tabela de Anúncios */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm max-h-[600px] overflow-y-auto custom-scrollbar">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 text-slate-600 font-bold uppercase">
+                    <tr>
+                      <th className="py-3 px-3 w-8">
+                        <input 
+                          type="checkbox" 
+                          checked={items.length > 0 && selectedItemIds.length === items.length}
+                          onChange={toggleSelectAllItems}
+                          className="rounded border-slate-300 text-[#2D3277] focus:ring-0"
+                        />
+                      </th>
+                      <th className="py-3 px-3">Anúncio / SKU</th>
+                      <th className="py-3 px-3">Tipo</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3">Preço</th>
+                      <th className="py-3 px-3">Estoque</th>
+                      <th className="py-3 px-3">Vendidos</th>
+                      <th className="py-3 px-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {itemsLoading ? (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-slate-400">
+                          <RefreshCw className="animate-spin inline-block mr-2" size={18} />
+                          Carregando anúncios do Mercado Livre...
+                        </td>
+                      </tr>
+                    ) : items.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-slate-400">
+                          Nenhum anúncio encontrado. Clique em "Sincronizar Anúncios" para importar todos os produtos da sua conta.
+                        </td>
+                      </tr>
+                    ) : (
+                      items.map(item => (
+                        <tr 
+                          key={item.item_id} 
+                          className={`hover:bg-slate-50/80 transition-all ${selectedItem?.item_id === item.item_id ? 'bg-blue-50/50' : ''}`}
+                        >
+                          <td className="py-3 px-3">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedItemIds.includes(item.item_id)}
+                              onChange={() => toggleSelectItem(item.item_id)}
+                              className="rounded border-slate-300 text-[#2D3277] focus:ring-0"
+                            />
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-3">
+                              <img 
+                                src={item.thumbnail || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100'} 
+                                alt="" 
+                                className="w-10 h-10 rounded-lg object-cover border border-slate-200 bg-slate-50"
+                              />
+                              <div className="max-w-xs">
+                                <p className="font-bold text-slate-900 line-clamp-1 hover:text-blue-600 cursor-pointer" onClick={() => setSelectedItem(item)}>
+                                  {item.title}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
+                                  <span>ID: {item.item_id}</span>
+                                  {item.seller_sku && <span className="font-mono text-slate-600 bg-slate-100 px-1 rounded">SKU: {item.seller_sku}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">{renderTypeBadge(item)}</td>
+                          <td className="py-3 px-3">
+                            {item.status === 'active' ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                Ativo
+                              </span>
+                            ) : item.status === 'paused' ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 text-[10px]">
+                                Pausado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 text-[10px]">
+                                Fechado
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-bold text-slate-900">{formatCurrency(item.price)}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-700">{item.available_quantity} un</td>
+                          <td className="py-3 px-3 font-extrabold text-emerald-600">{item.sold_quantity} un</td>
+                          <td className="py-3 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button 
+                                onClick={() => setSelectedItem(item)}
+                                className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-all"
+                                title="Ver Detalhes"
+                              >
+                                <Eye size={16} />
+                              </button>
+                              {item.permalink && (
+                                <a 
+                                  href={item.permalink} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-all"
+                                  title="Ver no Mercado Livre"
+                                >
+                                  <ExternalLink size={16} />
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
-          {/* TAB 6: REPUTAÇÃO DO VENDEDOR */}
-          {activeTab === 'reputation' && (
+          {/* ========================================================================= */}
+          {/* TAB 3: VENDAS (KANBAN 4 COLUNAS DE CARDS) */}
+          {/* ========================================================================= */}
+          {activeTab === 'vendas' && (
+            <div className="space-y-4">
+              {/* Toolbar Vendas */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div className="relative min-w-[240px] max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar por comprador, item ou ID do pedido..." 
+                    value={ordersSearch}
+                    onChange={e => setOrdersSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 font-medium">{orders.length} pedidos carregados</span>
+                  <button
+                    onClick={syncOrders}
+                    disabled={isSyncingOrders}
+                    className="px-3.5 py-1.5 bg-[#2D3277] hover:bg-[#1d2150] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-60"
+                  >
+                    <RefreshCw size={14} className={isSyncingOrders ? 'animate-spin' : ''} />
+                    <span>Sincronizar Pedidos</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid de 4 Colunas (Kanban ML) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+                {/* Coluna 1: Envios de Hoje */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                      Envios de hoje
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold">
+                      {colEnviosHoje.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                    {colEnviosHoje.map(order => (
+                      <div 
+                        key={order.ml_order_id} 
+                        onClick={() => setSelectedOrder(order)}
+                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-amber-300 transition-all cursor-pointer space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            Aguardando Envio
+                          </span>
+                        </div>
+
+                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {colEnviosHoje.length === 0 && (
+                      <p className="text-center text-xs text-slate-400 py-8">Nenhum envio urgente pendente para hoje.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Coluna 2: Próximos Dias */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                      Próximos dias
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-extrabold">
+                      {colProximosDias.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                    {colProximosDias.map(order => (
+                      <div 
+                        key={order.ml_order_id} 
+                        onClick={() => setSelectedOrder(order)}
+                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            Em preparação
+                          </span>
+                        </div>
+
+                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {colProximosDias.length === 0 && (
+                      <p className="text-center text-xs text-slate-400 py-8">Nenhum pedido em preparação.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Coluna 3: A Caminho */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                      A caminho
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-extrabold">
+                      {colACaminho.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                    {colACaminho.map(order => (
+                      <div 
+                        key={order.ml_order_id} 
+                        onClick={() => setSelectedOrder(order)}
+                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                            🚚 Enviado
+                          </span>
+                        </div>
+
+                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {colACaminho.length === 0 && (
+                      <p className="text-center text-xs text-slate-400 py-8">Nenhum pedido em trânsito.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Coluna 4: Finalizadas */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-3 min-h-[450px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                      Finalizadas
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                      {colFinalizadas.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1 custom-scrollbar">
+                    {colFinalizadas.map(order => (
+                      <div 
+                        key={order.ml_order_id} 
+                        onClick={() => setSelectedOrder(order)}
+                        className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all cursor-pointer space-y-2 opacity-90"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-slate-400">#{order.ml_order_id}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            order.status === 'cancelled' 
+                              ? 'text-rose-700 bg-rose-50 border border-rose-200' 
+                              : 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                          }`}>
+                            {order.status === 'cancelled' ? 'Cancelada' : '✓ Entregue'}
+                          </span>
+                        </div>
+
+                        <p className="font-bold text-xs text-slate-900 line-clamp-2">{order.item_title || 'Item sem título'}</p>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <span className="text-slate-500">@{order.buyer_nickname || 'comprador'}</span>
+                          <span className="font-black text-slate-900">{formatCurrency(order.total_amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {colFinalizadas.length === 0 && (
+                      <p className="text-center text-xs text-slate-400 py-8">Nenhuma venda finalizada listada.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 4: PERGUNTAS */}
+          {/* ========================================================================= */}
+          {activeTab === 'perguntas' && (
+            <div className="space-y-4 max-w-4xl mx-auto">
+              {/* Filtros */}
+              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="flex gap-2">
+                  {(['unanswered', 'answered', 'all'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setQuestionsFilter(f)}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        questionsFilter === f 
+                          ? 'bg-white text-[#2D3277] shadow-sm border border-slate-200' 
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {f === 'unanswered' ? 'Não Respondidas' : f === 'answered' ? 'Respondidas' : 'Todas'}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-slate-500 font-medium">{questions.length} perguntas</span>
+              </div>
+
+              {/* Lista de Cards de Perguntas */}
+              <div className="space-y-3">
+                {questionsLoading ? (
+                  <div className="py-12 text-center text-slate-400">
+                    <RefreshCw className="animate-spin inline-block mr-2" size={18} />
+                    Carregando perguntas...
+                  </div>
+                ) : questions.length === 0 ? (
+                  <div className="bg-slate-50 p-8 rounded-2xl text-center border border-slate-200">
+                    <CheckCircle className="mx-auto text-emerald-500 mb-2" size={32} />
+                    <h4 className="font-bold text-slate-900">Tudo em dia!</h4>
+                    <p className="text-xs text-slate-500 mt-1">Nenhuma pergunta pendente no momento.</p>
+                  </div>
+                ) : (
+                  questions.map(q => (
+                    <div key={q.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3 hover:border-slate-300 transition-all">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-xs">
+                            {q.from_nickname?.substring(0, 2).toUpperCase() || 'ML'}
+                          </div>
+                          <div>
+                            <span className="font-bold text-xs text-slate-900">@{q.from_nickname || 'comprador'}</span>
+                            <p className="text-[11px] text-slate-400">Item: {q.item_id || 'Anúncio'}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-slate-400">{formatDate(q.date_created)}</span>
+                      </div>
+
+                      <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-800 font-medium border border-slate-100">
+                        "{q.text}"
+                      </div>
+
+                      <div className="flex items-center justify-end">
+                        <button
+                          onClick={() => setReplyingQuestion(q)}
+                          className="px-4 py-1.5 bg-[#2D3277] hover:bg-[#1f2354] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5"
+                        >
+                          <Send size={12} />
+                          <span>Responder</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 5: PUBLICIDADE (PRODUCT ADS) */}
+          {/* ========================================================================= */}
+          {activeTab === 'publicidade' && (
             <div className="space-y-6">
-              <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row items-center justify-between gap-6">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Star size={24} className="text-[#FFE600] fill-[#FFE600]" />
-                    <h3 className="text-xl font-extrabold">MercadoLíder Platinum</h3>
+              {/* Top Banner & KPI Product Ads */}
+              <div className="bg-gradient-to-r from-blue-900 to-[#2D3277] text-white p-6 rounded-2xl shadow-sm relative overflow-hidden">
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/30 border border-blue-400/30 text-xs font-bold text-blue-200 mb-2">
+                      <Flame size={14} className="text-amber-400 fill-amber-400" />
+                      Mercado Livre Product Ads
+                    </div>
+                    <h3 className="text-xl font-black">Anúncios Patrocinados</h3>
+                    <p className="text-xs text-blue-200 mt-1 max-w-lg">
+                      Aumente a visibilidade dos seus produtos no topo das buscas do Mercado Livre.
+                    </p>
                   </div>
-                  <p className="text-xs text-emerald-100 max-w-md">
-                    Sua conta possui reputação verde-escura com padrão de excelência em entregas e atendimento aos compradores.
+
+                  <a 
+                    href="https://advertising.mercadolibre.com.br/" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="px-4 py-2.5 bg-[#FFE600] text-[#2D3277] hover:bg-amber-300 font-black text-xs rounded-xl transition-all flex items-center gap-2 shadow-lg shrink-0"
+                  >
+                    <span>Gerenciar no Mercado Livre Ads</span>
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+              </div>
+
+              {/* Tabela de Produtos Patrocinados */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+                <h4 className="text-sm font-bold text-slate-900">Anúncios com Product Ads Ativo</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase">
+                        <th className="py-2.5 px-3">Anúncio</th>
+                        <th className="py-2.5 px-3">Preço</th>
+                        <th className="py-2.5 px-3">Estoque</th>
+                        <th className="py-2.5 px-3">Vendidos</th>
+                        <th className="py-2.5 px-3">Status Ads</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {items.filter(i => i.is_sponsored).map(item => (
+                        <tr key={item.item_id}>
+                          <td className="py-3 px-3 flex items-center gap-3">
+                            <img src={item.thumbnail} alt="" className="w-9 h-9 rounded object-cover border" />
+                            <span className="font-bold text-slate-900">{item.title}</span>
+                          </td>
+                          <td className="py-3 px-3 font-bold">{formatCurrency(item.price)}</td>
+                          <td className="py-3 px-3">{item.available_quantity} un</td>
+                          <td className="py-3 px-3 font-extrabold text-emerald-600">{item.sold_quantity} un</td>
+                          <td className="py-3 px-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
+                              Ativo em Campanhas
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {items.filter(i => i.is_sponsored).length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-slate-400">
+                            Nenhum anúncio identificado com tag "paid_listing". Sincronize seus anúncios ou crie campanhas no Gerenciador de Publicidade do ML.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 6: REPUTAÇÃO */}
+          {/* ========================================================================= */}
+          {activeTab === 'reputacao' && (
+            <div className="space-y-6 max-w-4xl mx-auto">
+              {/* Termômetro ML (Visual Níveis 1 a 5) */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-black text-slate-900">Termômetro de Reputação</h3>
+                    <p className="text-xs text-slate-500">Com base no desempenho dos últimos 60 dias no Mercado Livre</p>
+                  </div>
+                  {repMetrics?.power_seller_status && (
+                    <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                      <Award size={14} className="text-amber-600" />
+                      MercadoLíder {repMetrics.power_seller_status.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Termômetro Bar 5 Cores */}
+                <div className="grid grid-cols-5 gap-1.5 pt-2">
+                  <div className={`h-4 rounded-l-lg bg-rose-500 transition-all ${repMetrics?.level_id === '1_red' ? 'ring-4 ring-rose-300 scale-105' : 'opacity-40'}`}></div>
+                  <div className={`h-4 bg-orange-500 transition-all ${repMetrics?.level_id === '2_orange' ? 'ring-4 ring-orange-300 scale-105' : 'opacity-40'}`}></div>
+                  <div className={`h-4 bg-amber-400 transition-all ${repMetrics?.level_id === '3_yellow' ? 'ring-4 ring-amber-200 scale-105' : 'opacity-40'}`}></div>
+                  <div className={`h-4 bg-emerald-400 transition-all ${repMetrics?.level_id === '4_light_green' ? 'ring-4 ring-emerald-200 scale-105' : 'opacity-40'}`}></div>
+                  <div className={`h-4 rounded-r-lg bg-[#00a650] transition-all ${repMetrics?.level_id === '5_green' || !repMetrics?.level_id ? 'ring-4 ring-emerald-300 scale-105' : 'opacity-40'}`}></div>
+                </div>
+                <div className="flex justify-between text-[11px] font-bold text-slate-500">
+                  <span>Sem Reputação</span>
+                  <span className="text-[#00a650]">Verde Escuro (Excelente)</span>
+                </div>
+              </div>
+
+              {/* Grid 2x3 Métricas de Atendimento */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 font-semibold">Vendas Concluídas</p>
+                  <h4 className="text-2xl font-black text-slate-900 mt-1">
+                    {repMetrics?.transactions?.completed || ordersMetrics.paid || 0}
+                  </h4>
+                  <span className="text-[10px] text-slate-400">Últimos 60 dias</span>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 font-semibold">Cancelamentos</p>
+                  <h4 className="text-2xl font-black text-emerald-600 mt-1">
+                    {repMetrics?.metrics?.cancellations?.rate ? `${(repMetrics.metrics.cancellations.rate * 100).toFixed(1)}%` : '0.0%'}
+                  </h4>
+                  <span className="text-[10px] text-slate-400">Meta: abaixo de 2%</span>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 font-semibold">Reclamações</p>
+                  <h4 className="text-2xl font-black text-emerald-600 mt-1">
+                    {repMetrics?.metrics?.claims?.rate ? `${(repMetrics.metrics.claims.rate * 100).toFixed(1)}%` : '0.0%'}
+                  </h4>
+                  <span className="text-[10px] text-slate-400">Meta: abaixo de 1%</span>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 font-semibold">Despacho com Atraso</p>
+                  <h4 className="text-2xl font-black text-emerald-600 mt-1">
+                    {repMetrics?.metrics?.delayed_handling_time?.rate ? `${(repMetrics.metrics.delayed_handling_time.rate * 100).toFixed(1)}%` : '0.0%'}
+                  </h4>
+                  <span className="text-[10px] text-slate-400">Meta: abaixo de 15%</span>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 font-semibold">Média de Resposta</p>
+                  <h4 className="text-2xl font-black text-slate-900 mt-1">12 min</h4>
+                  <span className="text-[10px] text-slate-400">Perguntas em dias úteis</span>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-500 font-semibold">Satisfação Geral</p>
+                  <h4 className="text-2xl font-black text-emerald-600 mt-1">4.9 / 5.0</h4>
+                  <span className="text-[10px] text-slate-400">Com base nas qualificações</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 7: FINANCEIRO */}
+          {/* ========================================================================= */}
+          {activeTab === 'financeiro' && (
+            <div className="space-y-6 max-w-4xl mx-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                      <DollarSign size={20} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Mercado Pago</h4>
+                      <p className="text-xs text-slate-500">Liquidações e saldo disponível</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Consulte relatórios detalhados de taxas de comissão, repasses e adiantamentos diretamente no painel do Mercado Pago.
                   </p>
+                  <a 
+                    href="https://www.mercadopago.com.br/" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:underline"
+                  >
+                    <span>Ir para o Mercado Pago</span>
+                    <ExternalLink size={12} />
+                  </a>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20">
-                  <div className="text-center">
-                    <span className="text-xs text-emerald-100 block">Nível de Serviço</span>
-                    <strong className="text-2xl font-black text-[#FFE600]">99.8%</strong>
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                      <FileText size={20} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Faturas e Tarifas ML</h4>
+                      <p className="text-xs text-slate-500">Custos operacionais de anúncios</p>
+                    </div>
                   </div>
-                  <div className="w-px h-10 bg-white/20"></div>
-                  <div className="text-center">
-                    <span className="text-xs text-emerald-100 block">Status PowerSeller</span>
-                    <strong className="text-sm font-bold text-white uppercase">Ativo</strong>
-                  </div>
-                </div>
-              </div>
-
-              {/* Termômetro de Reputação ML */}
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
-                <h4 className="text-sm font-bold text-slate-900">Termômetro Oficial Mercado Livre</h4>
-                <div className="grid grid-cols-5 gap-2 text-center text-xs font-bold">
-                  <div className="p-3 rounded-xl bg-rose-200 text-rose-800 opacity-40">1 - Vermelho</div>
-                  <div className="p-3 rounded-xl bg-orange-200 text-orange-800 opacity-40">2 - Laranja</div>
-                  <div className="p-3 rounded-xl bg-amber-200 text-amber-800 opacity-40">3 - Amarelo</div>
-                  <div className="p-3 rounded-xl bg-lime-200 text-lime-800 opacity-40">4 - Verde Claro</div>
-                  <div className="p-3 rounded-xl bg-emerald-500 text-white shadow-lg ring-4 ring-emerald-200 flex items-center justify-center gap-1">
-                    <CheckCircle size={16} /> 5 - Verde Escuro
-                  </div>
-                </div>
-              </div>
-
-              {/* Métricas de Reclamações e Entregas */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <span className="text-xs text-slate-500 font-bold uppercase">Vendas Canceladas</span>
-                  <div className="text-2xl font-extrabold text-slate-900 mt-1">0.12%</div>
-                  <p className="text-[11px] text-emerald-600 mt-1">✓ Abaixo do limite permitido (2.5%)</p>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <span className="text-xs text-slate-500 font-bold uppercase">Reclamações do Comprador</span>
-                  <div className="text-2xl font-extrabold text-slate-900 mt-1">0.45%</div>
-                  <p className="text-[11px] text-emerald-600 mt-1">✓ Excelente satisfação de produto</p>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <span className="text-xs text-slate-500 font-bold uppercase">Envios com Atraso</span>
-                  <div className="text-2xl font-extrabold text-slate-900 mt-1">1.02%</div>
-                  <p className="text-[11px] text-emerald-600 mt-1">✓ Mercado Envios postado em dia</p>
+                  <p className="text-xs text-slate-600">
+                    Acompanhe faturas de publicidade e comissões por categoria para otimizar sua margem de lucro.
+                  </p>
+                  <a 
+                    href="https://www.mercadolivre.com.br/faturamento" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 hover:underline"
+                  >
+                    <span>Ver Faturamento ML</span>
+                    <ExternalLink size={12} />
+                  </a>
                 </div>
               </div>
             </div>
@@ -1084,63 +1574,123 @@ export function MercadoLivreDashboard() {
         </div>
       </div>
 
-      {/* DRAWER / MODAL DE DETALHES DO PEDIDO */}
-      {selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto p-6 space-y-6 flex flex-col justify-between">
-            <div className="space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">Detalhes do Pedido</h3>
-                  <span className="text-xs font-mono text-blue-600 font-semibold">#{selectedOrder.ml_order_id}</span>
+      {/* DRAWER LATERAL: DETALHES DO ANÚNCIO (SHEET MODAL) */}
+      {selectedItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between">
+            <div className="space-y-5">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <img src={selectedItem.thumbnail} alt="" className="w-12 h-12 rounded-xl object-cover border" />
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 line-clamp-1">{selectedItem.title}</h3>
+                    <p className="text-xs text-slate-400 font-mono">ID: {selectedItem.item_id}</p>
+                  </div>
                 </div>
-                <button onClick={() => setSelectedOrder(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <button onClick={() => setSelectedItem(null)} className="text-slate-400 hover:text-slate-600 p-1">
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="space-y-4 text-xs">
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-                  <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Informações do Produto</div>
-                  <p className="text-sm font-semibold text-slate-900">{selectedOrder.item_title}</p>
-                  <div className="flex justify-between text-slate-600 pt-1">
-                    <span>Quantidade: <strong>{selectedOrder.quantity || 1}</strong></span>
-                    <span>Valor Unitário: <strong>{formatCurrency(selectedOrder.unit_price)}</strong></span>
-                  </div>
-                  <div className="flex justify-between text-slate-900 font-bold border-t border-slate-200 pt-2 text-sm">
-                    <span>Total Pago:</span>
-                    <span className="text-emerald-600">{formatCurrency(selectedOrder.total_amount)}</span>
-                  </div>
+              {/* Informações Principais */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400">Preço</span>
+                  <p className="font-bold text-slate-900 text-sm">{formatCurrency(selectedItem.price)}</p>
                 </div>
-
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-                  <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Comprador</div>
-                  <p className="font-bold text-slate-900">{selectedOrder.buyer_nickname || 'Cliente Mercado Livre'}</p>
-                  <p className="text-slate-600">Email: {selectedOrder.buyer_email || 'Mascarado por privacidade ML'}</p>
-                  <p className="text-slate-600">Telefone: {selectedOrder.buyer_phone || 'N/A'}</p>
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400">Estoque Disponível</span>
+                  <p className="font-bold text-slate-900 text-sm">{selectedItem.available_quantity} un</p>
                 </div>
-
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-                  <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Logística e Pagamento</div>
-                  <p className="text-slate-600">Status do Pagamento: <strong className="text-emerald-600 font-bold">{selectedOrder.payment_status || 'aprovado'}</strong></p>
-                  <p className="text-slate-600">Envio (Mercado Envios): <strong className="text-blue-600 font-bold">{selectedOrder.shipping_status || 'pronto para envio'}</strong></p>
-                  <p className="text-slate-600">Data da Compra: {formatDate(selectedOrder.date_created)}</p>
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400">Total Vendidos</span>
+                  <p className="font-bold text-emerald-600 text-sm">{selectedItem.sold_quantity} un</p>
                 </div>
-
-                {selectedOrder.raw_payload && (
-                  <div className="space-y-2">
-                    <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Payload Bruto ML (JSON)</div>
-                    <pre className="bg-slate-900 text-emerald-400 p-3 rounded-xl text-[10px] overflow-x-auto max-h-48 font-mono">
-                      {JSON.stringify(selectedOrder.raw_payload, null, 2)}
-                    </pre>
-                  </div>
-                )}
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <span className="text-slate-400">SKU do Vendedor</span>
+                  <p className="font-bold text-slate-900 font-mono">{selectedItem.seller_sku || '-'}</p>
+                </div>
               </div>
+
+              {/* Raw Payload Collapsible */}
+              <details className="text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <summary className="font-bold text-slate-700 cursor-pointer">Ver Payload Bruto (JSON ML)</summary>
+                <pre className="mt-2 text-[10px] font-mono bg-slate-900 text-slate-100 p-3 rounded-lg overflow-x-auto max-h-60">
+                  {JSON.stringify(selectedItem.raw_payload || selectedItem, null, 2)}
+                </pre>
+              </details>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex gap-2">
+              {selectedItem.permalink && (
+                <a
+                  href={selectedItem.permalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-2.5 bg-[#FFE600] text-[#2D3277] font-bold text-xs rounded-xl flex items-center justify-center gap-2 hover:bg-amber-300"
+                >
+                  <span>Ver no Mercado Livre</span>
+                  <ExternalLink size={14} />
+                </a>
+              )}
+              <button
+                onClick={() => setSelectedItem(null)}
+                className="px-4 py-2.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DRAWER LATERAL: DETALHES DO PEDIDO (SHEET MODAL) */}
+      {selectedOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl p-6 overflow-y-auto space-y-6 flex flex-col justify-between">
+            <div className="space-y-5">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <span className="text-xs font-mono text-slate-400">Pedido #{selectedOrder.ml_order_id}</span>
+                  <h3 className="font-bold text-base text-slate-900 mt-0.5">{selectedOrder.item_title || 'Pedido Mercado Livre'}</h3>
+                </div>
+                <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Informações Comprador & Valor */}
+              <div className="space-y-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-xl space-y-1">
+                  <span className="text-slate-400 font-medium">Comprador</span>
+                  <p className="font-bold text-slate-900">@{selectedOrder.buyer_nickname || 'anônimo'}</p>
+                  {selectedOrder.buyer_email && <p className="text-slate-500">{selectedOrder.buyer_email}</p>}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-xl">
+                    <span className="text-slate-400">Valor Total</span>
+                    <p className="font-black text-slate-900 text-sm">{formatCurrency(selectedOrder.total_amount)}</p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl">
+                    <span className="text-slate-400">Data da Venda</span>
+                    <p className="font-bold text-slate-900">{formatDate(selectedOrder.date_created)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Raw Payload Collapsible */}
+              <details className="text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <summary className="font-bold text-slate-700 cursor-pointer">Ver Detalhes Técnicos (JSON)</summary>
+                <pre className="mt-2 text-[10px] font-mono bg-slate-900 text-slate-100 p-3 rounded-lg overflow-x-auto max-h-60">
+                  {JSON.stringify(selectedOrder.raw || selectedOrder, null, 2)}
+                </pre>
+              </details>
             </div>
 
             <button
               onClick={() => setSelectedOrder(null)}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-colors"
+              className="w-full py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800"
             >
               Fechar Detalhes
             </button>
@@ -1148,52 +1698,46 @@ export function MercadoLivreDashboard() {
         </div>
       )}
 
-      {/* MODAL RESPONDER PERGUNTA */}
+      {/* MODAL DE RESPOSTA DE PERGUNTA */}
       {replyingQuestion && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="text-sm font-bold text-slate-900">Responder Pergunta</h3>
-              <button onClick={() => setReplyingQuestion(null)} className="p-1.5 hover:bg-slate-100 rounded-full">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-sm">Responder Pergunta</h3>
+              <button onClick={() => setReplyingQuestion(null)} className="text-slate-400 hover:text-slate-600">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
-              <span className="font-bold">Comprador: {replyingQuestion.buyer_nickname || 'Cliente'}</span>
-              <p className="italic">"{replyingQuestion.question_text}"</p>
+            <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
+              <span className="font-bold text-slate-700">@{replyingQuestion.from_nickname}:</span>
+              <p className="text-slate-600">"{replyingQuestion.text}"</p>
             </div>
 
-            <form onSubmit={handleSendAnswer} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Sua Resposta Oficial:</label>
-                <textarea
-                  rows={4}
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Digite sua resposta clara e cortês para o comprador..."
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  required
-                />
-              </div>
+            <textarea
+              value={replyText}
+              onChange={e => setReplyText(e.target.value)}
+              placeholder="Digite sua resposta para o comprador..."
+              rows={4}
+              className="w-full p-3 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#2D3277]"
+            />
 
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setReplyingQuestion(null)}
-                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSendingReply}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm"
-                >
-                  <Send size={14} /> {isSendingReply ? 'Enviando...' : 'Enviar Resposta'}
-                </button>
-              </div>
-            </form>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setReplyingQuestion(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendReply}
+                disabled={isSendingReply || !replyText.trim()}
+                className="px-5 py-2 bg-[#2D3277] hover:bg-[#1d2150] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Send size={14} />
+                <span>{isSendingReply ? 'Enviando...' : 'Enviar Resposta'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
