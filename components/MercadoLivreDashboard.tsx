@@ -99,7 +99,7 @@ function safeDivide(numerator: number, denominator: number): number {
 
 export function MercadoLivreDashboard() {
   const [activeTab, setActiveTab] = useState<'resumo' | 'anuncios' | 'vendas' | 'perguntas' | 'publicidade' | 'reputacao' | 'financeiro'>('resumo');
-  const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('30d');
+  const [period, setPeriod] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
   const [connectionStatus, setConnectionStatus] = useState<'loading' | 'connected' | 'disconnected' | 'expired'>('loading');
   const [nickname, setNickname] = useState<string>('');
   const [userMlId, setUserMlId] = useState<string>('');
@@ -257,6 +257,10 @@ export function MercadoLivreDashboard() {
     try {
       const params = new URLSearchParams();
       params.append('limit', '100');
+      // Calcular date_from baseado no período
+      const days = period === '1d' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const dateFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      params.append('date_from', dateFrom);
       const res = await apiFetch(`/api/ml/orders?${params.toString()}`);
       if (res.ok) {
         const data = await safeJsonResponse(res);
@@ -590,15 +594,41 @@ export function MercadoLivreDashboard() {
 
   // Efeitos ao montar / mudar período
   useEffect(() => {
+    // 1. Sincronizar TUDO automaticamente no mount (background, sem bloquear UI)
+    const syncInBackground = async () => {
+      try {
+        // Sync items, orders, campaigns em paralelo (não bloqueia UI)
+        await Promise.allSettled([
+          apiFetch('/api/ml/items/sync', { method: 'POST' }),
+          apiFetch('/api/ml/orders/sync', { method: 'POST' }),
+          apiFetch('/api/ml/advertising/sync', { method: 'POST' })
+        ]);
+      } catch (e) {
+        console.warn('[ML Auto-Sync] Erro:', e);
+      }
+    };
+
+    // 2. Buscar dados (status + dashboard + etc) em paralelo
     Promise.allSettled([
       fetchMlStatus(),
       fetchDashboardData(),
       fetchReputation(),
-      fetchCampaigns(false),
       fetchItems(),
       fetchOrders(),
-      fetchQuestions()
+      fetchQuestions(),
+      fetchCampaigns(false)
     ]);
+
+    // 3. Disparar sync em background (depois de carregar UI)
+    syncInBackground().then(() => {
+      // Re-fetch dados após sync completar
+      Promise.allSettled([
+        fetchDashboardData(true),
+        fetchItems(),
+        fetchOrders(),
+        fetchCampaigns(false)
+      ]);
+    });
   }, [period]);
 
   // Efeito ao mudar de tab
@@ -698,26 +728,30 @@ export function MercadoLivreDashboard() {
 
   const filteredOrdersList = filterOrdersBySearch(orders);
 
+  // "Envios de Hoje" = SÓ ready_to_ship (pronto pra emitir NF e despachar)
   const colEnviosHoje = filteredOrdersList.filter(o => {
-    const st = (o.status || '').toLowerCase();
     const sh = (o.shipping_status || '').toLowerCase();
-    return (st === 'paid' || st === 'confirmed') && sh !== 'shipped' && sh !== 'delivered';
+    return sh === 'ready_to_ship';
   });
 
+  // Coluna "Aguardando processamento" (status=paid mas shipping_status=null)
   const colAguardando = filteredOrdersList.filter(o => {
     const st = (o.status || '').toLowerCase();
-    return st === 'payment_required' || st === 'pending';
+    const sh = (o.shipping_status || '').toLowerCase();
+    return st === 'paid' && (sh === '' || sh === 'null' || sh === 'pending');
   });
 
+  // "Em Trânsito" = shipped
   const colACaminho = filteredOrdersList.filter(o => {
     const sh = (o.shipping_status || '').toLowerCase();
     return sh === 'shipped';
   });
 
+  // "Finalizadas" = delivered OU cancelled
   const colFinalizadas = filteredOrdersList.filter(o => {
     const st = (o.status || '').toLowerCase();
     const sh = (o.shipping_status || '').toLowerCase();
-    return sh === 'delivered' || st === 'cancelled' || st === 'refunded';
+    return sh === 'delivered' || st === 'cancelled' || st === 'closed';
   });
 
   return (
@@ -774,24 +808,15 @@ export function MercadoLivreDashboard() {
           <div className="flex items-center gap-3 flex-wrap">
             {/* Filtro de Período Pills */}
             <div className="bg-slate-100 p-1 rounded-xl border border-slate-200/80 flex items-center text-xs font-medium text-slate-600">
-              <button 
-                onClick={() => setPeriod('7d')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${period === '7d' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'hover:text-slate-900'}`}
-              >
-                7d
-              </button>
-              <button 
-                onClick={() => setPeriod('30d')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${period === '30d' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'hover:text-slate-900'}`}
-              >
-                30d
-              </button>
-              <button 
-                onClick={() => setPeriod('90d')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${period === '90d' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'hover:text-slate-900'}`}
-              >
-                90d
-              </button>
+              {(['1d', '7d', '30d', '90d'] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${period === p ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'hover:text-slate-900'}`}
+                >
+                  {p === '1d' ? '1d' : p === '7d' ? '7d' : p === '30d' ? '30d' : '90d'}
+                </button>
+              ))}
             </div>
 
             {/* Botão Sincronizar */}
@@ -1388,12 +1413,12 @@ export function MercadoLivreDashboard() {
                     </div>
                   </div>
 
-                  {/* Coluna 2: Aguardando Pagamento */}
+                  {/* Coluna 2: Aguardando Processamento */}
                   <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
                       <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                         <Clock size={14} className="text-amber-600" />
-                        Aguardando Pagamento
+                        Aguardando Processamento
                       </span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200/80">
                         {colAguardando.length}
@@ -1402,7 +1427,7 @@ export function MercadoLivreDashboard() {
 
                     <div className="space-y-2.5 max-h-[620px] overflow-y-auto pr-1">
                       {colAguardando.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-slate-400 italic">Sem vendas pendentes de boleto/Pix</div>
+                        <div className="p-4 text-center text-xs text-slate-400 italic">Nenhum pedido aguardando processamento</div>
                       ) : (
                         colAguardando.map(o => (
                           <div key={o.id} className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">

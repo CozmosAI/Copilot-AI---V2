@@ -1732,26 +1732,20 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                             />
                                                         </td>
                                                         <td className="px-2 py-1.5 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
+                                                            <div className="flex items-center justify-between gap-2 px-1 min-w-[120px]">
                                                                 {renderStatusBadge(c.effective_status || c.status, 'meta')}
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setMetaStatusConfirmModal({
-                                                                            open: true,
-                                                                            campaignId: c.id,
-                                                                            campaignName: c.name,
-                                                                            action: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'pause' : 'enable'
-                                                                        });
-                                                                    }}
-                                                                    className={`p-1 rounded transition-colors ${
-                                                                        (c.status === 'ENABLED' || c.status === 'ACTIVE') 
-                                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
-                                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
-                                                                    }`}
-                                                                >
-                                                                    {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? <Pause size={12} /> : <Play size={12} />}
-                                                                </button>
+                                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
+                                                                        onChange={() => {
+                                                                            const newStatus = (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED';
+                                                                            setCampaigns(prev => prev.map(item => item.id === c.id ? { ...item, status: newStatus } : item));
+                                                                        }}
+                                                                        className="sr-only peer" 
+                                                                    />
+                                                                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                                </label>
                                                             </div>
                                                         </td>
                                                         <td className="px-2 md:px-4 py-1.5 md:py-2 font-normal">
@@ -1834,9 +1828,20 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                             onChange={() => toggleAdGroupSelection?.(ag.id.toString())}
                                                                         />
                                                                     </td>
-                                                                    <td className="px-2 py-1.5 border-r border-slate-200">
-                                                                        <div className="flex items-center gap-1">
+                                                                    <td className="px-2 py-1.5 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                                        <div className="flex items-center justify-between gap-2 px-1 min-w-[120px]">
                                                                             {renderStatusBadge(ag.effective_status || ag.status || 'ENABLED', 'meta')}
+                                                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                                                <input 
+                                                                                    type="checkbox" 
+                                                                                    checked={ag.status === 'ENABLED' || ag.status === 'ACTIVE'} 
+                                                                                    onChange={() => {
+                                                                                        setMetaAdGroups(prev => prev.map(item => item.id === ag.id ? { ...item, status: (ag.status === 'ENABLED' || ag.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                                    }}
+                                                                                    className="sr-only peer" 
+                                                                                />
+                                                                                <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                                            </label>
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-2 md:px-4 py-1.5 font-normal pl-8">
@@ -1888,9 +1893,20 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                                                 onChange={() => toggleAdSelection?.(ad.id.toString())}
                                                                             />
                                                                         </td>
-                                                                        <td className="px-2 py-1 border-r border-slate-200">
-                                                                            <div className="flex items-center gap-1">
+                                                                        <td className="px-2 py-1 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                                            <div className="flex items-center justify-between gap-2 px-1 min-w-[120px]">
                                                                                 {renderStatusBadge(ad.effective_status || ad.status || 'ENABLED', 'meta')}
+                                                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                                                    <input 
+                                                                                        type="checkbox" 
+                                                                                        checked={ad.status === 'ENABLED' || ad.status === 'ACTIVE'} 
+                                                                                        onChange={() => {
+                                                                                            setMetaAds(prev => prev.map(item => item.id === ad.id ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                                        }}
+                                                                                        className="sr-only peer" 
+                                                                                    />
+                                                                                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                                                </label>
                                                                             </div>
                                                                         </td>
                                                                         <td className="px-2 md:px-4 py-1 font-normal pl-16">
@@ -1986,24 +2002,18 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                     <div className="min-w-0">
                                                         <div className="flex items-center gap-1.5 flex-wrap">
                                                             
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setMetaStatusConfirmModal({
-                                                            open: true,
-                                                            campaignId: c.id,
-                                                            campaignName: c.name,
-                                                            action: (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'pause' : 'enable'
-                                                        });
-                                                    }}
-                                                    className={`p-1.5 rounded-lg transition-colors ${
-                                                        (c.status === 'ENABLED' || c.status === 'ACTIVE') 
-                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
-                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
-                                                    }`}
-                                                >
-                                                    {(c.status === 'ENABLED' || c.status === 'ACTIVE') ? <Pause size={14} /> : <Play size={14} />}
-                                                </button>
+                                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={c.status === 'ENABLED' || c.status === 'ACTIVE'} 
+                                                                    onChange={() => {
+                                                                        const newStatus = (c.status === 'ENABLED' || c.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED';
+                                                                        setCampaigns(prev => prev.map(item => item.id === c.id ? { ...item, status: newStatus } : item));
+                                                                    }}
+                                                                    className="sr-only peer" 
+                                                                />
+                                                                <div className="w-7 h-3.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-3 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                            </label>
 
                                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{c.type || 'Meta Campaign'}</span>
                                                         </div>
@@ -3598,20 +3608,19 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                                             />
                                                         </td>
                                                         <td className="px-2 py-2 border-r border-slate-200" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex items-center justify-between gap-1.5 px-1 min-w-[120px]">
+                                                            <div className="flex items-center justify-between gap-2 px-1 min-w-[120px]">
                                                                 {renderStatusBadge(ad.effective_status || ad.status, 'meta')}
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        setMetaAds(prev => prev.map((item, idx2) => (item.id === ad.id || idx2 === idx) ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
-                                                                    }}
-                                                                    className={`p-1 rounded transition-colors ${
-                                                                        (ad.status === 'ENABLED' || ad.status === 'ACTIVE') 
-                                                                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' 
-                                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
-                                                                    }`}
-                                                                >
-                                                                    {(ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? <Pause size={12} /> : <Play size={12} />}
-                                                                </button>
+                                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={ad.status === 'ENABLED' || ad.status === 'ACTIVE'} 
+                                                                        onChange={() => {
+                                                                            setMetaAds(prev => prev.map((item, idx2) => (item.id === ad.id || idx2 === idx) ? { ...item, status: (ad.status === 'ENABLED' || ad.status === 'ACTIVE') ? 'PAUSED' : 'ENABLED' } : item));
+                                                                        }}
+                                                                        className="sr-only peer" 
+                                                                    />
+                                                                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-[#0866ff]"></div>
+                                                                </label>
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-2">
