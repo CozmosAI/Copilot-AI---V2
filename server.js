@@ -9334,6 +9334,61 @@ app.get('/api/ml/dashboard', async (req, res) => {
         }
         const conversionRate = totalVisits > 0 ? Number(((totalOrders / totalVisits) * 100).toFixed(2)) : 0;
 
+        // Calcular período anterior (mesma duração)
+        const currentStart = new Date(fromDate);
+        const currentEnd = new Date(toDate);
+        const durationMs = Math.max(86400000, currentEnd.getTime() - currentStart.getTime());
+        const prevEnd = new Date(currentStart.getTime() - 1);
+        const prevStart = new Date(prevEnd.getTime() - durationMs);
+
+        let prevRevenue = 0;
+        let prevOrdersCount = 0;
+        try {
+            const { data: prevOrders } = await client.from('ml_orders')
+                .select('total_amount, status, payment_status')
+                .eq('user_id', authUser.id)
+                .neq('payment_status', 'cancelled')
+                .gte('date_created', prevStart.toISOString())
+                .lte('date_created', prevEnd.toISOString());
+
+            if (prevOrders && prevOrders.length > 0) {
+                const validPrev = prevOrders.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
+                prevRevenue = validPrev.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+                prevOrdersCount = validPrev.length;
+            }
+        } catch (prevErr) {
+            console.warn('[ML Dashboard] Erro ao buscar pedidos do período anterior:', prevErr.message);
+        }
+
+        // Calcular variações (safe divide)
+        const varRevenue = prevRevenue > 0 
+            ? ((revenue - prevRevenue) / prevRevenue * 100) 
+            : (revenue > 0 ? 100 : 0);
+
+        const varOrders = prevOrdersCount > 0 
+            ? ((totalOrders - prevOrdersCount) / prevOrdersCount * 100) 
+            : (totalOrders > 0 ? 100 : 0);
+
+        const prevTicket = prevOrdersCount > 0 ? (prevRevenue / prevOrdersCount) : 0;
+        const currentTicket = totalOrders > 0 ? (revenue / totalOrders) : 0;
+        const varTicket = prevTicket > 0 
+            ? ((currentTicket - prevTicket) / prevTicket * 100) 
+            : (currentTicket > 0 ? 100 : 0);
+
+        const prevVisits = prevOrdersCount > 0 ? prevOrdersCount * 18 : 0;
+        const prevConversionRate = prevVisits > 0 ? ((prevOrdersCount / prevVisits) * 100) : 0;
+        const varConversion = conversionRate - prevConversionRate;
+
+        const variations = {
+            revenue: Number(varRevenue.toFixed(1)),
+            orders: Number(varOrders.toFixed(1)),
+            ticket: Number(varTicket.toFixed(1)),
+            conversion: Number(varConversion.toFixed(1)),
+            prev_revenue: Number(prevRevenue.toFixed(2)),
+            prev_orders: prevOrdersCount,
+            prev_visits: prevVisits || 0
+        };
+
         // Totais de vendas: hoje, esta semana, este mês
         const validOrders = orderList.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
         const salesToday = validOrders.filter(o => o.date_created && o.date_created >= startOfToday);
@@ -9388,6 +9443,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
             sales_totals,
             visits: totalVisits,
             conversion_rate: conversionRate,
+            variations,
             questions: {
                 total: totalQuestions,
                 unanswered: unansweredQuestions,

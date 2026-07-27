@@ -446,10 +446,10 @@ export function MercadoLivreDashboard() {
         questions: 0,
         prevRevenue: 0,
         prevOrders: 0,
-        varRevenue: 12.5,
-        varOrders: 8.2,
-        varTicket: -2.1,
-        varConversion: 0.4
+        varRevenue: 0,
+        varOrders: 0,
+        varTicket: 0,
+        varConversion: 0
       };
     }
 
@@ -461,6 +461,8 @@ export function MercadoLivreDashboard() {
       ? dashboardData.conversion_rate
       : (vst > 0 && ords > 0 ? Number(((ords / vst) * 100).toFixed(2)) : 0);
 
+    const vars = dashboardData.variations;
+
     return {
       revenue: rev,
       orders: ords,
@@ -468,10 +470,12 @@ export function MercadoLivreDashboard() {
       conversionRate: conv,
       visits: vst,
       questions: dashboardData.questions?.total || 0,
-      varRevenue: 15.2,
-      varOrders: 8.4,
-      varTicket: -2.3,
-      varConversion: 0.5
+      prevRevenue: vars?.prev_revenue || 0,
+      prevOrders: vars?.prev_orders || 0,
+      varRevenue: typeof vars?.revenue === 'number' ? vars.revenue : 0,
+      varOrders: typeof vars?.orders === 'number' ? vars.orders : 0,
+      varTicket: typeof vars?.ticket === 'number' ? vars.ticket : 0,
+      varConversion: typeof vars?.conversion === 'number' ? vars.conversion : 0
     };
   }, [dashboardData]);
 
@@ -656,14 +660,14 @@ export function MercadoLivreDashboard() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Faturamento</span>
-                <Sparkline data={[120, 150, 180, 160, 210, 240, 280]} color="#10B981" />
+                <Sparkline data={[120, 150, 180, 160, 210, 240, 280]} color={metrics.varRevenue >= 0 ? '#10B981' : '#EF4444'} />
               </div>
               <div className="text-2xl font-bold text-slate-900">
                 {formatCurrency(metrics.revenue)}
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
-                <TrendingUp size={14} />
-                <span>▲ {metrics.varRevenue}%</span>
+              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varRevenue >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varRevenue >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+                <span>{metrics.varRevenue >= 0 ? '▲' : '▼'} {Math.abs(metrics.varRevenue)}%</span>
                 <span className="text-slate-400 font-normal">vs período anterior</span>
               </div>
             </div>
@@ -672,14 +676,14 @@ export function MercadoLivreDashboard() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Pedidos</span>
-                <Sparkline data={[10, 12, 15, 14, 18, 22, 25]} color="#3B82F6" />
+                <Sparkline data={[10, 12, 15, 14, 18, 22, 25]} color={metrics.varOrders >= 0 ? '#3B82F6' : '#EF4444'} />
               </div>
               <div className="text-2xl font-bold text-slate-900">
                 {metrics.orders}
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
-                <TrendingUp size={14} />
-                <span>▲ {metrics.varOrders}%</span>
+              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varOrders >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varOrders >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+                <span>{metrics.varOrders >= 0 ? '▲' : '▼'} {Math.abs(metrics.varOrders)}%</span>
                 <span className="text-slate-400 font-normal">vs período anterior</span>
               </div>
             </div>
@@ -688,14 +692,14 @@ export function MercadoLivreDashboard() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Ticket Médio</span>
-                <Sparkline data={[85, 84, 82, 80, 81, 79, 78]} color="#EF4444" />
+                <Sparkline data={[85, 84, 82, 80, 81, 79, 78]} color={metrics.varTicket >= 0 ? '#10B981' : '#EF4444'} />
               </div>
               <div className="text-2xl font-bold text-slate-900">
                 {formatCurrency(metrics.ticketMedio)}
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-red-600">
-                <ArrowDownRight size={14} />
-                <span>▼ {Math.abs(metrics.varTicket)}%</span>
+              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varTicket >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varTicket >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+                <span>{metrics.varTicket >= 0 ? '▲' : '▼'} {Math.abs(metrics.varTicket)}%</span>
                 <span className="text-slate-400 font-normal">vs período anterior</span>
               </div>
             </div>
@@ -704,14 +708,14 @@ export function MercadoLivreDashboard() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Conversão</span>
-                <Sparkline data={[3.1, 3.2, 3.4, 3.5, 3.8, 4.0, 4.2]} color="#10B981" />
+                <Sparkline data={[3.1, 3.2, 3.4, 3.5, 3.8, 4.0, 4.2]} color={metrics.varConversion >= 0 ? '#10B981' : '#EF4444'} />
               </div>
               <div className="text-2xl font-bold text-slate-900">
                 {metrics.conversionRate}%
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
-                <TrendingUp size={14} />
-                <span>▲ {metrics.varConversion}pp</span>
+              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varConversion >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varConversion >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+                <span>{metrics.varConversion >= 0 ? '▲' : '▼'} {Math.abs(metrics.varConversion)}pp</span>
                 <span className="text-slate-400 font-normal">vs período anterior</span>
               </div>
             </div>
