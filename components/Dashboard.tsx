@@ -15,6 +15,7 @@ import { getGoogleOverview } from '../services/googleAdsService';
 import { getMetaOverview } from '../services/metaAdsService';
 import { supabase } from '../lib/supabase';
 import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
+import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
 
 function timeAgo(dateString: string): string {
   if (!dateString) return 'nunca';
@@ -49,22 +50,19 @@ const Dashboard: React.FC = () => {
   // Triggers de atualização
   const [refreshCount, setRefreshCount] = useState(0);
 
-  // State para popover personalizado
-  const [showCustomRangePopover, setShowCustomRangePopover] = useState(false);
-  const [customStart, setCustomStart] = useState(dashboardDateFilter.start);
-  const [customEnd, setCustomEnd] = useState(dashboardDateFilter.end);
+  // Date Range State
+  const [dateRange, setDateRange] = useState<DateRangeSelection>({
+    preset: '7d',
+    from: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+    to: new Date(),
+    compareWithPrevious: false
+  });
 
-  // Sincronizar inputs de data personalizados quando a data global mudar
-  useEffect(() => {
-    setCustomStart(dashboardDateFilter.start);
-    setCustomEnd(dashboardDateFilter.end);
-  }, [dashboardDateFilter.start, dashboardDateFilter.end]);
-
-  const handleApplyCustomRange = () => {
-    if (customStart && customEnd) {
-      setDashboardCustomDateRange(customStart, customEnd);
-      setShowCustomRangePopover(false);
-    }
+  const handleDateRangeChange = (selection: DateRangeSelection) => {
+    setDateRange(selection);
+    const startStr = selection.from.toISOString().split('T')[0];
+    const endStr = selection.to.toISOString().split('T')[0];
+    setDashboardCustomDateRange(startStr, endStr);
   };
 
   // Filtrar Leads por Origem e Data no Período
@@ -257,64 +255,7 @@ const Dashboard: React.FC = () => {
           </button>
 
           {/* FILTRO DE PERÍODO */}
-          <div className="relative bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex flex-wrap sm:flex-nowrap gap-1 w-full sm:w-auto shrink-0 items-center z-[110]">
-            {['Hoje', '7 dias', '30 dias', 'Este Ano'].map((t) => (
-              <button 
-                key={t} 
-                onClick={() => {
-                  setDashboardDateFilterByLabel(t);
-                  setShowCustomRangePopover(false);
-                }} 
-                className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${t === dashboardDateFilter.label ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
-              >
-                {t}
-              </button>
-            ))}
-            
-            <button 
-              onClick={() => setShowCustomRangePopover(!showCustomRangePopover)} 
-              className={`px-3 md:px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-1 md:flex-none text-center ${dashboardDateFilter.label === 'Custom' ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-navy'}`}
-            >
-              Personalizado
-            </button>
-
-            {showCustomRangePopover && (
-              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 shadow-xl p-4 rounded-xl z-[9999] w-72 max-w-[calc(100vw-2rem)] text-slate-700">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-xs font-bold text-navy uppercase tracking-wider">Período Personalizado</span>
-                  <button onClick={() => setShowCustomRangePopover(false)} className="text-slate-400 hover:text-slate-600">
-                    <X size={14} />
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Data Início</label>
-                    <input 
-                      type="date" 
-                      value={customStart} 
-                      onChange={(e) => setCustomStart(e.target.value)} 
-                      className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Data Fim</label>
-                    <input 
-                      type="date" 
-                      value={customEnd} 
-                      onChange={(e) => setCustomEnd(e.target.value)} 
-                      className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <button 
-                    onClick={handleApplyCustomRange}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider shadow-md transition-colors"
-                  >
-                    Aplicar Período
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
         </div>
       </header>
 

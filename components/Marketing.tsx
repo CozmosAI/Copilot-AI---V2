@@ -23,6 +23,7 @@ import {
   toggleMetaCampaignStatus, updateMetaCampaignBudget
 } from '../services/metaAdsService';
 import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
+import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
 import { CustomMetricBuilder } from './CustomMetricBuilder';
 import { CustomMetricsManager } from './CustomMetricsManager';
 import { evaluateFormula, formatValue, CustomMetric as CustomMetricFull } from '../utils/customMetrics';
@@ -104,6 +105,32 @@ const Marketing: React.FC = () => {
   const [selectedMetaAdIdForPreview, setSelectedMetaAdIdForPreview] = useState<string | null>(null);
   const [metaPreviewPlatform, setMetaPreviewPlatform] = useState<'facebook' | 'instagram' | 'stories'>('facebook');
   
+  // Date Range State
+  const [dateRange, setDateRange] = useState<DateRangeSelection>({
+    preset: '30d',
+    from: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
+    to: new Date(),
+    compareWithPrevious: false
+  });
+
+  const handleDateRangeChange = (selection: DateRangeSelection) => {
+    setDateRange(selection);
+    const startStr = selection.from.toISOString().split('T')[0];
+    const endStr = selection.to.toISOString().split('T')[0];
+    setMarketingCustomDateRange(startStr, endStr);
+    setIsCompareEnabled(selection.compareWithPrevious);
+
+    if (selection.compareWithPrevious) {
+      const diffDays = Math.max(1, Math.round((selection.to.getTime() - selection.from.getTime()) / (24 * 60 * 60 * 1000)));
+      const compFrom = new Date(selection.from.getTime() - diffDays * 24 * 60 * 60 * 1000);
+      const compTo = new Date(selection.from.getTime() - 24 * 60 * 60 * 1000);
+      setCompareDateFilter({
+        start: compFrom.toISOString().split('T')[0],
+        end: compTo.toISOString().split('T')[0]
+      });
+    }
+  };
+
   // Comparison State
   const [isCompareEnabled, setIsCompareEnabled] = useState(false);
   const [compareDateFilter, setCompareDateFilter] = useState({ 
@@ -1313,65 +1340,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                 </div>
 
                 {/* THE RESPONSIVE DATE PICKER */}
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 w-full sm:w-auto">
-                    <div className="flex items-center gap-2 px-1 justify-between sm:justify-start w-full sm:w-auto">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest sm:inline">Período:</span>
-                        <div className="flex items-center gap-1">
-                            <input 
-                                type="date" 
-                                value={marketingDateFilter.start} 
-                                onChange={(e) => setMarketingCustomDateRange(e.target.value, marketingDateFilter.end)}
-                                className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-navy transition-colors cursor-pointer w-[110px]"
-                            />
-                            <span className="text-[10px] text-slate-300 font-bold">-</span>
-                            <input 
-                                type="date" 
-                                value={marketingDateFilter.end} 
-                                onChange={(e) => setMarketingCustomDateRange(marketingDateFilter.start, e.target.value)}
-                                className="text-[10px] font-bold text-navy bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-navy transition-colors cursor-pointer w-[110px]"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Comparison Toggle */}
-                    <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1" />
-                    <div className="flex items-center justify-between sm:justify-start gap-2 px-1 w-full sm:w-auto border-t sm:border-t-0 border-slate-100 pt-1.5 sm:pt-0">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest sm:inline">Comparar período</span>
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                            <div className="relative">
-                                <input 
-                                    type="checkbox" 
-                                    checked={isCompareEnabled}
-                                    onChange={(e) => setIsCompareEnabled(e.target.checked)}
-                                    className="sr-only peer"
-                                />
-                                <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
-                            </div>
-                        </label>
-                    </div>
-
-                    {/* Comparison Date Picker */}
-                    {isCompareEnabled && (
-                        <div className="flex items-center justify-between sm:justify-start gap-2 px-1 w-full sm:w-auto border-t sm:border-l sm:border-t-0 border-slate-100 sm:border-slate-200 pt-1.5 sm:pt-0 sm:pl-2 animate-in fade-in duration-300">
-                            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest sm:hidden">Anterior:</span>
-                            <div className="flex items-center gap-1">
-                                <input 
-                                    type="date" 
-                                    value={compareDateFilter.start} 
-                                    onChange={(e) => setCompareDateFilter({...compareDateFilter, start: e.target.value})}
-                                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer w-[110px]"
-                                />
-                                <span className="text-[10px] text-slate-300 font-bold">-</span>
-                                <input 
-                                    type="date" 
-                                    value={compareDateFilter.end} 
-                                    onChange={(e) => setCompareDateFilter({...compareDateFilter, end: e.target.value})}
-                                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 focus:outline-none focus:border-indigo-300 transition-colors cursor-pointer w-[110px]"
-                                />
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
             </div>
         </div>
 

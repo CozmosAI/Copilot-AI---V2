@@ -12,6 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Line
 } from 'recharts';
 import { FinancialSubSection, FinancialEntry, FinancialEntryStatus, FinancialCategory } from '../types';
+import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
 import { useApp } from '../App';
 
 type HistoryPeriod = 'month' | '3months' | '6months' | 'year' | 'custom';
@@ -32,10 +33,25 @@ const DEFAULT_PAYABLE_CATEGORIES = [
 ];
 
 const Financial: React.FC = () => {
-  const { user, dashboardDateFilter, setDashboardDateFilterByLabel, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, metrics } = useApp();
+  const { user, dashboardDateFilter, setDashboardDateFilterByLabel, setDashboardCustomDateRange, financialEntries, addFinancialEntry, updateFinancialEntry, deleteFinancialEntry, metrics } = useApp();
   const [subSection, setSubSection] = useState<FinancialSubSection>(FinancialSubSection.OVERVIEW);
   const [showForm, setShowForm] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinancialEntry | null>(null);
+
+  // Date Range State
+  const [dateRange, setDateRange] = useState<DateRangeSelection>({
+    preset: '30d',
+    from: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
+    to: new Date(),
+    compareWithPrevious: false
+  });
+
+  const handleDateRangeChange = (selection: DateRangeSelection) => {
+    setDateRange(selection);
+    const startStr = selection.from.toISOString().split('T')[0];
+    const endStr = selection.to.toISOString().split('T')[0];
+    setDashboardCustomDateRange(startStr, endStr);
+  };
 
   // Estados para Modal de Confirmação de Exclusão
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -491,39 +507,42 @@ const Financial: React.FC = () => {
           <h2 className="text-2xl font-bold text-navy">Gestão Financeira</h2>
           <p className="text-slate-500 text-sm italic">Controle total de entradas, saídas e fluxo de caixa.</p>
         </div>
-        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 overflow-x-auto shrink-0 max-w-full">
-          {[
-            { id: FinancialSubSection.OVERVIEW, label: 'Visão Geral' },
-            { id: FinancialSubSection.PAYABLE, label: 'Contas a Pagar' },
-            { id: FinancialSubSection.RECEIVABLE, label: 'Contas a Receber' },
-            { id: FinancialSubSection.CASHFLOW, label: 'Caixa + Fluxo' },
-            { id: FinancialSubSection.DRE, label: 'DRE' }
-          ].map((tab) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
+          <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 overflow-x-auto shrink-0 max-w-full">
+            {[
+              { id: FinancialSubSection.OVERVIEW, label: 'Visão Geral' },
+              { id: FinancialSubSection.PAYABLE, label: 'Contas a Pagar' },
+              { id: FinancialSubSection.RECEIVABLE, label: 'Contas a Receber' },
+              { id: FinancialSubSection.CASHFLOW, label: 'Caixa + Fluxo' },
+              { id: FinancialSubSection.DRE, label: 'DRE' }
+            ].map((tab) => (
+              <button 
+                key={tab.id} 
+                onClick={() => setSubSection(tab.id as FinancialSubSection)} 
+                className={`px-4 py-2 text-[10px] font-black uppercase tracking-tighter rounded-lg transition-all whitespace-nowrap ${subSection === tab.id ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+            <div className="border-l border-slate-200 mx-1 my-1.5"></div>
             <button 
-              key={tab.id} 
-              onClick={() => setSubSection(tab.id as FinancialSubSection)} 
-              className={`px-4 py-2 text-[10px] font-black uppercase tracking-tighter rounded-lg transition-all whitespace-nowrap ${subSection === tab.id ? 'bg-navy text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              type="button"
+              onClick={() => setShowCategoryManager(true)}
+              className="px-3 py-2 text-[10px] font-black uppercase tracking-tighter text-navy hover:bg-slate-50 rounded-lg transition-all flex items-center gap-1 shrink-0"
+              title="Gerenciar Categorias Customizadas"
             >
-              {tab.label}
+              <Settings size={12} /> Categorias
             </button>
-          ))}
-          <div className="border-l border-slate-200 mx-1 my-1.5"></div>
-          <button 
-            type="button"
-            onClick={() => setShowCategoryManager(true)}
-            className="px-3 py-2 text-[10px] font-black uppercase tracking-tighter text-navy hover:bg-slate-50 rounded-lg transition-all flex items-center gap-1 shrink-0"
-            title="Gerenciar Categorias Customizadas"
-          >
-            <Settings size={12} /> Categorias
-          </button>
-          <button 
-            type="button"
-            onClick={handleExportCSV}
-            className="px-3 py-2 text-[10px] font-black uppercase tracking-tighter text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all flex items-center gap-1 shrink-0 ml-1 border border-emerald-200"
-            title="Exportar dados para CSV com acentuação correta no Excel"
-          >
-            <Download size={12} /> Exportar CSV
-          </button>
+            <button 
+              type="button"
+              onClick={handleExportCSV}
+              className="px-3 py-2 text-[10px] font-black uppercase tracking-tighter text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all flex items-center gap-1 shrink-0 ml-1 border border-emerald-200"
+              title="Exportar dados para CSV com acentuação correta no Excel"
+            >
+              <Download size={12} /> Exportar CSV
+            </button>
+          </div>
         </div>
       </header>
 
