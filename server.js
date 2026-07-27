@@ -9147,20 +9147,81 @@ app.get('/api/ml/reputation', async (req, res) => {
     
     const token = await getValidMlToken(authUser.id);
     
-    const repRes = await fetch(`https://api.mercadolibre.com/users/${conn.ml_user_id}`, {
+    const userRes = await fetch(`https://api.mercadolibre.com/users/${conn.ml_user_id}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     
-    if (!repRes.ok) return res.status(repRes.status).json({ error: await repRes.text() });
+    if (!userRes.ok) return res.status(userRes.status).json({ error: await userRes.text() });
     
-    const userData = await repRes.json();
-    res.json({
-      ok: true,
-      user_id: userData.id,
-      nickname: userData.nickname,
-      seller_reputation: userData.seller_reputation || null,
-      status: userData.status || null
+    const userData = await userRes.json();
+    const reputation = userData.seller_reputation || {};
+    res.json(reputation);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6.3f) GET /api/ml/visits (Visitas acumuladas dos anúncios)
+app.get('/api/ml/visits', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+    const client = supabaseAdmin || supabase;
+    const days = Number(req.query.days) || 7;
+
+    const { data: itemRows } = await client.from('ml_items')
+      .select('item_id')
+      .eq('user_id', authUser.id);
+
+    const itemIds = (itemRows || []).map(i => i.item_id).filter(Boolean);
+    if (itemIds.length === 0) {
+      return res.json({ total_visits: 0, results: [] });
+    }
+
+    const idsParam = itemIds.slice(0, 50).join(',');
+    const token = await getValidMlToken(authUser.id);
+
+    const visitsRes = await fetch(`https://api.mercadolibre.com/visits/items?ids=${idsParam}&last=${days}&unit=day`, {
+      headers: { 'Authorization': `Bearer ${token}` }
     });
+
+    if (!visitsRes.ok) {
+      return res.status(visitsRes.status).json({ error: await visitsRes.text() });
+    }
+
+    const data = await visitsRes.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6.3g) GET /api/ml/financial (Coleções e transações financeiras)
+app.get('/api/ml/financial', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+    const client = supabaseAdmin || supabase;
+    const { data: conn } = await client.from('ml_connections')
+      .select('ml_user_id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+
+    if (!conn?.ml_user_id) return res.status(400).json({ error: 'Mercado Livre não conectado' });
+
+    const token = await getValidMlToken(authUser.id);
+    const collRes = await fetch(`https://api.mercadolibre.com/collections/search?seller_id=${conn.ml_user_id}&limit=50`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!collRes.ok) {
+      return res.status(collRes.status).json({ error: await collRes.text() });
+    }
+
+    const data = await collRes.json();
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -9173,15 +9234,14 @@ app.get('/api/ml/dashboard', async (req, res) => {
         if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
 
         const client = supabaseAdmin || supabase;
-        const { period: periodQuery } = req.query;
+        const { period: periodQuery, date_from, date_to } = req.query;
 
         const period = String(periodQuery || '30d').toLowerCase();
-        const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+        const days = period === '1d' ? 1 : period === '7d' ? 7 : period === '90d' ? 90 : 30;
 
         const now = new Date();
-        const fromDateObj = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-        const fromDate = fromDateObj.toISOString();
-        const toDate = now.toISOString();
+        const fromDate = date_from ? new Date(date_from).toISOString() : new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+        const toDate = date_to ? new Date(date_to).toISOString() : now.toISOString();
 
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         const startOf7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -9204,7 +9264,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
 
         // Buscar itens cadastrados
         const { data: items } = await client.from('ml_items')
-            .select('status, catalog_listing, is_sponsored')
+            .select('item_id, status, catalog_listing, is_sponsored')
             .eq('user_id', authUser.id);
 
         // Buscar mensagens
@@ -9212,8 +9272,9 @@ app.get('/api/ml/dashboard', async (req, res) => {
             .select('status')
             .eq('user_id', authUser.id);
 
-        // Reputação
+        // Reputação & Visitas do Mercado Livre API
         let reputation = null;
+        let totalVisits = 0;
         try {
             const { data: conn } = await client.from('ml_connections')
                 .select('ml_user_id')
@@ -9227,16 +9288,31 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 });
                 if (userRes.ok) {
                     const userData = await userRes.json();
-                    reputation = {
-                        level_id: userData.seller_reputation?.level_id || null,
-                        power_seller_status: userData.seller_reputation?.power_seller_status || null,
-                        transactions: userData.seller_reputation?.transactions || null,
-                        metrics: userData.seller_reputation?.metrics || null
-                    };
+                    reputation = userData.seller_reputation || null;
+                }
+
+                // Buscar visitas do período se houver itens
+                const itemIds = (items || []).map(i => i.item_id).filter(Boolean);
+                if (itemIds.length > 0) {
+                    const idsParam = itemIds.slice(0, 50).join(',');
+                    const visitsRes = await fetch(`https://api.mercadolibre.com/visits/items?ids=${idsParam}&last=${days}&unit=day`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (visitsRes.ok) {
+                        const visitsData = await visitsRes.json();
+                        if (typeof visitsData === 'number') {
+                            totalVisits = visitsData;
+                        } else if (visitsData && typeof visitsData === 'object') {
+                            Object.values(visitsData).forEach((v) => {
+                                if (typeof v === 'number') totalVisits += v;
+                                else if (v && typeof v === 'object' && typeof v.total === 'number') totalVisits += v.total;
+                            });
+                        }
+                    }
                 }
             }
         } catch (repErr) {
-            console.warn('[ML Dashboard] Reputação erro:', repErr.message);
+            console.warn('[ML Dashboard] Reputação/Visitas erro:', repErr.message);
         }
 
         const orderList = orders || [];
@@ -9251,6 +9327,8 @@ app.get('/api/ml/dashboard', async (req, res) => {
         const revenue = orderList
             .filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled')
             .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+        const conversionRate = totalVisits > 0 ? Number(((totalOrders / totalVisits) * 100).toFixed(2)) : 0;
 
         // Totais de vendas: hoje, esta semana, este mês
         const validOrders = orderList.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
@@ -9304,6 +9382,8 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 revenue: Number(revenue.toFixed(2))
             },
             sales_totals,
+            visits: totalVisits,
+            conversion_rate: conversionRate,
             questions: {
                 total: totalQuestions,
                 unanswered: unansweredQuestions,
