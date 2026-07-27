@@ -704,14 +704,19 @@ export function MercadoLivreDashboard() {
               </div>
             </div>
 
-            {/* Card 4: Conversão */}
+            {/* Card 4: Taxa de Vendas */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Conversão</span>
+                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Taxa de Vendas</span>
                 <Sparkline data={[3.1, 3.2, 3.4, 3.5, 3.8, 4.0, 4.2]} color={metrics.varConversion >= 0 ? '#10B981' : '#EF4444'} />
               </div>
-              <div className="text-2xl font-bold text-slate-900">
-                {metrics.conversionRate}%
+              <div>
+                <div className="text-2xl font-bold text-slate-900">
+                  {metrics.conversionRate}%
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  {metrics.visits > 0 ? `${metrics.orders} vendas em ${metrics.visits.toLocaleString('pt-BR')} visitas` : 'Taxa de conversão por visitas'}
+                </div>
               </div>
               <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varConversion >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {metrics.varConversion >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
@@ -786,10 +791,10 @@ export function MercadoLivreDashboard() {
 
               <div className="space-y-4 pt-2">
                 {[
-                  { label: 'Visitas', value: metrics.visits || 1528, pct: '100%', color: 'bg-blue-500', icon: Eye },
-                  { label: 'Perguntas', value: metrics.questions || 52, pct: '3.4%', color: 'bg-indigo-500', icon: MessageCircle },
-                  { label: 'Pedidos', value: metrics.orders || 93, pct: '6.1%', color: 'bg-emerald-500', icon: ShoppingCart },
-                  { label: 'Entregues', value: Math.round((metrics.orders || 93) * 0.91), pct: '5.6%', color: 'bg-slate-800', icon: CheckCircle2 },
+                  { label: 'Visitas', value: metrics.visits || 0, pct: '100%', color: 'bg-blue-500', icon: Eye },
+                  { label: 'Perguntas', value: metrics.questions || 0, pct: metrics.visits > 0 ? `${((metrics.questions / metrics.visits) * 100).toFixed(1)}%` : '0%', color: 'bg-indigo-500', icon: MessageCircle },
+                  { label: 'Pedidos', value: metrics.orders || 0, pct: metrics.visits > 0 ? `${((metrics.orders / metrics.visits) * 100).toFixed(1)}%` : '0%', color: 'bg-emerald-500', icon: ShoppingCart },
+                  { label: 'Entregues', value: Math.round((metrics.orders || 0) * 0.91), pct: metrics.visits > 0 ? `${(((metrics.orders * 0.91) / metrics.visits) * 100).toFixed(1)}%` : '0%', color: 'bg-slate-800', icon: CheckCircle2 },
                 ].map((step, idx) => {
                   const Icon = step.icon;
                   return (

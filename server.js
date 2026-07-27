@@ -9277,7 +9277,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
         let totalVisits = 0;
         let token = null;
         let itemIds = [];
-        let idsParam = '';
+        let topItems = [];
         try {
             const { data: conn } = await client.from('ml_connections')
                 .select('ml_user_id')
@@ -9301,18 +9301,19 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 itemIds = (itemRows || []).map(i => i.item_id).filter(Boolean);
 
                 if (itemIds.length > 0) {
-                    idsParam = itemIds.slice(0, 50).join(',');
-                    const visitsRes = await fetch(`https://api.mercadolibre.com/visits/items?ids=${idsParam}&last=${days}&unit=day`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (visitsRes.ok) {
-                        const visitsData = await visitsRes.json();
-                        if (typeof visitsData === 'number') {
-                            totalVisits = visitsData;
-                        } else if (visitsData && typeof visitsData === 'object') {
-                            totalVisits = Object.values(visitsData).reduce((sum, v) => sum + (Number(typeof v === 'number' ? v : (v?.total || 0)) || 0), 0);
-                        }
-                    }
+                    topItems = itemIds.slice(0, 50);
+                    const visitsPromises = topItems.map(id =>
+                        fetch(`https://api.mercadolibre.com/items/${id}/visits/time_window?last=${days}&unit=day`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        })
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(() => null)
+                    );
+                    const visitsResults = await Promise.all(visitsPromises);
+                    totalVisits = visitsResults.reduce((sum, data) => {
+                        if (!data) return sum;
+                        return sum + (Number(data.total_visits || data.total || 0) || 0);
+                    }, 0);
                 }
             }
         } catch (repErr) {
@@ -9378,25 +9379,21 @@ app.get('/api/ml/dashboard', async (req, res) => {
         // Buscar visitas reais do período anterior via API ML
         let prevVisits = 0;
         try {
-            if (itemIds.length > 0 && days > 0 && token) {
+            if (topItems.length > 0 && days > 0 && token) {
                 const doubleDays = days * 2;
-                const prevVisitsRes = await fetch(`https://api.mercadolibre.com/visits/items?ids=${idsParam}&last=${doubleDays}&unit=day`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (prevVisitsRes.ok) {
-                    const prevVisitsData = await prevVisitsRes.json();
-                    let totalDoublePeriod = 0;
-                    if (typeof prevVisitsData === 'number') {
-                        totalDoublePeriod = prevVisitsData;
-                    } else if (prevVisitsData && typeof prevVisitsData === 'object') {
-                        totalDoublePeriod = Object.values(prevVisitsData).reduce((sum, v) => {
-                            const num = typeof v === 'number' ? v : (v?.total || 0);
-                            return sum + (Number(num) || 0);
-                        }, 0);
-                    }
-                    // Visitas do período anterior = total dos últimos 2N dias - total dos últimos N dias
-                    prevVisits = Math.max(0, totalDoublePeriod - totalVisits);
-                }
+                const prevVisitsPromises = topItems.map(id =>
+                    fetch(`https://api.mercadolibre.com/items/${id}/visits/time_window?last=${doubleDays}&unit=day`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null)
+                );
+                const prevVisitsResults = await Promise.all(prevVisitsPromises);
+                const totalDoublePeriod = prevVisitsResults.reduce((sum, data) => {
+                    if (!data) return sum;
+                    return sum + (Number(data.total_visits || data.total || 0) || 0);
+                }, 0);
+                prevVisits = Math.max(0, totalDoublePeriod - totalVisits);
             }
         } catch (prevVisitsErr) {
             console.warn('[ML Dashboard] Erro ao buscar visitas do período anterior:', prevVisitsErr.message);
