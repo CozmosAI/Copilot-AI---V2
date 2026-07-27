@@ -456,8 +456,8 @@ export function MercadoLivreDashboard() {
     const rev = dashboardData.orders?.revenue || 0;
     const ords = dashboardData.orders?.total || 0;
     const tkt = ords > 0 ? rev / ords : 0;
-    const vst = dashboardData.visits || (ords > 0 ? ords * 18 : 0);
-    const conv = (dashboardData.conversion_rate && dashboardData.conversion_rate > 0)
+    const vst = dashboardData.visits || 0;
+    const conv = typeof dashboardData.conversion_rate === 'number'
       ? dashboardData.conversion_rate
       : (vst > 0 && ords > 0 ? Number(((ords / vst) * 100).toFixed(2)) : 0);
 

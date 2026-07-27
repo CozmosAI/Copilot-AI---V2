@@ -9275,6 +9275,9 @@ app.get('/api/ml/dashboard', async (req, res) => {
         // Reputação & Visitas do Mercado Livre API
         let reputation = null;
         let totalVisits = 0;
+        let token = null;
+        let itemIds = [];
+        let idsParam = '';
         try {
             const { data: conn } = await client.from('ml_connections')
                 .select('ml_user_id')
@@ -9282,7 +9285,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 .maybeSingle();
 
             if (conn?.ml_user_id) {
-                const token = await getValidMlToken(authUser.id);
+                token = await getValidMlToken(authUser.id);
                 const userRes = await fetch(`https://api.mercadolibre.com/users/${conn.ml_user_id}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -9295,10 +9298,10 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 const itemRows = await client.from('ml_items')
                     .select('item_id')
                     .eq('user_id', authUser.id);
-                const itemIds = (itemRows || []).map(i => i.item_id).filter(Boolean);
+                itemIds = (itemRows || []).map(i => i.item_id).filter(Boolean);
 
                 if (itemIds.length > 0) {
-                    const idsParam = itemIds.slice(0, 50).join(',');
+                    idsParam = itemIds.slice(0, 50).join(',');
                     const visitsRes = await fetch(`https://api.mercadolibre.com/visits/items?ids=${idsParam}&last=${days}&unit=day`, {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
@@ -9329,9 +9332,6 @@ app.get('/api/ml/dashboard', async (req, res) => {
             .filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled')
             .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
-        if (totalVisits === 0 && totalOrders > 0) {
-            totalVisits = totalOrders * 18;
-        }
         const conversionRate = totalVisits > 0 ? Number(((totalOrders / totalVisits) * 100).toFixed(2)) : 0;
 
         // Calcular período anterior (mesma duração)
@@ -9375,9 +9375,35 @@ app.get('/api/ml/dashboard', async (req, res) => {
             ? ((currentTicket - prevTicket) / prevTicket * 100) 
             : (currentTicket > 0 ? 100 : 0);
 
-        const prevVisits = prevOrdersCount > 0 ? prevOrdersCount * 18 : 0;
-        const prevConversionRate = prevVisits > 0 ? ((prevOrdersCount / prevVisits) * 100) : 0;
-        const varConversion = conversionRate - prevConversionRate;
+        // Buscar visitas reais do período anterior via API ML
+        let prevVisits = 0;
+        try {
+            if (itemIds.length > 0 && days > 0 && token) {
+                const doubleDays = days * 2;
+                const prevVisitsRes = await fetch(`https://api.mercadolibre.com/visits/items?ids=${idsParam}&last=${doubleDays}&unit=day`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (prevVisitsRes.ok) {
+                    const prevVisitsData = await prevVisitsRes.json();
+                    let totalDoublePeriod = 0;
+                    if (typeof prevVisitsData === 'number') {
+                        totalDoublePeriod = prevVisitsData;
+                    } else if (prevVisitsData && typeof prevVisitsData === 'object') {
+                        totalDoublePeriod = Object.values(prevVisitsData).reduce((sum, v) => {
+                            const num = typeof v === 'number' ? v : (v?.total || 0);
+                            return sum + (Number(num) || 0);
+                        }, 0);
+                    }
+                    // Visitas do período anterior = total dos últimos 2N dias - total dos últimos N dias
+                    prevVisits = Math.max(0, totalDoublePeriod - totalVisits);
+                }
+            }
+        } catch (prevVisitsErr) {
+            console.warn('[ML Dashboard] Erro ao buscar visitas do período anterior:', prevVisitsErr.message);
+        }
+
+        const prevConversionRate = prevVisits > 0 ? Number(((prevOrdersCount / prevVisits) * 100).toFixed(2)) : 0;
+        const varConversion = prevConversionRate > 0 ? Number((conversionRate - prevConversionRate).toFixed(1)) : 0;
 
         const variations = {
             revenue: Number(varRevenue.toFixed(1)),
