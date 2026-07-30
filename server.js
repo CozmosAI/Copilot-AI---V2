@@ -8795,6 +8795,84 @@ app.get('/api/ml/questions', async (req, res) => {
     }
 });
 
+// 6.2b) POST /api/ml/questions/:id/answer (Responder pergunta no Mercado Livre e atualizar banco)
+app.post('/api/ml/questions/:id/answer', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const { id } = req.params;
+        const { text } = req.body;
+
+        if (!text || !text.trim()) {
+            return res.status(400).json({ error: 'Texto da resposta é obrigatório' });
+        }
+
+        const token = await getValidMlToken(authUser.id);
+        if (!token) {
+            return res.status(400).json({ error: 'Conta Mercado Livre não conectada ou token expirado' });
+        }
+
+        const client = supabaseAdmin || supabase;
+
+        // Buscar ml_question_id da pergunta no banco
+        let { data: question } = await client.from('ml_questions')
+            .select('id, ml_question_id')
+            .eq('id', id)
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+
+        if (!question?.ml_question_id) {
+            const { data: qAlt } = await client.from('ml_questions')
+                .select('id, ml_question_id')
+                .eq('ml_question_id', id)
+                .eq('user_id', authUser.id)
+                .maybeSingle();
+            if (!qAlt?.ml_question_id) {
+                return res.status(404).json({ error: 'Pergunta não encontrada' });
+            }
+            question = qAlt;
+        }
+
+        // Chamar API ML: POST /answers
+        const answerRes = await fetch('https://api.mercadolibre.com/answers', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                question_id: Number(question.ml_question_id) || String(question.ml_question_id),
+                text: text.trim()
+            })
+        });
+
+        if (!answerRes.ok) {
+            const errText = await answerRes.text();
+            console.error('[ML Answer API Error]:', answerRes.status, errText);
+            return res.status(answerRes.status).json({ error: `Erro ML: ${errText}` });
+        }
+
+        const answerData = await answerRes.json();
+
+        // Atualizar no banco
+        await client.from('ml_questions')
+            .update({
+                answer_text: text.trim(),
+                status: 'answered',
+                date_answered: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('user_id', authUser.id)
+            .or(`id.eq.${id},ml_question_id.eq.${id}`);
+
+        return res.json({ ok: true, answer: answerData });
+    } catch (err) {
+        console.error('[ML Answer] Erro:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // 6.3) GET /api/ml/messages (Listar mensagens de conversas/packs sincronizados do Mercado Livre)
 app.get('/api/ml/messages', async (req, res) => {
     try {
