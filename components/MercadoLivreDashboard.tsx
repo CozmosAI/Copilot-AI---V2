@@ -125,6 +125,76 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
+// Helper Markdown Viewer para Relatórios com IA
+function SimpleMarkdown({ content }: { content: string }) {
+  if (!content) return null;
+
+  function formatInline(text: string) {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  }
+
+  const lines = content.split('\n');
+  return (
+    <div className="space-y-2 text-slate-700 text-xs sm:text-sm leading-relaxed">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-1" />;
+
+        if (trimmed.startsWith('## ')) {
+          return (
+            <h2 key={idx} className="text-sm sm:text-base font-bold text-slate-900 border-b border-slate-200 pb-1 mt-3 flex items-center gap-1.5">
+              {formatInline(trimmed.slice(3))}
+            </h2>
+          );
+        }
+        if (trimmed.startsWith('### ')) {
+          return (
+            <h3 key={idx} className="text-xs sm:text-sm font-bold text-slate-800 mt-2">
+              {formatInline(trimmed.slice(4))}
+            </h3>
+          );
+        }
+        if (trimmed.startsWith('# ')) {
+          return (
+            <h1 key={idx} className="text-base sm:text-lg font-bold text-slate-900 mt-3">
+              {formatInline(trimmed.slice(2))}
+            </h1>
+          );
+        }
+
+        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          return (
+            <div key={idx} className="flex items-start gap-2 ml-2">
+              <span className="text-blue-500 font-bold">•</span>
+              <span>{formatInline(trimmed.slice(2))}</span>
+            </div>
+          );
+        }
+
+        const matchNum = trimmed.match(/^(\d+)\.\s+(.*)/);
+        if (matchNum) {
+          return (
+            <div key={idx} className="flex items-start gap-2 ml-2">
+              <span className="font-bold text-slate-900 text-[10px] bg-blue-100 text-blue-700 rounded-full w-4 h-4 flex items-center justify-center shrink-0 mt-0.5">
+                {matchNum[1]}
+              </span>
+              <span>{formatInline(matchNum[2])}</span>
+            </div>
+          );
+        }
+
+        return <p key={idx}>{formatInline(trimmed)}</p>;
+      })}
+    </div>
+  );
+}
+
 export function MercadoLivreDashboard() {
   const [activeTab, setActiveTab] = useState<'resumo' | 'anuncios' | 'vendas' | 'perguntas' | 'publicidade' | 'reputacao' | 'financeiro'>('resumo');
   const [connectionStatus, setConnectionStatus] = useState<'loading' | 'connected' | 'disconnected' | 'expired'>('loading');
@@ -201,6 +271,12 @@ export function MercadoLivreDashboard() {
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
   const [isSyncingAds, setIsSyncingAds] = useState(false);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
+  const [campaignDetails, setCampaignDetails] = useState<Record<string, any>>({});
+  const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
+
   const [modalNewCampaignOpen, setModalNewCampaignOpen] = useState(false);
   const [modalEditCampaign, setModalEditCampaign] = useState<any | null>(null);
 
@@ -363,6 +439,209 @@ export function MercadoLivreDashboard() {
       setCampaignsLoading(false);
     }
   };
+
+  const handleSyncAds = async () => {
+    setIsSyncingAds(true);
+    showToast('info', 'Sincronizando Product Ads com Mercado Livre...');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      const res = await apiFetch('/api/ml/advertising/sync', {
+        method: 'POST',
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        showToast('success', 'Product Ads sincronizados com sucesso!');
+        await loadCampaigns();
+      } else {
+        const data = await safeJsonResponse(res);
+        showToast('error', data.error || 'Erro ao sincronizar Product Ads');
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        showToast('info', 'Sincronização cancelada (timeout 30s)');
+      } else {
+        showToast('error', err.message || 'Erro de conexão');
+      }
+    } finally {
+      setIsSyncingAds(false);
+    }
+  };
+
+  const generateAiReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const res = await apiFetch('/api/ml/advertising/ai-report', {
+        method: 'POST',
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      const data = await safeJsonResponse(res);
+      if (res.ok && data.report) {
+        setAiReport(data.report);
+        showToast('success', 'Relatório executivo gerado pela IA!');
+      } else {
+        showToast('error', data.error || 'Erro ao gerar relatório com IA');
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        showToast('info', 'Análise da IA cancelada (timeout 60s)');
+      } else {
+        showToast('error', err.message || 'Erro ao conectar à IA');
+      }
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const toggleExpandCampaign = async (cId: string) => {
+    const isExpanded = !!expandedCampaigns[cId];
+    setExpandedCampaigns(prev => ({ ...prev, [cId]: !isExpanded }));
+
+    if (!isExpanded && !campaignDetails[cId]) {
+      try {
+        setLoadingDetails(prev => ({ ...prev, [cId]: true }));
+        const res = await apiFetch(`/api/ml/advertising/campaigns/${cId}`);
+        if (res.ok) {
+          const data = await safeJsonResponse(res);
+          setCampaignDetails(prev => ({ ...prev, [cId]: data.ad_groups || [] }));
+        }
+      } catch (err) {
+        console.error('Erro ao carregar ad_groups:', err);
+      } finally {
+        setLoadingDetails(prev => ({ ...prev, [cId]: false }));
+      }
+    }
+  };
+
+  const handleToggleCampaignStatus = async (campaign: any) => {
+    const newStatus = campaign.status === 'active' ? 'paused' : 'active';
+    const cId = campaign.campaign_id || campaign.id;
+    try {
+      showToast('info', `${newStatus === 'active' ? 'Ativando' : 'Pausando'} campanha...`);
+      const res = await apiFetch(`/api/ml/advertising/campaigns/${cId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        showToast('success', `Campanha ${newStatus === 'active' ? 'ativada' : 'pausada'}!`);
+        loadCampaigns();
+      } else {
+        const data = await safeJsonResponse(res);
+        showToast('error', data.error || 'Erro ao atualizar status');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao atualizar');
+    }
+  };
+
+  const handleCreateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      showToast('info', 'Criando nova campanha...');
+      const res = await apiFetch('/api/ml/advertising/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formCampaign.name,
+          budget_amount: Number(formCampaign.daily_budget),
+          roas_target: Number(formCampaign.target_acos)
+        })
+      });
+      if (res.ok) {
+        showToast('success', 'Campanha criada com sucesso!');
+        setModalNewCampaignOpen(false);
+        setFormCampaign({ name: '', daily_budget: 20, target_acos: 15, status: 'active' });
+        loadCampaigns();
+      } else {
+        const data = await safeJsonResponse(res);
+        showToast('error', data.error || 'Erro ao criar campanha');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro de conexão');
+    }
+  };
+
+  const handleUpdateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalEditCampaign) return;
+    const cId = modalEditCampaign.campaign_id || modalEditCampaign.id;
+    try {
+      showToast('info', 'Atualizando dados da campanha...');
+      const res = await apiFetch(`/api/ml/advertising/campaigns/${cId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: modalEditCampaign.name,
+          budget_amount: Number(modalEditCampaign.budget_amount || modalEditCampaign.daily_budget),
+          roas_target: Number(modalEditCampaign.roas_target || modalEditCampaign.target_acos)
+        })
+      });
+      if (res.ok) {
+        showToast('success', 'Campanha atualizada!');
+        setModalEditCampaign(null);
+        loadCampaigns();
+      } else {
+        const data = await safeJsonResponse(res);
+        showToast('error', data.error || 'Erro ao atualizar');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao atualizar');
+    }
+  };
+
+  const handleDeleteCampaign = async (campaign: any) => {
+    const cId = campaign.campaign_id || campaign.id;
+    if (!window.confirm(`Tem certeza que deseja excluir a campanha "${campaign.name}"?`)) return;
+    try {
+      showToast('info', 'Excluindo campanha...');
+      const res = await apiFetch(`/api/ml/advertising/campaigns/${cId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast('success', 'Campanha excluída!');
+        loadCampaigns();
+      } else {
+        const data = await safeJsonResponse(res);
+        showToast('error', data.error || 'Erro ao excluir campanha');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao excluir');
+    }
+  };
+
+  // Auto-gerar relatório na primeira visita à tab se houver campanhas
+  useEffect(() => {
+    if (activeTab === 'publicidade' && !aiReport && !isGeneratingReport && campaigns.length > 0) {
+      generateAiReport();
+    }
+  }, [activeTab, campaigns]);
+
+  const totalAdCost = useMemo(() => campaigns.reduce((s, c) => s + Number(c.cost || 0), 0), [campaigns]);
+  const totalAdSales = useMemo(() => campaigns.reduce((s, c) => s + Number(c.total_amount || 0), 0), [campaigns]);
+  const totalAdClicks = useMemo(() => campaigns.reduce((s, c) => s + Number(c.clicks || 0), 0), [campaigns]);
+  const totalAdPrints = useMemo(() => campaigns.reduce((s, c) => s + Number(c.prints || 0), 0), [campaigns]);
+  const avgAdROAS = totalAdCost > 0 ? totalAdSales / totalAdCost : 0;
+  const avgAdCTR = totalAdPrints > 0 ? (totalAdClicks / totalAdPrints) * 100 : 0;
+
+  const campaignChartData = useMemo(() => {
+    return campaigns.map(c => {
+      const cost = Number(c.cost || 0);
+      const sales = Number(c.total_amount || 0);
+      const roas = Number(c.roas || (cost > 0 ? sales / cost : 0));
+      return {
+        name: c.name ? (c.name.length > 15 ? c.name.slice(0, 15) + '...' : c.name) : 'Campanha',
+        fullName: c.name || 'Campanha',
+        Investimento: cost,
+        Vendas: sales,
+        ROAS: Number(roas.toFixed(2))
+      };
+    });
+  }, [campaigns]);
 
   // Carregar dados da tab ativa e quando dateRange mudar
   useEffect(() => {
@@ -1155,46 +1434,587 @@ export function MercadoLivreDashboard() {
 
       {/* TAB: PRODUCT ADS */}
       {activeTab === 'publicidade' && (
-        <div className="space-y-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div className="space-y-6">
+          {/* Header & Actions */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Campanhas de Product Ads</h3>
-              <p className="text-xs text-slate-500">Acompanhe métricas de ACoS, orçamento diário e campanhas patrocinadas</p>
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Zap size={18} className="text-amber-500 fill-amber-500" />
+                Product Ads & Campanhas Patrocinadas
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Gerencie suas campanhas de publicidade do Mercado Livre, analise métricas de ROAS, CTR e crie relatórios executivos com Gemini IA.
+              </p>
             </div>
-            <button
-              onClick={() => showToast('info', 'Sincronizando Product Ads...')}
-              className="bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2"
-            >
-              <Zap size={14} className="text-[#FFE600]" /> Nova Campanha
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleSyncAds}
+                disabled={isSyncingAds}
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={isSyncingAds ? 'animate-spin text-blue-600' : 'text-slate-500'} />
+                {isSyncingAds ? 'Sincronizando...' : 'Sincronizar Product Ads'}
+              </button>
+              <button
+                onClick={() => setModalNewCampaignOpen(true)}
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all"
+              >
+                <Plus size={14} /> Nova Campanha
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {campaignsLoading ? (
-              <div className="col-span-full py-12 text-center text-slate-400">
-                <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-slate-600" />
-                Carregando campanhas de Product Ads...
+          {/* 1.1 KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Investimento */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Investimento Total</span>
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                  <DollarSign size={18} />
+                </div>
               </div>
-            ) : campaigns.length === 0 ? (
-              <div className="col-span-full bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
-                <Zap size={32} className="text-amber-500 mx-auto mb-2" />
-                <p className="font-bold text-slate-800">Nenhuma campanha de Product Ads ativa</p>
-                <p className="text-xs text-slate-400">Crie sua primeira campanha para patrocinar seus produtos no Mercado Livre.</p>
+              <div className="text-2xl font-bold text-slate-900">
+                {formatCurrency(totalAdCost)}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Custo total das campanhas ativas
+              </div>
+            </div>
+
+            {/* Vendas Atribuídas */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Vendas Atribuídas</span>
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <TrendingUp size={18} />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">
+                {formatCurrency(totalAdSales)}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Faturamento via anúncios patrocinados
+              </div>
+            </div>
+
+            {/* ROAS Médio */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">ROAS Médio</span>
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <BarChart2 size={18} />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <div className="text-2xl font-bold text-slate-900">
+                  {avgAdROAS.toFixed(2)}x
+                </div>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  avgAdROAS >= 10 ? 'bg-emerald-100 text-emerald-700' :
+                  avgAdROAS >= 5 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                }`}>
+                  {avgAdROAS >= 10 ? 'Excelente' : avgAdROAS >= 5 ? 'Moderado' : 'Atenção'}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Retorno sobre investimento em ads
+              </div>
+            </div>
+
+            {/* Cliques Totais */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Cliques Totais</span>
+                <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                  <Eye size={18} />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">
+                {totalAdClicks.toLocaleString('pt-BR')}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                CTR Médio: <strong className="text-slate-800">{avgAdCTR.toFixed(2)}%</strong> ({totalAdPrints.toLocaleString('pt-BR')} impr.)
+              </div>
+            </div>
+          </div>
+
+          {/* 1.7 Seção Análise com IA */}
+          <div className="bg-gradient-to-r from-blue-50 via-indigo-50/50 to-blue-50 border border-blue-200 rounded-xl p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs">
+                  <Sparkles size={22} />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-slate-900">Análise Inteligente de Product Ads</h4>
+                  <p className="text-xs text-slate-600">Diagnóstico executivo de performance, alertas de ROAS e recomendações gerados pelo Gemini IA</p>
+                </div>
+              </div>
+              <button
+                onClick={generateAiReport}
+                disabled={isGeneratingReport}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all disabled:opacity-50 shrink-0"
+              >
+                <Sparkles size={14} className={isGeneratingReport ? 'animate-spin' : ''} />
+                {isGeneratingReport ? 'Gemini Analisando...' : aiReport ? 'Atualizar Análise' : 'Gerar Relatório com IA'}
+              </button>
+            </div>
+
+            {isGeneratingReport ? (
+              <div className="bg-white/80 backdrop-blur-xs rounded-xl p-8 border border-blue-100 text-center space-y-3">
+                <RefreshCw size={28} className="animate-spin text-blue-600 mx-auto" />
+                <p className="font-bold text-slate-800 text-sm">O Gemini está analisando suas campanhas...</p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Examinando métricas de investimento, vendas atribuídas, ROAS, CTR, lances CPC e catálogo orgânico.
+                </p>
+              </div>
+            ) : aiReport ? (
+              <div className="bg-white/90 backdrop-blur-xs rounded-xl p-6 border border-blue-100 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
+                  <span className="font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle size={14} className="text-emerald-500" /> Relatório Executivo Gerado
+                  </span>
+                  <span>Modelo: Gemini 2.0 Flash</span>
+                </div>
+                <SimpleMarkdown content={aiReport} />
               </div>
             ) : (
-              campaigns.map((c) => (
-                <div key={c.id || c.campaign_id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900">{c.name || 'Campanha Product Ads'}</span>
-                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-full">Ativa</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <div>Orçamento: <strong className="text-slate-900">{formatCurrency(c.daily_budget || 20)}/dia</strong></div>
-                    <div>ACoS Meta: <strong className="text-slate-900">{c.target_acos || 15}%</strong></div>
-                  </div>
-                </div>
-              ))
+              <div className="bg-white/80 backdrop-blur-xs rounded-xl p-6 border border-blue-100 text-center text-slate-500 text-xs">
+                Clique em <strong className="text-blue-700 font-bold">Gerar Relatório com IA</strong> para obter diagnósticos completos e sugestões de otimização para suas campanhas de Product Ads.
+              </div>
             )}
+          </div>
+
+          {/* 1.3 Gráfico de Performance */}
+          {campaigns.length > 0 && (
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">Performance por Campanha</h4>
+                  <p className="text-xs text-slate-500">Comparativo de Investimento (R$), Vendas (R$) e ROAS (x)</p>
+                </div>
+              </div>
+              <div className="h-72 w-full pt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={campaignChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <YAxis yAxisId="left" tickFormatter={(v) => `R$${v}`} tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => `${v}x`} tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }}
+                      formatter={(value: any, name: string) => {
+                        if (name === 'ROAS (x)' || name === 'ROAS') return [`${Number(value).toFixed(2)}x`, 'ROAS'];
+                        return [formatCurrency(Number(value)), name];
+                      }}
+                      labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                    />
+                    <Bar yAxisId="left" dataKey="Investimento" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Investimento" />
+                    <Bar yAxisId="left" dataKey="Vendas" fill="#10B981" radius={[4, 4, 0, 0]} name="Vendas Atribuídas" />
+                    <Line yAxisId="right" type="monotone" dataKey="ROAS" stroke="#EF4444" strokeWidth={3} dot={{ r: 4 }} name="ROAS (x)" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* 1.2 Tabela Completa de Campanhas */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Campanhas e Métricas Detalhadas</h4>
+                <p className="text-xs text-slate-500">Listagem das campanhas ativas/pausadas com estatísticas do Mercado Livre</p>
+              </div>
+              <span className="text-xs font-semibold bg-slate-100 text-slate-700 px-3 py-1 rounded-full">
+                {campaigns.length} {campaigns.length === 1 ? 'campanha' : 'campanhas'}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200 sticky top-0">
+                  <tr>
+                    <th className="py-3 px-3 w-8"></th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-4">Campanha</th>
+                    <th className="py-3 px-3 text-right">Orçamento</th>
+                    <th className="py-3 px-3 text-right">ROAS Alvo</th>
+                    <th className="py-3 px-3 text-right">Cliques</th>
+                    <th className="py-3 px-3 text-right">Impressões</th>
+                    <th className="py-3 px-3 text-right">CTR</th>
+                    <th className="py-3 px-3 text-right">CPC Médio</th>
+                    <th className="py-3 px-3 text-right">Investimento</th>
+                    <th className="py-3 px-3 text-right">Vendas</th>
+                    <th className="py-3 px-3 text-center">ROAS Real</th>
+                    <th className="py-3 px-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {campaignsLoading ? (
+                    <tr>
+                      <td colSpan={13} className="py-12 text-center text-slate-400">
+                        <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-slate-600" />
+                        Carregando campanhas de Product Ads...
+                      </td>
+                    </tr>
+                  ) : campaigns.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="py-12 text-center text-slate-500">
+                        <Zap size={28} className="text-amber-500 mx-auto mb-2" />
+                        <p className="font-bold text-slate-800 text-sm">Nenhuma campanha cadastrada</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Clique em "Nova Campanha" ou "Sincronizar Product Ads" para importar do Mercado Livre.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    campaigns.map((c) => {
+                      const cId = c.campaign_id || c.id;
+                      const isExpanded = !!expandedCampaigns[cId];
+                      const cost = Number(c.cost || 0);
+                      const sales = Number(c.total_amount || 0);
+                      const clicks = Number(c.clicks || 0);
+                      const prints = Number(c.prints || 0);
+                      const roas = Number(c.roas || (cost > 0 ? sales / cost : 0));
+                      const ctr = prints > 0 ? (clicks / prints) * 100 : 0;
+                      const cpc = clicks > 0 ? cost / clicks : 0;
+                      const isActive = c.status === 'active';
+                      const adGroups = campaignDetails[cId] || [];
+
+                      return (
+                        <React.Fragment key={cId}>
+                          <tr className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-3 px-3 text-center">
+                              <button
+                                onClick={() => toggleExpandCampaign(cId)}
+                                className="p-1 hover:bg-slate-200 rounded-md text-slate-500 transition-colors"
+                                title="Ver anúncios patrocinados da campanha"
+                              >
+                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              </button>
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase inline-flex items-center gap-1 ${
+                                isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                {isActive ? 'Ativa' : 'Pausada'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-bold text-slate-900 max-w-[200px] truncate">
+                              {c.name || 'Campanha Product Ads'}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-800 font-semibold">
+                              {formatCurrency(c.budget_amount || c.daily_budget || 0)}/dia
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-700">
+                              {c.roas_target ? `${c.roas_target}x` : c.target_acos ? `${c.target_acos}%` : '-'}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-800">
+                              {clicks.toLocaleString('pt-BR')}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-600">
+                              {prints.toLocaleString('pt-BR')}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-700">
+                              {ctr.toFixed(2)}%
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-700">
+                              {formatCurrency(cpc)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold text-slate-900">
+                              {formatCurrency(cost)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold text-emerald-700">
+                              {formatCurrency(sales)}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span className={`px-2.5 py-1 rounded-md font-mono font-bold text-xs ${
+                                roas >= 10 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                roas >= 5 ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                                'bg-red-100 text-red-800 border border-red-200'
+                              }`}>
+                                {roas.toFixed(2)}x
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => handleToggleCampaignStatus(c)}
+                                  className={`p-1.5 rounded-lg border transition-all ${
+                                    isActive ? 'hover:bg-amber-50 text-amber-700 border-amber-200' : 'hover:bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  }`}
+                                  title={isActive ? 'Pausar Campanha' : 'Ativar Campanha'}
+                                >
+                                  {isActive ? <Pause size={14} /> : <Play size={14} />}
+                                </button>
+                                <button
+                                  onClick={() => setModalEditCampaign(c)}
+                                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all"
+                                  title="Editar Campanha"
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteCampaign(c)}
+                                  className="p-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 transition-all"
+                                  title="Excluir Campanha"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* 1.4 Expanded Row with ad_groups */}
+                          {isExpanded && (
+                            <tr className="bg-slate-50/70 border-b border-slate-200">
+                              <td colSpan={13} className="p-4 pl-12">
+                                <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-2xs space-y-3">
+                                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                    <h5 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                                      <Layers size={14} className="text-blue-600" />
+                                      Anúncios Patrocinados (ad_groups) da Campanha "{c.name}"
+                                    </h5>
+                                    <span className="text-[11px] text-slate-500">
+                                      {adGroups.length} anúncios
+                                    </span>
+                                  </div>
+
+                                  {loadingDetails[cId] ? (
+                                    <div className="py-4 text-center text-xs text-slate-400">
+                                      <RefreshCw size={16} className="animate-spin mx-auto mb-1 text-slate-600" />
+                                      Carregando anúncios da campanha...
+                                    </div>
+                                  ) : adGroups.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic py-2 text-center">
+                                      Nenhum ad_group individual retornado para esta campanha.
+                                    </p>
+                                  ) : (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-left text-[11px]">
+                                        <thead className="bg-slate-50 text-slate-500 uppercase font-semibold">
+                                          <tr>
+                                            <th className="py-2 px-3">Item / Anúncio</th>
+                                            <th className="py-2 px-2 text-center">Status</th>
+                                            <th className="py-2 px-3 text-right">CPC Bid</th>
+                                            <th className="py-2 px-3 text-right">Cliques</th>
+                                            <th className="py-2 px-3 text-right">Impressões</th>
+                                            <th className="py-2 px-3 text-right">Custo</th>
+                                            <th className="py-2 px-3 text-right">Vendas</th>
+                                            <th className="py-2 px-3 text-center">ROAS</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                          {adGroups.map((ag: any, agIdx: number) => {
+                                            const agCost = Number(ag.cost || 0);
+                                            const agSales = Number(ag.total_amount || 0);
+                                            const agRoas = Number(ag.roas || (agCost > 0 ? agSales / agCost : 0));
+                                            return (
+                                              <tr key={ag.id || agIdx} className="hover:bg-slate-50">
+                                                <td className="py-2 px-3 font-semibold text-slate-800 flex items-center gap-2">
+                                                  {ag.thumbnail && (
+                                                    <img src={ag.thumbnail} alt="" className="w-7 h-7 rounded border object-cover shrink-0" />
+                                                  )}
+                                                  <span className="truncate max-w-xs">{ag.title || ag.item_id || `Ad Group #${agIdx + 1}`}</span>
+                                                </td>
+                                                <td className="py-2 px-2 text-center">
+                                                  <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold">
+                                                    {ag.status || 'Ativo'}
+                                                  </span>
+                                                </td>
+                                                <td className="py-2 px-3 text-right font-mono">{formatCurrency(ag.cpc_bid || 0)}</td>
+                                                <td className="py-2 px-3 text-right font-mono">{Number(ag.clicks || 0).toLocaleString('pt-BR')}</td>
+                                                <td className="py-2 px-3 text-right font-mono">{Number(ag.prints || 0).toLocaleString('pt-BR')}</td>
+                                                <td className="py-2 px-3 text-right font-mono font-semibold text-slate-900">{formatCurrency(agCost)}</td>
+                                                <td className="py-2 px-3 text-right font-mono font-semibold text-emerald-700">{formatCurrency(agSales)}</td>
+                                                <td className="py-2 px-3 text-center font-mono font-bold">
+                                                  <span className={agRoas >= 10 ? 'text-emerald-700' : agRoas >= 5 ? 'text-amber-700' : 'text-red-700'}>
+                                                    {agRoas.toFixed(2)}x
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: NOVA CAMPANHA */}
+      {modalNewCampaignOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Zap size={18} className="text-amber-500 fill-amber-500" />
+                Nova Campanha de Product Ads
+              </h3>
+              <button
+                onClick={() => setModalNewCampaignOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCampaign} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Nome da Campanha
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Campanha Lançamentos Verão"
+                  value={formCampaign.name}
+                  onChange={(e) => setFormCampaign({ ...formCampaign, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Orçamento Diário (R$)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="5"
+                    step="5"
+                    value={formCampaign.daily_budget}
+                    onChange={(e) => setFormCampaign({ ...formCampaign, daily_budget: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    ROAS Target (x)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="0.5"
+                    value={formCampaign.target_acos}
+                    onChange={(e) => setFormCampaign({ ...formCampaign, target_acos: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalNewCampaignOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs"
+                >
+                  Criar Campanha
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR CAMPANHA */}
+      {modalEditCampaign && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Edit3 size={18} className="text-blue-600" />
+                Editar Campanha de Product Ads
+              </h3>
+              <button
+                onClick={() => setModalEditCampaign(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateCampaign} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Nome da Campanha
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={modalEditCampaign.name || ''}
+                  onChange={(e) => setModalEditCampaign({ ...modalEditCampaign, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Orçamento Diário (R$)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="5"
+                    step="5"
+                    value={modalEditCampaign.budget_amount || modalEditCampaign.daily_budget || 20}
+                    onChange={(e) => setModalEditCampaign({ ...modalEditCampaign, budget_amount: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    ROAS Target (x)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="0.5"
+                    value={modalEditCampaign.roas_target || modalEditCampaign.target_acos || 15}
+                    onChange={(e) => setModalEditCampaign({ ...modalEditCampaign, roas_target: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalEditCampaign(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

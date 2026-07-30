@@ -9941,6 +9941,90 @@ app.delete('/api/ml/advertising/campaigns/:id', async (req, res) => {
     }
 });
 
+// 7) POST /api/ml/advertising/ai-report (Análise com IA do Product Ads)
+app.post('/api/ml/advertising/ai-report', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        const client = supabaseAdmin || supabase;
+        
+        // 1. Buscar campanhas com métricas
+        const { data: campaigns } = await client.from('ml_ad_campaigns')
+            .select('name, status, budget_amount, roas_target, clicks, prints, cost, total_amount, roas, created_at_ml')
+            .eq('user_id', authUser.id)
+            .order('cost', { ascending: false });
+        
+        // 2. Buscar ad_groups (anúncios individuais)
+        const { data: adGroups } = await client.from('ml_ad_groups')
+            .select('title, status, clicks, prints, cost, total_amount, roas, cpc_bid')
+            .eq('user_id', authUser.id)
+            .order('cost', { ascending: false })
+            .limit(20);
+        
+        // 3. Buscar anúncios orgânicos para comparar
+        const { data: items } = await client.from('ml_items')
+            .select('title, sold_quantity, available_quantity, price, is_sponsored, listing_type_id')
+            .eq('user_id', authUser.id)
+            .limit(20);
+        
+        // 4. Preparar dados para o Gemini
+        const totalCost = (campaigns || []).reduce((s, c) => s + Number(c.cost || 0), 0);
+        const totalSales = (campaigns || []).reduce((s, c) => s + Number(c.total_amount || 0), 0);
+        const totalClicks = (campaigns || []).reduce((s, c) => s + Number(c.clicks || 0), 0);
+        const totalPrints = (campaigns || []).reduce((s, c) => s + Number(c.prints || 0), 0);
+        const avgROAS = totalCost > 0 ? (totalSales / totalCost).toFixed(2) : 0;
+        const avgCTR = totalPrints > 0 ? (totalClicks / totalPrints * 100).toFixed(2) : 0;
+        const avgCPC = totalClicks > 0 ? (totalCost / totalClicks).toFixed(2) : 0;
+        
+        const prompt = `Você é um analista de e-commerce especialista em Mercado Livre Product Ads. 
+        Analise os dados das campanhas de publicidade e gere um relatório executivo em português.
+        
+        DADOS DAS CAMPANHAS:
+        ${JSON.stringify(campaigns, null, 2)}
+        
+        DADOS DOS ANÚNCIOS PATROCINADOS (ad_groups):
+        ${JSON.stringify(adGroups, null, 2)}
+        
+        MÉTRICAS GERAIS:
+        - Investimento total: R$ ${totalCost.toFixed(2)}
+        - Vendas atribuídas: R$ ${totalSales.toFixed(2)}
+        - ROAS médio: ${avgROAS}x
+        - CTR médio: ${avgCTR}%
+        - CPC médio: R$ ${avgCPC}
+        - Total de cliques: ${totalClicks}
+        - Total de impressões: ${totalPrints}
+        
+        Gere um relatório com:
+        1. **Resumo Executivo** (3-4 linhas com os destaques)
+        2. **Performance por Campanha** (análise individual de cada campanha: o que está funcionando, o que precisa melhorar)
+        3. **Métricas-Chave** (ROAS, CTR, CPC — comparar com benchmarks do mercado ML)
+        4. **Recomendações** (5 ações concretas: quais campanhas escalar, quais pausar, ajustes de ROAS target, lances CPC)
+        5. **Alertas** (se alguma campanha está com ROAS < 5x ou CTR < 1%, alertar)
+        6. **Próximos Passos** (3 sugestões de otimização)
+        
+        Use formatação markdown (##, **, -, etc). Seja específico com números. Tom profissional mas direto.`;
+        
+        // 5. Chamar Gemini
+        const apiKeyToUse = process.env.GEMINI_API_KEY || API_KEY;
+        if (!apiKeyToUse) {
+            return res.status(500).json({ error: 'Chave do Gemini API não configurada' });
+        }
+        const geminiClient = new GoogleGenAI({ apiKey: apiKeyToUse });
+        const response = await geminiClient.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: prompt
+        });
+        
+        const report = response.text || 'Erro ao gerar relatório';
+        
+        res.json({ ok: true, report, generated_at: new Date().toISOString() });
+    } catch (err) {
+        console.error('[ML AI Report] Erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 7) PUT /api/ml/items/:itemId (Editar anúncio orgânico no Mercado Livre)
 app.put('/api/ml/items/:itemId', async (req, res) => {
     try {
