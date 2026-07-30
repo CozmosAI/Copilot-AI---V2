@@ -273,6 +273,8 @@ export function MercadoLivreDashboard() {
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [summaryAiReport, setSummaryAiReport] = useState<string | null>(null);
+  const [isGeneratingSummaryAi, setIsGeneratingSummaryAi] = useState(false);
   const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
   const [campaignDetails, setCampaignDetails] = useState<Record<string, any>>({});
   const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
@@ -497,6 +499,34 @@ export function MercadoLivreDashboard() {
     }
   };
 
+  const generateSummaryAiReport = async () => {
+    setIsGeneratingSummaryAi(true);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const res = await apiFetch('/api/ml/advertising/ai-report', {
+        method: 'POST',
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      const data = await safeJsonResponse(res);
+      if (res.ok && data.report) {
+        setSummaryAiReport(data.report);
+        showToast('success', 'Recomendações com IA geradas com sucesso!');
+      } else {
+        showToast('error', data.error || 'Erro ao gerar recomendações com IA');
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        showToast('info', 'Análise da IA cancelada por limite de tempo (60s)');
+      } else {
+        showToast('error', err.message || 'Erro ao conectar à IA');
+      }
+    } finally {
+      setIsGeneratingSummaryAi(false);
+    }
+  };
+
   const toggleExpandCampaign = async (cId: string) => {
     const isExpanded = !!expandedCampaigns[cId];
     setExpandedCampaigns(prev => ({ ...prev, [cId]: !isExpanded }));
@@ -718,12 +748,24 @@ export function MercadoLivreDashboard() {
         conversionRate: 0,
         visits: 0,
         questions: 0,
+        unitsSold: 0,
+        avgPricePerUnit: 0,
+        estimatedFees: 0,
+        netRevenue: 0,
+        totalAdsCost: 0,
+        cancelled: 0,
+        cancelledValue: 0,
         prevRevenue: 0,
         prevOrders: 0,
         varRevenue: 0,
         varOrders: 0,
         varTicket: 0,
-        varConversion: 0
+        varConversion: 0,
+        varUnits: 0,
+        varAvgPrice: 0,
+        varCancelled: 0,
+        varCancelledVal: 0,
+        varVisits: 0
       };
     }
 
@@ -735,7 +777,14 @@ export function MercadoLivreDashboard() {
       ? dashboardData.conversion_rate
       : (vst > 0 && ords > 0 ? Number(((ords / vst) * 100).toFixed(2)) : 0);
 
-    const vars = dashboardData.variations;
+    const units = dashboardData.units_sold || 0;
+    const avgPrice = dashboardData.avg_price_per_unit || (units > 0 ? rev / units : 0);
+    const fees = dashboardData.estimated_fees || (rev * 0.14);
+    const net = dashboardData.net_revenue || (rev - fees - (dashboardData.total_ads_cost || 0));
+    const canc = dashboardData.orders?.cancelled || 0;
+    const cancVal = dashboardData.orders?.cancelled_value || 0;
+
+    const vars = dashboardData.variations || {};
 
     return {
       revenue: rev,
@@ -744,12 +793,24 @@ export function MercadoLivreDashboard() {
       conversionRate: conv,
       visits: vst,
       questions: dashboardData.questions?.total || 0,
+      unitsSold: units,
+      avgPricePerUnit: avgPrice,
+      estimatedFees: fees,
+      netRevenue: net,
+      totalAdsCost: dashboardData.total_ads_cost || 0,
+      cancelled: canc,
+      cancelledValue: cancVal,
       prevRevenue: vars?.prev_revenue || 0,
       prevOrders: vars?.prev_orders || 0,
       varRevenue: typeof vars?.revenue === 'number' ? vars.revenue : 0,
       varOrders: typeof vars?.orders === 'number' ? vars.orders : 0,
       varTicket: typeof vars?.ticket === 'number' ? vars.ticket : 0,
-      varConversion: typeof vars?.conversion === 'number' ? vars.conversion : 0
+      varConversion: typeof vars?.conversion === 'number' ? vars.conversion : 0,
+      varUnits: typeof vars?.units === 'number' ? vars.units : 0,
+      varAvgPrice: typeof vars?.avg_price === 'number' ? vars.avg_price : 0,
+      varCancelled: typeof vars?.cancelled === 'number' ? vars.cancelled : 0,
+      varCancelledVal: typeof vars?.cancelled_val === 'number' ? vars.cancelled_val : 0,
+      varVisits: typeof vars?.visits === 'number' ? vars.visits : 0
     };
   }, [dashboardData]);
 
@@ -928,148 +989,242 @@ export function MercadoLivreDashboard() {
       {/* TAB: RESUMO GERAL */}
       {activeTab === 'resumo' && (
         <div className="space-y-6">
-          {/* 4 KPI Cards no topo */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Card 1: Faturamento */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Faturamento</span>
-                <Sparkline data={[120, 150, 180, 160, 210, 240, 280]} color={metrics.varRevenue >= 0 ? '#10B981' : '#EF4444'} />
+          {/* 2.1) 11 KPI Cards (Grid 4 colunas, 3 linhas) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Card 1: VENDAS BRUTAS */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Vendas Brutas</span>
+                <DollarSign size={14} className="text-blue-500" />
               </div>
-              <div className="text-2xl font-bold text-slate-900">
+              <div className="text-xl font-bold text-slate-900">
                 {formatCurrency(metrics.revenue)}
               </div>
-              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varRevenue >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {metrics.varRevenue >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varRevenue >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varRevenue >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
                 <span>{metrics.varRevenue >= 0 ? '▲' : '▼'} {Math.abs(metrics.varRevenue)}%</span>
-                <span className="text-slate-400 font-normal">vs período anterior</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
               </div>
             </div>
 
-            {/* Card 2: Pedidos */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Pedidos</span>
-                <Sparkline data={[10, 12, 15, 14, 18, 22, 25]} color={metrics.varOrders >= 0 ? '#3B82F6' : '#EF4444'} />
+            {/* Card 2: UNIDADES VENDIDAS */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Unidades Vendidas</span>
+                <Package size={14} className="text-indigo-500" />
               </div>
-              <div className="text-2xl font-bold text-slate-900">
-                {metrics.orders}
+              <div className="text-xl font-bold text-slate-900">
+                {metrics.unitsSold.toLocaleString('pt-BR')} un
               </div>
-              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varOrders >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {metrics.varOrders >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varUnits >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varUnits >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
+                <span>{metrics.varUnits >= 0 ? '▲' : '▼'} {Math.abs(metrics.varUnits)}%</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
+              </div>
+            </div>
+
+            {/* Card 3: PREÇO MÉDIO/UNIDADE */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Preço Médio / Unid</span>
+                <Tag size={14} className="text-purple-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
+                {formatCurrency(metrics.avgPricePerUnit)}
+              </div>
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varAvgPrice >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varAvgPrice >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
+                <span>{metrics.varAvgPrice >= 0 ? '▲' : '▼'} {Math.abs(metrics.varAvgPrice)}%</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
+              </div>
+            </div>
+
+            {/* Card 4: VISITAS */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Visitas</span>
+                <Eye size={14} className="text-sky-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
+                {metrics.visits.toLocaleString('pt-BR')}
+              </div>
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varVisits >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varVisits >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
+                <span>{metrics.varVisits >= 0 ? '▲' : '▼'} {Math.abs(metrics.varVisits)}%</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
+              </div>
+            </div>
+
+            {/* Card 5: PEDIDOS */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Pedidos</span>
+                <ShoppingCart size={14} className="text-emerald-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
+                {metrics.orders.toLocaleString('pt-BR')}
+              </div>
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varOrders >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varOrders >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
                 <span>{metrics.varOrders >= 0 ? '▲' : '▼'} {Math.abs(metrics.varOrders)}%</span>
-                <span className="text-slate-400 font-normal">vs período anterior</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
               </div>
             </div>
 
-            {/* Card 3: Ticket Médio */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Ticket Médio</span>
-                <Sparkline data={[85, 84, 82, 80, 81, 79, 78]} color={metrics.varTicket >= 0 ? '#10B981' : '#EF4444'} />
+            {/* Card 6: CONVERSÃO */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Conversão</span>
+                <Percent size={14} className="text-teal-500" />
               </div>
-              <div className="text-2xl font-bold text-slate-900">
+              <div className="text-xl font-bold text-slate-900">
+                {metrics.conversionRate.toFixed(2)}%
+              </div>
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varConversion >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varConversion >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
+                <span>{metrics.varConversion >= 0 ? '▲' : '▼'} {Math.abs(metrics.varConversion)}pp</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
+              </div>
+            </div>
+
+            {/* Card 7: TICKET MÉDIO */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Ticket Médio</span>
+                <CreditCard size={14} className="text-amber-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
                 {formatCurrency(metrics.ticketMedio)}
               </div>
-              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varTicket >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {metrics.varTicket >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varTicket >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varTicket >= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
                 <span>{metrics.varTicket >= 0 ? '▲' : '▼'} {Math.abs(metrics.varTicket)}%</span>
-                <span className="text-slate-400 font-normal">vs período anterior</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
               </div>
             </div>
 
-            {/* Card 4: Taxa de Vendas */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Taxa de Vendas</span>
-                <Sparkline data={[3.1, 3.2, 3.4, 3.5, 3.8, 4.0, 4.2]} color={metrics.varConversion >= 0 ? '#10B981' : '#EF4444'} />
+            {/* Card 8: CANCELADAS */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Vendas Canceladas</span>
+                <AlertCircle size={14} className="text-rose-500" />
               </div>
-              <div>
-                <div className="text-2xl font-bold text-slate-900">
-                  {metrics.conversionRate}%
-                </div>
-                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                  {metrics.visits > 0 ? `${metrics.orders} vendas em ${metrics.visits.toLocaleString('pt-BR')} visitas` : 'Taxa de conversão por visitas'}
-                </div>
+              <div className="text-xl font-bold text-rose-600">
+                {metrics.cancelled.toLocaleString('pt-BR')}
               </div>
-              <div className={`flex items-center gap-1.5 text-xs font-semibold ${metrics.varConversion >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {metrics.varConversion >= 0 ? <TrendingUp size={14} /> : <ArrowDownRight size={14} />}
-                <span>{metrics.varConversion >= 0 ? '▲' : '▼'} {Math.abs(metrics.varConversion)}pp</span>
-                <span className="text-slate-400 font-normal">vs período anterior</span>
+              <div className={`flex items-center gap-1 text-[11px] font-semibold ${metrics.varCancelled <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metrics.varCancelled <= 0 ? <TrendingUp size={12} /> : <ArrowDownRight size={12} />}
+                <span>{metrics.varCancelled <= 0 ? '▼' : '▲'} {Math.abs(metrics.varCancelled)}%</span>
+                <span className="text-slate-400 font-normal">vs anterior</span>
+              </div>
+            </div>
+
+            {/* Card 9: VALOR CANCELADO */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Valor Cancelado</span>
+                <X size={14} className="text-rose-400" />
+              </div>
+              <div className="text-xl font-bold text-slate-700">
+                {formatCurrency(metrics.cancelledValue)}
+              </div>
+              <div className="text-[11px] text-slate-400 font-normal">
+                {metrics.revenue > 0 ? `${((metrics.cancelledValue / metrics.revenue) * 100).toFixed(1)}% das vendas` : '0% das vendas'}
+              </div>
+            </div>
+
+            {/* Card 10: TARIFAS ML (ESTIMADO) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Tarifas ML (Est.)</span>
+                <Building2 size={14} className="text-amber-600" />
+              </div>
+              <div className="text-xl font-bold text-amber-700">
+                {formatCurrency(metrics.estimatedFees)}
+              </div>
+              <div className="text-[11px] text-slate-400 font-normal">
+                ~14% comissão e envio
+              </div>
+            </div>
+
+            {/* Card 11: RECEITA LÍQUIDA (Spans 2 columns) */}
+            <div className="lg:col-span-2 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-white rounded-xl border border-emerald-200/80 p-4 shadow-2xs space-y-1 hover:border-emerald-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-emerald-700 tracking-wider flex items-center justify-between">
+                <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-emerald-600" /> Receita Líquida Estimada</span>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded font-bold">Vendas - Tarifas</span>
+              </div>
+              <div className="text-2xl font-black text-emerald-700">
+                {formatCurrency(metrics.netRevenue)}
+              </div>
+              <div className="text-[11px] text-slate-500 font-medium">
+                Lucro operacional antes dos custos fixos de estoque
               </div>
             </div>
           </div>
 
-          {/* Grid do Gráfico de Vendas + Funil de Conversão */}
+          {/* 2.2) Gráfico de Vendas Brutas + 2.3) Funil de Conversão */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* SalesChart: Gráfico de Vendas com Comparativo */}
-            <div className="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-4">
+            {/* SalesChart: Gráfico de Vendas com Área */}
+            <div className="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Evolução de Vendas (R$)</h3>
-                  <p className="text-xs text-slate-500">Comparativo do período atual vs período anterior</p>
+                  <h3 className="text-sm font-bold text-slate-900">Evolução de Vendas Brutas (R$)</h3>
+                  <p className="text-xs text-slate-500">Histórico diário de faturamento no período selecionado</p>
                 </div>
                 <div className="flex items-center gap-4 text-xs font-semibold">
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-1 bg-blue-500 rounded-full"></span>
-                    <span className="text-slate-700">Período Atual</span>
+                    <span className="text-slate-700">Faturamento Diário</span>
                   </div>
-                  {dateRange.compareWithPrevious && (
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-0 border-b-2 border-dashed border-slate-400"></span>
-                      <span className="text-slate-500">Período Anterior</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              <div className="h-72 w-full pt-2">
+              <div className="h-64 w-full pt-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <ComposedChart data={dashboardData?.daily_sales && dashboardData.daily_sales.length > 0 ? dashboardData.daily_sales : chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                     <XAxis dataKey="date" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
                     <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (active && payload && payload.length) {
-                          const curr = payload.find(p => p.dataKey === 'Atual')?.value || 0;
-                          const prev = payload.find(p => p.dataKey === 'Anterior')?.value || 0;
+                          const curr = payload[0].value || 0;
                           return (
                             <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs space-y-1 shadow-lg">
                               <p className="font-bold border-b border-slate-800 pb-1">{label}</p>
-                              <p className="text-blue-400 font-medium">Atual: <span className="font-bold text-white">{formatCurrency(Number(curr))}</span></p>
-                              {dateRange.compareWithPrevious && (
-                                <p className="text-slate-400 font-medium">Anterior: <span className="font-bold text-slate-200">{formatCurrency(Number(prev))}</span></p>
-                              )}
+                              <p className="text-blue-400 font-medium">Faturamento: <span className="font-bold text-white">{formatCurrency(Number(curr))}</span></p>
                             </div>
                           );
                         }
                         return null;
                       }}
                     />
-                    <Line type="monotone" dataKey="Atual" stroke="#3B82F6" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
-                    {dateRange.compareWithPrevious && (
-                      <Line type="monotone" dataKey="Anterior" stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-                    )}
+                    <Area type="monotone" dataKey={dashboardData?.daily_sales?.length > 0 ? "revenue" : "Atual"} stroke="#3B82F6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSales)" />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Funil de Conversão */}
-            <div className="lg:col-span-4 bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-4">
+            {/* 2.3) Funil de Conversão do ML */}
+            <div className="lg:col-span-4 bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Funil de Conversão</h3>
-                <p className="text-xs text-slate-500">Fluxo de clientes até a entrega</p>
+                <p className="text-xs text-slate-500">Jornada de compra do cliente no Mercado Livre</p>
               </div>
 
-              <div className="space-y-4 pt-2">
+              <div className="space-y-4 pt-1">
                 {[
-                  { label: 'Visitas', value: metrics.visits || 0, pct: '100%', color: 'bg-blue-500', icon: Eye },
-                  { label: 'Perguntas', value: metrics.questions || 0, pct: metrics.visits > 0 ? `${((metrics.questions / metrics.visits) * 100).toFixed(1)}%` : '0%', color: 'bg-indigo-500', icon: MessageCircle },
-                  { label: 'Pedidos', value: metrics.orders || 0, pct: metrics.visits > 0 ? `${((metrics.orders / metrics.visits) * 100).toFixed(1)}%` : '0%', color: 'bg-emerald-500', icon: ShoppingCart },
-                  { label: 'Entregues', value: Math.round((metrics.orders || 0) * 0.91), pct: metrics.visits > 0 ? `${(((metrics.orders * 0.91) / metrics.visits) * 100).toFixed(1)}%` : '0%', color: 'bg-slate-800', icon: CheckCircle2 },
-                ].map((step, idx) => {
+                  { label: 'Visitas Únicas', value: metrics.visits, pct: '100%', width: '100%', color: 'from-blue-600 to-indigo-600', icon: Eye },
+                  { label: 'Intenção de Compra', value: (metrics.questions + Math.round(metrics.visits * 0.15)), pct: metrics.visits > 0 ? `${(((metrics.questions + Math.round(metrics.visits * 0.15)) / metrics.visits) * 100).toFixed(1)}%` : '15%', width: '65%', color: 'from-indigo-600 to-purple-600', icon: MessageCircle },
+                  { label: 'Pedidos / Compras', value: metrics.orders, pct: metrics.visits > 0 ? `${((metrics.orders / metrics.visits) * 100).toFixed(2)}%` : '0%', width: '38%', color: 'from-purple-600 to-emerald-600', icon: ShoppingCart },
+                  { label: 'Entregues', value: dashboardData?.orders?.delivered || Math.round(metrics.orders * 0.92), pct: metrics.orders > 0 ? `${(((dashboardData?.orders?.delivered || Math.round(metrics.orders * 0.92)) / metrics.orders) * 100).toFixed(0)}% dos pedidos` : '0%', width: '25%', color: 'from-emerald-600 to-teal-700', icon: CheckCircle2 },
+                ].map((step) => {
                   const Icon = step.icon;
                   return (
                     <div key={step.label} className="space-y-1.5">
@@ -1085,8 +1240,8 @@ export function MercadoLivreDashboard() {
                       </div>
                       <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full ${step.color} rounded-full transition-all duration-500`}
-                          style={{ width: idx === 0 ? '100%' : idx === 1 ? '35%' : idx === 2 ? '22%' : '18%' }}
+                          className={`h-full bg-gradient-to-r ${step.color} rounded-full transition-all duration-500`}
+                          style={{ width: step.width }}
                         />
                       </div>
                     </div>
@@ -1096,8 +1251,303 @@ export function MercadoLivreDashboard() {
             </div>
           </div>
 
+          {/* 2.4) Mapa de Calor: Concentração de Vendas por Dia e Horário */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Activity size={16} className="text-indigo-600" /> Concentração de Vendas por Dia e Horário
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  O período abrange mais de uma semana. Os dias e horários refletem a densidade média de pedidos da sua loja.
+                </p>
+              </div>
+            </div>
+
+            {/* Header de Estatísticas do Mapa de Calor */}
+            {(() => {
+              const heatmap = dashboardData?.heatmap || [];
+              const dayNamesLong = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+              const dayTotals = [0, 0, 0, 0, 0, 0, 0];
+              const hourRanges = {
+                '00:00 às 06:00': 0,
+                '06:00 às 12:00': 0,
+                '12:00 às 18:00': 0,
+                '18:00 às 00:00': 0,
+              };
+
+              heatmap.forEach((item: { day: number; hour: number; count: number }) => {
+                if (item.day >= 0 && item.day < 7) dayTotals[item.day] += item.count;
+                if (item.hour >= 0 && item.hour < 6) hourRanges['00:00 às 06:00'] += item.count;
+                else if (item.hour >= 6 && item.hour < 12) hourRanges['06:00 às 12:00'] += item.count;
+                else if (item.hour >= 12 && item.hour < 18) hourRanges['12:00 às 18:00'] += item.count;
+                else hourRanges['18:00 às 00:00'] += item.count;
+              });
+
+              const maxDayVal = Math.max(...dayTotals);
+              const maxDayIdx = dayTotals.indexOf(maxDayVal);
+              const topDayName = maxDayVal > 0 ? dayNamesLong[maxDayIdx] : 'Quinta-feira';
+
+              let topHourRange = 'Das 12:00 às 18:00';
+              let maxHourVal = -1;
+              Object.entries(hourRanges).forEach(([range, count]) => {
+                if (count > maxHourVal) {
+                  maxHourVal = count;
+                  topHourRange = `Das ${range}`;
+                }
+              });
+
+              const totalHeatmapSales = metrics.orders;
+              const daysCount = Math.max(1, Math.round((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24))) || 30;
+              const avgDailySales = (totalHeatmapSales / daysCount).toFixed(1);
+
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total de Vendas</span>
+                      <p className="text-base font-bold text-slate-900 mt-0.5">{totalHeatmapSales} pedidos</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Média Diária</span>
+                      <p className="text-base font-bold text-slate-900 mt-0.5">{avgDailySales} / dia</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Dia Pico de Vendas</span>
+                      <p className="text-base font-bold text-indigo-700 mt-0.5">{topDayName}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Horário Nobre</span>
+                      <p className="text-base font-bold text-indigo-700 mt-0.5">{topHourRange}</p>
+                    </div>
+                  </div>
+
+                  {/* Visual Heatmap Grid 7x24 */}
+                  <div className="overflow-x-auto pb-2 pt-1">
+                    <div className="min-w-[680px]">
+                      {/* Horas Header */}
+                      <div className="flex items-center mb-2 pl-24 pr-2">
+                        {Array.from({ length: 24 }).map((_, h) => (
+                          <div key={h} className="flex-1 text-center text-[10px] font-bold text-slate-400">
+                            {h % 3 === 0 ? `${h}h` : ''}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Linhas por dia */}
+                      {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((dayLabel, dIdx) => (
+                        <div key={dayLabel} className="flex items-center mb-1.5">
+                          <div className="w-24 text-xs font-bold text-slate-700 pr-2 truncate">
+                            {dayNamesLong[dIdx]}
+                          </div>
+                          <div className="flex-1 flex items-center justify-between gap-1 bg-slate-50/50 p-1 rounded-lg">
+                            {Array.from({ length: 24 }).map((_, hIdx) => {
+                              const item = heatmap.find((x: any) => x.day === dIdx && x.hour === hIdx);
+                              const count = item ? item.count : 0;
+
+                              let bgClass = 'bg-slate-100 hover:bg-slate-200';
+                              let sizeClass = 'w-2.5 h-2.5';
+                              if (count >= 5) {
+                                bgClass = 'bg-indigo-700 hover:bg-indigo-800 shadow-2xs';
+                                sizeClass = 'w-4 h-4';
+                              } else if (count >= 3) {
+                                bgClass = 'bg-indigo-500 hover:bg-indigo-600';
+                                sizeClass = 'w-3.5 h-3.5';
+                              } else if (count >= 1) {
+                                bgClass = 'bg-indigo-300 hover:bg-indigo-400';
+                                sizeClass = 'w-3 h-3';
+                              }
+
+                              return (
+                                <div key={hIdx} className="flex-1 flex items-center justify-center h-5">
+                                  <div
+                                    title={`${dayNamesLong[dIdx]} ${hIdx}:00 - ${count} venda(s)`}
+                                    className={`rounded-full transition-all duration-200 cursor-pointer ${bgClass} ${sizeClass}`}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Legenda */}
+                      <div className="flex items-center justify-end gap-3 text-[11px] text-slate-500 font-medium pt-3 pr-2">
+                        <span>Intensidade:</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-slate-200"></span>
+                          <span>Sem vendas</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 rounded-full bg-indigo-300"></span>
+                          <span>Baixa</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-3.5 h-3.5 rounded-full bg-indigo-500"></span>
+                          <span>Média</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-indigo-700"></span>
+                          <span>Pico</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* 2.5) Top 5 Anúncios por Vendas */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Flame size={16} className="text-orange-500" /> Seus Anúncios Mais Vendidos
+                </h3>
+                <p className="text-xs text-slate-500">Top anúncios em volume de vendas brutas e representatividade</p>
+              </div>
+              <button
+                onClick={() => setActiveTab('anuncios')}
+                className="text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1"
+              >
+                <span>Ver todos os {items.length} anúncios</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                    <th className="pb-3 pr-4">Anúncio</th>
+                    <th className="pb-3 px-4 text-right">Vendas Brutas</th>
+                    <th className="pb-3 px-4 text-center">Unidades</th>
+                    <th className="pb-3 px-4 text-center">% do Total</th>
+                    <th className="pb-3 pl-4 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {(() => {
+                    const topList = (dashboardData?.top_items && dashboardData.top_items.length > 0)
+                      ? dashboardData.top_items
+                      : items.slice(0, 5).map(i => ({
+                          item_id: i.item_id,
+                          title: i.title,
+                          thumbnail: i.thumbnail,
+                          units: i.sold_quantity || 0,
+                          revenue: (i.sold_quantity || 0) * (i.price || 0)
+                        }));
+
+                    if (topList.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                            Nenhum anúncio com vendas registrado no período
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return topList.slice(0, 5).map((item: any, idx: number) => {
+                      const pct = metrics.revenue > 0 ? ((item.revenue / metrics.revenue) * 100).toFixed(1) : '0';
+                      return (
+                        <tr key={item.item_id || idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 pr-4">
+                            <div className="flex items-center gap-3">
+                              {item.thumbnail ? (
+                                <img src={item.thumbnail} alt={item.title} className="w-10 h-10 object-cover rounded-lg border border-slate-200 flex-shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 bg-slate-100 rounded-lg border border-slate-200 flex items-center justify-center flex-shrink-0">
+                                  <Package size={16} className="text-slate-400" />
+                                </div>
+                              )}
+                              <span className="font-semibold text-slate-900 line-clamp-1 max-w-md">
+                                {item.title || 'Anúncio Mercado Livre'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900">
+                            {formatCurrency(item.revenue || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-center font-bold text-slate-700">
+                            {item.units || 0} un
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                              {pct}%
+                            </span>
+                          </td>
+                          <td className="py-3 pl-4 text-right">
+                            <a
+                              href={`https://produto.mercadolivre.com.br/MLB-${item.item_id?.replace('MLB', '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 font-semibold"
+                            >
+                              <ExternalLink size={14} />
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 2.6) Seção IA — Recomendações Inteligentes */}
+          <div className="bg-gradient-to-br from-indigo-50/90 via-purple-50/60 to-pink-50/40 rounded-xl border border-indigo-200/80 p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-xs flex-shrink-0">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    Análise Inteligente & Recomendações com IA
+                  </h3>
+                  <p className="text-xs text-slate-600 max-w-xl">
+                    Utilize o Gemini AI para mapear gargalos na conversão, oportunidades de descontos, otimizar orçamentos e alavancar suas vendas no Mercado Livre.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={generateSummaryAiReport}
+                disabled={isGeneratingSummaryAi}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all flex items-center gap-2 whitespace-nowrap self-start sm:self-center disabled:opacity-50"
+              >
+                {isGeneratingSummaryAi ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>Analisando Loja...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap size={14} />
+                    <span>{summaryAiReport ? 'Atualizar Análise IA' : 'Gerar Recomendações com IA'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {summaryAiReport && (
+              <div className="bg-white/90 rounded-xl p-5 border border-indigo-100 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between border-b border-indigo-50 pb-2">
+                  <span className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-indigo-600" /> Relatório Estratégico de Promoções e Vendas
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">Gerado agora</span>
+                </div>
+                <SimpleMarkdown content={summaryAiReport} />
+              </div>
+            )}
+          </div>
+
           {/* Resumo da Reputação em Card na Home */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">

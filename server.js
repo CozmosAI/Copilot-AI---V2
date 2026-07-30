@@ -9247,11 +9247,10 @@ app.get('/api/ml/dashboard', async (req, res) => {
         const startOf7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-        // Buscar pedidos no período
+        // Buscar todos os pedidos no período
         const { data: orders } = await client.from('ml_orders')
-            .select('status, shipping_status, payment_status, total_amount, date_created')
+            .select('ml_order_id, status, shipping_status, payment_status, total_amount, quantity, unit_price, item_id, item_title, date_created, raw')
             .eq('user_id', authUser.id)
-            .neq('payment_status', 'cancelled')
             .gte('date_created', fromDate)
             .lte('date_created', toDate);
 
@@ -9264,7 +9263,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
 
         // Buscar itens cadastrados
         const { data: items } = await client.from('ml_items')
-            .select('item_id, status, catalog_listing, is_sponsored')
+            .select('item_id, title, thumbnail, status, available_quantity, sold_quantity, catalog_listing, is_sponsored')
             .eq('user_id', authUser.id);
 
         // Buscar mensagens
@@ -9272,12 +9271,25 @@ app.get('/api/ml/dashboard', async (req, res) => {
             .select('status')
             .eq('user_id', authUser.id);
 
+        // Buscar gastos com campanhas de publicidade
+        let totalAdsCost = 0;
+        try {
+            const { data: campaigns } = await client.from('ml_ad_campaigns')
+                .select('cost')
+                .eq('user_id', authUser.id);
+            if (campaigns) {
+                totalAdsCost = campaigns.reduce((sum, c) => sum + Number(c.cost || 0), 0);
+            }
+        } catch (adErr) {
+            console.warn('[ML Dashboard] Erro ad_campaigns:', adErr.message);
+        }
+
         // Reputação & Visitas do Mercado Livre API
         let reputation = null;
         let totalVisits = 0;
         let token = null;
         let itemIds = [];
-        let topItems = [];
+        let topItemIds = [];
         try {
             const { data: conn } = await client.from('ml_connections')
                 .select('ml_user_id')
@@ -9294,15 +9306,14 @@ app.get('/api/ml/dashboard', async (req, res) => {
                     reputation = userData.seller_reputation || null;
                 }
 
-                // Buscar visitas do período se houver itens
                 const itemRows = await client.from('ml_items')
                     .select('item_id')
                     .eq('user_id', authUser.id);
                 itemIds = (itemRows || []).map(i => i.item_id).filter(Boolean);
 
                 if (itemIds.length > 0) {
-                    topItems = itemIds.slice(0, 50);
-                    const visitsPromises = topItems.map(id =>
+                    topItemIds = itemIds.slice(0, 50);
+                    const visitsPromises = topItemIds.map(id =>
                         fetch(`https://api.mercadolibre.com/items/${id}/visits/time_window?last=${days}&unit=day`, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         })
@@ -9321,21 +9332,146 @@ app.get('/api/ml/dashboard', async (req, res) => {
         }
 
         const orderList = orders || [];
-        const totalOrders = orderList.length;
-        const paidOrders = orderList.filter(o => o.status === 'paid').length;
-        const readyToShipOrders = orderList.filter(o => o.shipping_status === 'ready_to_ship').length;
-        const awaitingShippingOrders = orderList.filter(o => o.status === 'paid' && !o.shipping_status).length;
-        const shippedOrders = orderList.filter(o => o.status === 'shipped' || o.shipping_status === 'shipped').length;
-        const deliveredOrders = orderList.filter(o => o.status === 'delivered' || o.shipping_status === 'delivered').length;
-        const cancelledOrders = orderList.filter(o => o.status === 'cancelled').length;
+        const validOrders = orderList.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
+        const cancelledOrdersList = orderList.filter(o => o.status === 'cancelled' || o.payment_status === 'cancelled');
 
-        const revenue = orderList
-            .filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled')
-            .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+        const totalOrders = validOrders.length;
+        const paidOrders = validOrders.filter(o => o.status === 'paid').length;
+        const readyToShipOrders = validOrders.filter(o => o.shipping_status === 'ready_to_ship').length;
+        const awaitingShippingOrders = validOrders.filter(o => o.status === 'paid' && !o.shipping_status).length;
+        const shippedOrders = validOrders.filter(o => o.status === 'shipped' || o.shipping_status === 'shipped').length;
+        const deliveredOrders = validOrders.filter(o => o.status === 'delivered' || o.shipping_status === 'delivered').length;
+        
+        const cancelledOrders = cancelledOrdersList.length;
+        const cancelledValue = cancelledOrdersList.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+        const revenue = validOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+        // 1.1) Unidades vendidas & Desempenho por anúncio
+        let unitsSold = 0;
+        const itemPerformance = {}; // item_id -> { item_id, units, revenue }
+
+        try {
+            const { data: orderItems } = await client.from('ml_order_items')
+                .select('item_id, quantity, unit_price')
+                .eq('user_id', authUser.id)
+                .in('ml_order_id', orderList.map(o => o.ml_order_id).filter(Boolean));
+
+            if (orderItems && orderItems.length > 0) {
+                orderItems.forEach(it => {
+                    const qty = Number(it.quantity) || 1;
+                    const price = Number(it.unit_price) || 0;
+                    unitsSold += qty;
+                    const id = it.item_id;
+                    if (id) {
+                        if (!itemPerformance[id]) itemPerformance[id] = { item_id: id, units: 0, revenue: 0 };
+                        itemPerformance[id].units += qty;
+                        itemPerformance[id].revenue += price * qty;
+                    }
+                });
+            }
+        } catch (oiErr) {
+            // Se tabela não existir, ignora
+        }
+
+        // Fallback: Se unitsSold for 0 mas houver validOrders, extrair de validOrders
+        if (unitsSold === 0 && validOrders.length > 0) {
+            validOrders.forEach(o => {
+                const rawItems = o.raw?.order_items;
+                if (Array.isArray(rawItems) && rawItems.length > 0) {
+                    rawItems.forEach(it => {
+                        const qty = Number(it.quantity) || 1;
+                        const price = Number(it.unit_price) || 0;
+                        unitsSold += qty;
+                        const id = it.item?.id || o.item_id;
+                        if (id) {
+                            if (!itemPerformance[id]) itemPerformance[id] = { item_id: id, units: 0, revenue: 0 };
+                            itemPerformance[id].units += qty;
+                            itemPerformance[id].revenue += (price > 0 ? price * qty : Number(o.total_amount || 0));
+                        }
+                    });
+                } else {
+                    const qty = Number(o.quantity) || 1;
+                    const price = Number(o.unit_price) || (o.total_amount ? Number(o.total_amount) / qty : 0);
+                    unitsSold += qty;
+                    const id = o.item_id;
+                    if (id) {
+                        if (!itemPerformance[id]) itemPerformance[id] = { item_id: id, units: 0, revenue: 0 };
+                        itemPerformance[id].units += qty;
+                        itemPerformance[id].revenue += Number(o.total_amount || (price * qty));
+                    }
+                }
+            });
+        }
+
+        const avgPricePerUnit = unitsSold > 0 ? (revenue / unitsSold) : 0;
+
+        // 1.2) Tarifas ML estimadas e Receita Líquida
+        const estimatedFees = revenue * 0.14;
+        const netRevenue = revenue - estimatedFees - totalAdsCost;
+
+        // 1.3) Mapa de Calor (vendas por dia da semana [0..6] e hora [0..23] - Brasília UTC-3)
+        const heatmapObj = {};
+        validOrders.forEach(o => {
+            if (o.date_created) {
+                const date = new Date(o.date_created);
+                const brasiliaDate = new Date(date.getTime() - 3 * 60 * 60 * 1000);
+                const day = brasiliaDate.getUTCDay(); // 0=Dom, 1=Seg...
+                const hour = brasiliaDate.getUTCHours(); // 0..23
+                const key = `${day}-${hour}`;
+                heatmapObj[key] = (heatmapObj[key] || 0) + 1;
+            }
+        });
+        const heatmapArray = [];
+        for (let d = 0; d < 7; d++) {
+            for (let h = 0; h < 24; h++) {
+                const count = heatmapObj[`${d}-${h}`] || 0;
+                heatmapArray.push({ day: d, hour: h, count });
+            }
+        }
+
+        // 1.4) Top Anúncios por Vendas
+        const topItemsSorted = Object.values(itemPerformance)
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 5);
+
+        for (const item of topItemsSorted) {
+            try {
+                const { data: itemData } = await client.from('ml_items')
+                    .select('title, thumbnail, item_id')
+                    .eq('user_id', authUser.id)
+                    .eq('item_id', item.item_id)
+                    .maybeSingle();
+                item.title = itemData?.title || 'Anúncio ML';
+                item.thumbnail = itemData?.thumbnail || '';
+            } catch (e) {
+                item.title = 'Anúncio ML';
+                item.thumbnail = '';
+            }
+        }
+
+        // 1.5) Dados diários para o gráfico de linha Vendas Brutas
+        const dailyMap = {};
+        const startTs = new Date(fromDate).getTime();
+        const endTs = new Date(toDate).getTime();
+        for (let ts = startTs; ts <= endTs; ts += 86400000) {
+            const dStr = new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+            dailyMap[dStr] = 0;
+        }
+        validOrders.forEach(o => {
+            if (o.date_created) {
+                const dStr = new Date(o.date_created).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                dailyMap[dStr] = (dailyMap[dStr] || 0) + (Number(o.total_amount) || 0);
+            }
+        });
+        const dailySales = Object.entries(dailyMap).map(([date, rev]) => ({
+            date,
+            revenue: Number(rev.toFixed(2))
+        }));
 
         const conversionRate = totalVisits > 0 ? Number(((totalOrders / totalVisits) * 100).toFixed(2)) : 0;
 
-        // Calcular período anterior (mesma duração)
+        // Período anterior para variações
         const currentStart = new Date(fromDate);
         const currentEnd = new Date(toDate);
         const durationMs = Math.max(86400000, currentEnd.getTime() - currentStart.getTime());
@@ -9344,11 +9480,13 @@ app.get('/api/ml/dashboard', async (req, res) => {
 
         let prevRevenue = 0;
         let prevOrdersCount = 0;
+        let prevUnitsSold = 0;
+        let prevCancelledCount = 0;
+        let prevCancelledValue = 0;
         try {
             const { data: prevOrders } = await client.from('ml_orders')
-                .select('total_amount, status, payment_status')
+                .select('total_amount, status, payment_status, quantity, raw')
                 .eq('user_id', authUser.id)
-                .neq('payment_status', 'cancelled')
                 .gte('date_created', prevStart.toISOString())
                 .lte('date_created', prevEnd.toISOString());
 
@@ -9356,32 +9494,41 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 const validPrev = prevOrders.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
                 prevRevenue = validPrev.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
                 prevOrdersCount = validPrev.length;
+                validPrev.forEach(o => {
+                    const rawItems = o.raw?.order_items;
+                    if (Array.isArray(rawItems) && rawItems.length > 0) {
+                        rawItems.forEach(it => { prevUnitsSold += (Number(it.quantity) || 1); });
+                    } else {
+                        prevUnitsSold += (Number(o.quantity) || 1);
+                    }
+                });
+
+                const cancelledPrev = prevOrders.filter(o => o.status === 'cancelled' || o.payment_status === 'cancelled');
+                prevCancelledCount = cancelledPrev.length;
+                prevCancelledValue = cancelledPrev.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
             }
         } catch (prevErr) {
             console.warn('[ML Dashboard] Erro ao buscar pedidos do período anterior:', prevErr.message);
         }
 
-        // Calcular variações (safe divide)
-        const varRevenue = prevRevenue > 0 
-            ? ((revenue - prevRevenue) / prevRevenue * 100) 
-            : (revenue > 0 ? 100 : 0);
-
-        const varOrders = prevOrdersCount > 0 
-            ? ((totalOrders - prevOrdersCount) / prevOrdersCount * 100) 
-            : (totalOrders > 0 ? 100 : 0);
-
+        const varRevenue = prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue * 100) : (revenue > 0 ? 100 : 0);
+        const varOrders = prevOrdersCount > 0 ? ((totalOrders - prevOrdersCount) / prevOrdersCount * 100) : (totalOrders > 0 ? 100 : 0);
         const prevTicket = prevOrdersCount > 0 ? (prevRevenue / prevOrdersCount) : 0;
         const currentTicket = totalOrders > 0 ? (revenue / totalOrders) : 0;
-        const varTicket = prevTicket > 0 
-            ? ((currentTicket - prevTicket) / prevTicket * 100) 
-            : (currentTicket > 0 ? 100 : 0);
+        const varTicket = prevTicket > 0 ? ((currentTicket - prevTicket) / prevTicket * 100) : (currentTicket > 0 ? 100 : 0);
 
-        // Buscar visitas reais do período anterior via API ML
+        const varUnits = prevUnitsSold > 0 ? ((unitsSold - prevUnitsSold) / prevUnitsSold * 100) : (unitsSold > 0 ? 100 : 0);
+        const prevAvgPrice = prevUnitsSold > 0 ? (prevRevenue / prevUnitsSold) : 0;
+        const varAvgPrice = prevAvgPrice > 0 ? ((avgPricePerUnit - prevAvgPrice) / prevAvgPrice * 100) : (avgPricePerUnit > 0 ? 100 : 0);
+
+        const varCancelled = prevCancelledCount > 0 ? ((cancelledOrders - prevCancelledCount) / prevCancelledCount * 100) : (cancelledOrders > 0 ? 100 : 0);
+        const varCancelledVal = prevCancelledValue > 0 ? ((cancelledValue - prevCancelledValue) / prevCancelledValue * 100) : (cancelledValue > 0 ? 100 : 0);
+
         let prevVisits = 0;
         try {
-            if (topItems.length > 0 && days > 0 && token) {
+            if (topItemIds.length > 0 && days > 0 && token) {
                 const doubleDays = days * 2;
-                const prevVisitsPromises = topItems.map(id =>
+                const prevVisitsPromises = topItemIds.map(id =>
                     fetch(`https://api.mercadolibre.com/items/${id}/visits/time_window?last=${doubleDays}&unit=day`, {
                         headers: { 'Authorization': `Bearer ${token}` }
                     })
@@ -9396,9 +9543,10 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 prevVisits = Math.max(0, totalDoublePeriod - totalVisits);
             }
         } catch (prevVisitsErr) {
-            console.warn('[ML Dashboard] Erro ao buscar visitas do período anterior:', prevVisitsErr.message);
+            console.warn('[ML Dashboard] Erro visitas anterior:', prevVisitsErr.message);
         }
 
+        const varVisits = prevVisits > 0 ? ((totalVisits - prevVisits) / prevVisits * 100) : (totalVisits > 0 ? 100 : 0);
         const prevConversionRate = prevVisits > 0 ? Number(((prevOrdersCount / prevVisits) * 100).toFixed(2)) : 0;
         const varConversion = prevConversionRate > 0 ? Number((conversionRate - prevConversionRate).toFixed(1)) : 0;
 
@@ -9407,16 +9555,20 @@ app.get('/api/ml/dashboard', async (req, res) => {
             orders: Number(varOrders.toFixed(1)),
             ticket: Number(varTicket.toFixed(1)),
             conversion: Number(varConversion.toFixed(1)),
+            units: Number(varUnits.toFixed(1)),
+            avg_price: Number(varAvgPrice.toFixed(1)),
+            cancelled: Number(varCancelled.toFixed(1)),
+            cancelled_val: Number(varCancelledVal.toFixed(1)),
+            visits: Number(varVisits.toFixed(1)),
             prev_revenue: Number(prevRevenue.toFixed(2)),
             prev_orders: prevOrdersCount,
             prev_visits: prevVisits || 0
         };
 
-        // Totais de vendas: hoje, esta semana, este mês
-        const validOrders = orderList.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
-        const salesToday = validOrders.filter(o => o.date_created && o.date_created >= startOfToday);
-        const salesWeek = validOrders.filter(o => o.date_created && o.date_created >= startOf7d);
-        const salesMonth = validOrders.filter(o => o.date_created && o.date_created >= startOfMonth);
+        const validOrdersList = orderList.filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
+        const salesToday = validOrdersList.filter(o => o.date_created && o.date_created >= startOfToday);
+        const salesWeek = validOrdersList.filter(o => o.date_created && o.date_created >= startOf7d);
+        const salesMonth = validOrdersList.filter(o => o.date_created && o.date_created >= startOfMonth);
 
         const sales_totals = {
             today: {
@@ -9461,8 +9613,17 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 shipped: shippedOrders,
                 delivered: deliveredOrders,
                 cancelled: cancelledOrders,
+                cancelled_value: Number(cancelledValue.toFixed(2)),
                 revenue: Number(revenue.toFixed(2))
             },
+            units_sold: unitsSold,
+            avg_price_per_unit: Number(avgPricePerUnit.toFixed(2)),
+            estimated_fees: Number(estimatedFees.toFixed(2)),
+            net_revenue: Number(netRevenue.toFixed(2)),
+            total_ads_cost: Number(totalAdsCost.toFixed(2)),
+            heatmap: heatmapArray,
+            top_items: topItemsSorted,
+            daily_sales: dailySales,
             sales_totals,
             visits: totalVisits,
             conversion_rate: conversionRate,
