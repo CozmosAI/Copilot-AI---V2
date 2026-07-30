@@ -614,12 +614,7 @@ export function MercadoLivreDashboard() {
     }
   };
 
-  // Auto-gerar relatório na primeira visita à tab se houver campanhas
-  useEffect(() => {
-    if (activeTab === 'publicidade' && !aiReport && !isGeneratingReport && campaigns.length > 0) {
-      generateAiReport();
-    }
-  }, [activeTab, campaigns]);
+  // Relatório gerado sob demanda via clique no botão "Gerar Relatório com IA"
 
   const totalAdCost = useMemo(() => campaigns.reduce((s, c) => s + Number(c.cost || 0), 0), [campaigns]);
   const totalAdSales = useMemo(() => campaigns.reduce((s, c) => s + Number(c.total_amount || 0), 0), [campaigns]);
@@ -1612,7 +1607,7 @@ export function MercadoLivreDashboard() {
                     />
                     <Bar yAxisId="left" dataKey="Investimento" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Investimento" />
                     <Bar yAxisId="left" dataKey="Vendas" fill="#10B981" radius={[4, 4, 0, 0]} name="Vendas Atribuídas" />
-                    <Line yAxisId="right" type="monotone" dataKey="ROAS" stroke="#EF4444" strokeWidth={3} dot={{ r: 4 }} name="ROAS (x)" />
+                    <Line yAxisId="right" type="linear" dataKey="ROAS" stroke="#EF4444" strokeWidth={3} dot={{ r: 5 }} name="ROAS (x)" />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>

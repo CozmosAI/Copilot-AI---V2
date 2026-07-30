@@ -10021,7 +10021,11 @@ app.post('/api/ml/advertising/ai-report', async (req, res) => {
         res.json({ ok: true, report, generated_at: new Date().toISOString() });
     } catch (err) {
         console.error('[ML AI Report] Erro:', err);
-        res.status(500).json({ error: err.message });
+        const errMsg = err.message || '';
+        if (err.status === 429 || errMsg.includes('429') || errMsg.includes('Quota exceeded') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+            return res.status(429).json({ error: 'Limite de requisições do Gemini atingido (cota temporária). Por favor, aguarde cerca de 1 minuto e clique novamente em Gerar Relatório.' });
+        }
+        res.status(500).json({ error: errMsg });
     }
 });
 
