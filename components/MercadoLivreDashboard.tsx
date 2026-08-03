@@ -867,6 +867,12 @@ export function MercadoLivreDashboard() {
         totalAdsCost: 0,
         cancelled: 0,
         cancelledValue: 0,
+        tacos: 0,
+        avgRating: 0,
+        phoneViews: 0,
+        organicUnits: 0,
+        organicAmount: 0,
+        reviews: [],
         prevRevenue: 0,
         prevOrders: 0,
         varRevenue: 0,
@@ -1323,7 +1329,7 @@ export function MercadoLivreDashboard() {
                 <Zap size={14} className="text-amber-500" />
               </div>
               <div className="text-xl font-bold text-slate-900">
-                {metrics.tacos.toFixed(1)}%
+                {(metrics.tacos || 0).toFixed(1)}%
               </div>
               <div className="text-[11px] text-slate-400 font-normal">
                 Gasto Ads / Faturamento Total
@@ -1337,8 +1343,8 @@ export function MercadoLivreDashboard() {
                 <Star size={14} className="text-amber-400 fill-amber-400" />
               </div>
               <div className="text-xl font-bold text-slate-900 flex items-center gap-1">
-                <span>{metrics.avgRating > 0 ? metrics.avgRating.toFixed(1) : '—'}</span>
-                {metrics.avgRating > 0 && <span className="text-xs text-amber-500 font-normal">★</span>}
+                <span>{(metrics.avgRating || 0) > 0 ? (metrics.avgRating || 0).toFixed(1) : '—'}</span>
+                {(metrics.avgRating || 0) > 0 && <span className="text-xs text-amber-500 font-normal">★</span>}
               </div>
               <div className="text-[11px] text-slate-400 font-normal">
                 Média dos top anúncios
@@ -1352,7 +1358,7 @@ export function MercadoLivreDashboard() {
                 <Phone size={14} className="text-blue-500" />
               </div>
               <div className="text-xl font-bold text-slate-900">
-                {metrics.phoneViews.toLocaleString('pt-BR')}
+                {(metrics.phoneViews || 0).toLocaleString('pt-BR')}
               </div>
               <div className="text-[11px] text-slate-400 font-normal">
                 Visualizações de contato
