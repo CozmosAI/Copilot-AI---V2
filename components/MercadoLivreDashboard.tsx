@@ -59,7 +59,9 @@ import {
   Sliders,
   ArrowDownRight,
   Download,
-  CheckCircle2
+  CheckCircle2,
+  Phone,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -290,9 +292,85 @@ export function MercadoLivreDashboard() {
     status: 'active'
   });
 
+  // Product Preview Drawer State
+  const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
+  const [selectedPreviewItemId, setSelectedPreviewItemId] = useState<string | null>(null);
+  const [itemPreviewData, setItemPreviewData] = useState<any | null>(null);
+  const [itemPreviewLoading, setItemPreviewLoading] = useState(false);
+  const [activePreviewImage, setActivePreviewImage] = useState<string | null>(null);
+
+  // Google Sheets Export Modal State
+  const [modalExportOpen, setModalExportOpen] = useState(false);
+  const [exportSpreadsheetId, setExportSpreadsheetId] = useState('');
+  const [exportSheetName, setExportSheetName] = useState('AXIS_ML');
+  const [exportDataType, setExportDataType] = useState<'orders' | 'items' | 'ads' | 'dashboard'>('orders');
+  const [exportingSheets, setExportingSheets] = useState(false);
+
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
     setToastMessage({ type, text });
     setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  // Abrir preview de produto
+  const handleOpenItemPreview = async (itemId: string) => {
+    if (!itemId) return;
+    setSelectedPreviewItemId(itemId);
+    setPreviewDrawerOpen(true);
+    setItemPreviewLoading(true);
+    setItemPreviewData(null);
+    setActivePreviewImage(null);
+    try {
+      const res = await apiFetch(`/api/ml/items/${itemId}/preview`);
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
+        setItemPreviewData(data);
+        if (data.pictures && data.pictures.length > 0) {
+          setActivePreviewImage(data.pictures[0].url || data.thumbnail);
+        } else {
+          setActivePreviewImage(data.thumbnail);
+        }
+      } else {
+        const err = await safeJsonResponse(res);
+        showToast('error', err.error || 'Erro ao carregar preview do anúncio');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro de conexão ao carregar preview');
+    } finally {
+      setItemPreviewLoading(false);
+    }
+  };
+
+  // Exportar dados para Google Sheets
+  const handleExportSheets = async () => {
+    if (!exportSpreadsheetId) {
+      showToast('error', 'Por favor, informe a URL ou ID da planilha do Google Sheets.');
+      return;
+    }
+    setExportingSheets(true);
+    try {
+      const sheetsToken = localStorage.getItem('google_sheets_token');
+      const res = await apiFetch('/api/google-sheets/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          spreadsheet_id: exportSpreadsheetId,
+          sheet_name: exportSheetName || 'AXIS_ML',
+          data_type: exportDataType,
+          sheets_token: sheetsToken
+        })
+      });
+      const data = await safeJsonResponse(res);
+      if (data.ok) {
+        showToast('success', data.message || `${data.rows_written} linhas exportadas com sucesso!`);
+        setModalExportOpen(false);
+      } else {
+        showToast('error', data.error || 'Erro ao exportar para o Google Sheets');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro de conexão');
+    } finally {
+      setExportingSheets(false);
+    }
   };
 
   // Carregar status inicial da conexão
@@ -834,6 +912,12 @@ export function MercadoLivreDashboard() {
       totalAdsCost: dashboardData.total_ads_cost || 0,
       cancelled: canc,
       cancelledValue: cancVal,
+      tacos: typeof dashboardData.tacos === 'number' ? dashboardData.tacos : (rev > 0 ? ((dashboardData.total_ads_cost || 0) / rev * 100) : 0),
+      avgRating: dashboardData.avg_rating || 0,
+      phoneViews: dashboardData.phone_views || 0,
+      organicUnits: dashboardData.organic_units_quantity || 0,
+      organicAmount: dashboardData.organic_units_amount || 0,
+      reviews: dashboardData.reviews || [],
       prevRevenue: vars?.prev_revenue || 0,
       prevOrders: vars?.prev_orders || 0,
       varRevenue: typeof vars?.revenue === 'number' ? vars.revenue : 0,
@@ -1028,6 +1112,16 @@ export function MercadoLivreDashboard() {
             <RefreshCw size={14} className={isSyncingAll ? 'animate-spin text-slate-900' : 'text-slate-500'} />
             <span>Sincronizar</span>
           </button>
+
+          {/* Export to Google Sheets Button */}
+          <button
+            type="button"
+            onClick={() => setModalExportOpen(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs text-xs font-bold px-3.5 py-2 rounded-full flex items-center gap-2 transition-all cursor-pointer"
+          >
+            <FileSpreadsheet size={14} />
+            <span>Exportar para Sheets</span>
+          </button>
         </div>
       </div>
 
@@ -1219,6 +1313,49 @@ export function MercadoLivreDashboard() {
               </div>
               <div className="text-[11px] text-slate-400 font-normal">
                 ~14% comissão e envio
+              </div>
+            </div>
+
+            {/* Card 11: TACOS (Total ACOS) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>TACOS (Total ACOS)</span>
+                <Zap size={14} className="text-amber-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
+                {metrics.tacos.toFixed(1)}%
+              </div>
+              <div className="text-[11px] text-slate-400 font-normal">
+                Gasto Ads / Faturamento Total
+              </div>
+            </div>
+
+            {/* Card 12: AVALIAÇÃO MÉDIA */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Avaliação Média</span>
+                <Star size={14} className="text-amber-400 fill-amber-400" />
+              </div>
+              <div className="text-xl font-bold text-slate-900 flex items-center gap-1">
+                <span>{metrics.avgRating > 0 ? metrics.avgRating.toFixed(1) : '—'}</span>
+                {metrics.avgRating > 0 && <span className="text-xs text-amber-500 font-normal">★</span>}
+              </div>
+              <div className="text-[11px] text-slate-400 font-normal">
+                Média dos top anúncios
+              </div>
+            </div>
+
+            {/* Card 13: CLIQUES NO TELEFONE */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-1 hover:border-slate-300 transition-colors">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center justify-between">
+                <span>Cliques Telefone</span>
+                <Phone size={14} className="text-blue-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
+                {metrics.phoneViews.toLocaleString('pt-BR')}
+              </div>
+              <div className="text-[11px] text-slate-400 font-normal">
+                Visualizações de contato
               </div>
             </div>
 
@@ -2011,7 +2148,18 @@ export function MercadoLivreDashboard() {
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
                     <span>Estoque: <strong className="text-slate-800">{item.available_quantity || 0}</strong></span>
-                    <span>Tipo: <strong className="text-slate-800 uppercase">{item.listing_type_id || 'Clássico'}</strong></span>
+                    <div className="flex items-center gap-2">
+                      <span>Tipo: <strong className="text-slate-800 uppercase">{item.listing_type_id || 'Clássico'}</strong></span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenItemPreview(item.item_id || item.id)}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer ml-1"
+                        title="Ver Preview Completo"
+                      >
+                        <Eye size={12} />
+                        <span>Preview</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))
@@ -2734,6 +2882,289 @@ export function MercadoLivreDashboard() {
               <span className="text-xs font-bold text-slate-500 uppercase">Tarifas Mercado Livre</span>
               <p className="text-3xl font-extrabold text-slate-900">{formatCurrency(metrics.revenue * 0.11)}</p>
               <p className="text-xs text-slate-500">Comissões de venda e frete grátis</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DRAWER / SHEET PREVIEW DE PRODUTO */}
+      {previewDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-xs transition-opacity">
+          <div className="bg-white w-full max-w-[480px] h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white shrink-0">
+              <div className="flex items-center gap-2">
+                <Package size={18} className="text-[#FFE600]" />
+                <h3 className="font-bold text-sm">Preview do Anúncio</h3>
+              </div>
+              <button
+                onClick={() => setPreviewDrawerOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-6">
+              {itemPreviewLoading ? (
+                <div className="py-20 text-center text-slate-400 space-y-3">
+                  <RefreshCw size={28} className="animate-spin mx-auto text-slate-600" />
+                  <p className="text-xs font-semibold">Carregando detalhes do anúncio no Mercado Livre...</p>
+                </div>
+              ) : !itemPreviewData ? (
+                <div className="py-12 text-center text-slate-500 italic text-xs">
+                  Não foi possível carregar os dados deste anúncio.
+                </div>
+              ) : (
+                <>
+                  {/* Galeria de Fotos */}
+                  <div className="space-y-3">
+                    <div className="w-full h-64 bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden flex items-center justify-center p-2">
+                      <img
+                        src={activePreviewImage || itemPreviewData.thumbnail}
+                        alt={itemPreviewData.item?.title || 'Produto'}
+                        className="max-h-full max-w-full object-contain rounded-lg"
+                      />
+                    </div>
+
+                    {itemPreviewData.pictures && itemPreviewData.pictures.length > 1 && (
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {itemPreviewData.pictures.map((pic: any, idx: number) => (
+                          <button
+                            key={pic.id || idx}
+                            onClick={() => setActivePreviewImage(pic.url)}
+                            className={`w-14 h-14 rounded-lg border overflow-hidden shrink-0 transition-all cursor-pointer ${
+                              activePreviewImage === pic.url ? 'border-slate-900 ring-2 ring-slate-900/20' : 'border-slate-200 opacity-70 hover:opacity-100'
+                            }`}
+                          >
+                            <img src={pic.url || pic.secure_url} alt="" className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Título + Preço + Status */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        itemPreviewData.item?.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}>
+                        {itemPreviewData.item?.status || 'Ativo'}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase bg-slate-100 px-2 py-0.5 rounded">
+                        {itemPreviewData.item?.listing_type_id || 'Clássico'}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 ml-auto">
+                        #{itemPreviewData.item?.id}
+                      </span>
+                    </div>
+
+                    <h2 className="text-base font-bold text-slate-900 leading-snug">
+                      {itemPreviewData.item?.title}
+                    </h2>
+
+                    <div className="flex items-baseline justify-between pt-1">
+                      <span className="text-2xl font-black text-slate-900">
+                        {formatCurrency(itemPreviewData.item?.price || 0)}
+                      </span>
+                      <span className="text-xs text-slate-500 font-semibold">
+                        Estoque: <strong className="text-slate-900">{itemPreviewData.item?.available_quantity || 0}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Avaliações / Reviews */}
+                  {itemPreviewData.reviews && (
+                    <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Star size={16} className="text-amber-500 fill-amber-500" />
+                          <span className="text-sm font-black text-slate-900">
+                            {itemPreviewData.reviews.rating_average ? Number(itemPreviewData.reviews.rating_average).toFixed(1) : '—'}
+                          </span>
+                          <span className="text-xs text-slate-500 font-medium">
+                            ({itemPreviewData.reviews.paging?.total || 0} avaliações)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visitas nos últimos 30 dias */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Eye size={16} className="text-sky-500" />
+                      <span className="text-xs font-bold text-slate-700">Visitas (últimos 30 dias)</span>
+                    </div>
+                    <span className="text-sm font-extrabold text-slate-900">
+                      {itemPreviewData.visits?.total_visits ? itemPreviewData.visits.total_visits.toLocaleString('pt-BR') : '0'}
+                    </span>
+                  </div>
+
+                  {/* Variações */}
+                  {itemPreviewData.variations && itemPreviewData.variations.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Variações ({itemPreviewData.variations.length})</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        {itemPreviewData.variations.map((v: any, idx: number) => (
+                          <div key={v.id || idx} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-medium space-y-0.5">
+                            <p className="text-slate-800 font-bold">{v.attribute_combinations?.[0]?.value_name || `Variação ${idx+1}`}</p>
+                            <p className="text-slate-500 text-[10px]">Preço: {formatCurrency(v.price)} | Qtd: {v.available_quantity}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Atributos / Ficha Técnica */}
+                  {itemPreviewData.attributes && itemPreviewData.attributes.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Ficha Técnica</h4>
+                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 text-xs">
+                        {itemPreviewData.attributes.slice(0, 10).map((attr: any, idx: number) => (
+                          <div key={attr.id || idx} className="flex p-2.5 bg-white hover:bg-slate-50">
+                            <span className="w-1/2 font-semibold text-slate-500">{attr.name}</span>
+                            <span className="w-1/2 font-medium text-slate-900">{attr.value_name || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Descrição em Texto */}
+                  {itemPreviewData.description && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Descrição Completa</h4>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                        {itemPreviewData.description}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Link Ver no ML */}
+                  {itemPreviewData.preview_url && (
+                    <a
+                      href={itemPreviewData.preview_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                    >
+                      <span>Ver Anúncio no Mercado Livre</span>
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EXPORTAR PARA GOOGLE SHEETS */}
+      {modalExportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <FileSpreadsheet size={18} className="text-emerald-600" />
+                Exportar para Google Sheets
+              </h3>
+              <button
+                onClick={() => setModalExportOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  ID ou Link da Planilha do Google
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms ou URL completa"
+                  value={exportSpreadsheetId}
+                  onChange={(e) => setExportSpreadsheetId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-emerald-600 focus:bg-white outline-none transition-all"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Cole a URL completa da sua planilha ou o ID localizado na URL.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Nome da Aba (Guia)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Página1 ou ML_Vendas"
+                    value={exportSheetName}
+                    onChange={(e) => setExportSheetName(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-emerald-600 focus:bg-white outline-none transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Tipo de Dado
+                  </label>
+                  <select
+                    value={exportDataType}
+                    onChange={(e) => setExportDataType(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold focus:ring-2 focus:ring-emerald-600 outline-none transition-all"
+                  >
+                    <option value="orders">Pedidos / Vendas</option>
+                    <option value="items">Anúncios (Itens)</option>
+                    <option value="ads">Product Ads</option>
+                    <option value="dashboard">Resumo / Dashboard</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3 text-xs text-emerald-800 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <CheckCircle size={14} className="text-emerald-600" /> Exportação Direta via API
+                </p>
+                <p className="text-[11px] text-emerald-700 leading-normal">
+                  Os dados selecionados serão escritos diretamente na planilha do Google Sheets.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalExportOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportSheets}
+                  disabled={exportingSheets}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {exportingSheets ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Exportando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet size={14} />
+                      <span>Exportar Dados</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

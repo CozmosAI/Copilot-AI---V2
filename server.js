@@ -9682,6 +9682,72 @@ app.get('/api/ml/dashboard', async (req, res) => {
         const totalMessages = messageList.length;
         const unreadMessages = messageList.filter(m => String(m.status).toLowerCase() === 'unread').length;
 
+        // 1.6) Reviews e Avaliações Médias dos top itens
+        let reviews = [];
+        let avgRating = 0;
+        if (topItemIds.length > 0 && token) {
+            try {
+                const reviewsTopIds = topItemIds.slice(0, 5);
+                const reviewsPromises = reviewsTopIds.map(id =>
+                    fetch(`https://api.mercadolibre.com/reviews/item/${id}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null)
+                );
+                const reviewsData = await Promise.all(reviewsPromises);
+                reviews = reviewsData.filter(Boolean).map(r => ({
+                    item_id: r.item_id,
+                    rating_average: r.rating_average,
+                    total_reviews: r.paging?.total || 0,
+                    rating_levels: r.rating_levels
+                }));
+                if (reviews.length > 0) {
+                    avgRating = reviews.reduce((sum, r) => sum + (r.rating_average || 0), 0) / reviews.length;
+                }
+            } catch (revErr) {
+                console.warn('[ML Dashboard] Erro ao buscar reviews:', revErr.message);
+            }
+        }
+
+        // 1.7) TACOS (Total ACOS = gasto ads / faturamento total * 100)
+        const tacos = revenue > 0 ? (totalAdsCost / revenue * 100) : 0;
+
+        // 1.8) Phone Views (cliques no telefone dos top itens)
+        let totalPhoneViews = 0;
+        if (topItemIds.length > 0 && token) {
+            try {
+                const phoneViewsPromises = topItemIds.slice(0, 10).map(id =>
+                    fetch(`https://api.mercadolibre.com/items/${id}/contacts/phone_views/time_window?last=${days}&unit=day`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null)
+                );
+                const phoneViewsData = await Promise.all(phoneViewsPromises);
+                totalPhoneViews = phoneViewsData.filter(Boolean).reduce((sum, data) => {
+                    return sum + (data.total || (data.results ? data.results.reduce((s, r) => s + (r.total || 0), 0) : 0));
+                }, 0);
+            } catch (pvErr) {
+                console.warn('[ML Dashboard] Erro ao buscar phone views:', pvErr.message);
+            }
+        }
+
+        // 1.9) Unidades Orgânicas e Faturamento Orgânico de ad_campaigns
+        let organicUnits = 0;
+        let organicAmount = 0;
+        try {
+            const { data: campaignsData } = await client.from('ml_ad_campaigns')
+                .select('organic_units_quantity, organic_units_amount')
+                .eq('user_id', authUser.id);
+            if (campaignsData) {
+                organicUnits = campaignsData.reduce((sum, c) => sum + Number(c.organic_units_quantity || 0), 0);
+                organicAmount = campaignsData.reduce((sum, c) => sum + Number(c.organic_units_amount || 0), 0);
+            }
+        } catch (orgErr) {
+            console.warn('[ML Dashboard] Erro ao buscar métricas orgânicas:', orgErr.message);
+        }
+
         return res.json({
             orders: {
                 total: totalOrders,
@@ -9721,6 +9787,12 @@ app.get('/api/ml/dashboard', async (req, res) => {
                 unread: unreadMessages
             },
             reputation,
+            avg_rating: Number(avgRating.toFixed(1)),
+            reviews: reviews,
+            tacos: Number(tacos.toFixed(1)),
+            phone_views: totalPhoneViews,
+            organic_units_quantity: organicUnits,
+            organic_units_amount: Number(organicAmount.toFixed(2)),
             period: {
                 from: fromDate.split('T')[0],
                 to: toDate.split('T')[0]
@@ -9728,6 +9800,204 @@ app.get('/api/ml/dashboard', async (req, res) => {
         });
     } catch (err) {
         console.error('[ML Dashboard Exception]:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// TAREFA 3: GET & POST /api/ml/items/:itemId/preview (Preview de produto ML)
+app.get('/api/ml/items/:itemId/preview', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        const { itemId } = req.params;
+        const token = await getValidMlToken(authUser.id);
+        
+        // Buscar item completo
+        const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!itemRes.ok) {
+            return res.status(itemRes.status).json({ error: `Item ${itemId} não encontrado no Mercado Livre.` });
+        }
+        const itemData = await itemRes.json();
+        
+        // Buscar descrição
+        const descRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/description`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const descData = descRes.ok ? await descRes.json() : { plain_text: '' };
+        
+        // Buscar reviews
+        const reviewRes = await fetch(`https://api.mercadolibre.com/reviews/item/${itemId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const reviewData = reviewRes.ok ? await reviewRes.json() : null;
+        
+        // Buscar visitas
+        const visitsRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/visits/time_window?last=30&unit=day`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const visitsData = visitsRes.ok ? await visitsRes.json() : { total_visits: 0, results: [] };
+        
+        return res.json({
+            item: itemData,
+            description: descData.plain_text || '',
+            reviews: reviewData,
+            visits: visitsData,
+            preview_url: itemData.permalink,
+            thumbnail: itemData.thumbnail,
+            pictures: itemData.pictures || [],
+            variations: itemData.variations || [],
+            attributes: itemData.attributes || [],
+            shipping: itemData.shipping || {},
+            seller_address: itemData.seller_address || {}
+        });
+    } catch (err) {
+        console.error('[ML Item Preview] Erro:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/ml/items/:itemId/preview', (req, res) => {
+    return req.app._router.handle(Object.assign(req, { method: 'GET' }), res);
+});
+
+// TAREFA 5: POST /api/google-sheets/export
+app.post('/api/google-sheets/export', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        let { spreadsheet_id, sheet_name, data_type, sheets_token } = req.body;
+        if (!spreadsheet_id) {
+            return res.status(400).json({ error: 'Informe o ID ou URL da planilha do Google Sheets.' });
+        }
+
+        // Se for URL completa, extrair ID
+        if (spreadsheet_id.includes('spreadsheets/d/')) {
+            const match = spreadsheet_id.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+            if (match && match[1]) {
+                spreadsheet_id = match[1];
+            }
+        }
+
+        sheet_name = sheet_name || 'Página1';
+        data_type = data_type || 'orders';
+        
+        // Pegar token do Google Sheets
+        const client = supabaseAdmin || supabase;
+        const { data: profile } = await client.from('profiles')
+            .select('google_sheets_token')
+            .eq('id', authUser.id)
+            .maybeSingle();
+        
+        const tokenToUse = sheets_token || profile?.google_sheets_token;
+        if (!tokenToUse) {
+            return res.status(400).json({ error: 'Google Sheets não conectado. Conecte sua conta do Google nas configurações ou forneça o token.' });
+        }
+        
+        let rows = [];
+        let headers = [];
+        
+        if (data_type === 'orders') {
+            headers = ['Data', 'Pedido ID', 'Comprador', 'Item', 'Qtd', 'Total', 'Status', 'Pagamento', 'Envio'];
+            const { data: orders } = await client.from('ml_orders')
+                .select('date_created, ml_order_id, buyer_nickname, item_title, quantity, total_amount, status, payment_status, shipping_status')
+                .eq('user_id', authUser.id)
+                .order('date_created', { ascending: false })
+                .limit(1000);
+            rows = (orders || []).map(o => [
+                o.date_created ? new Date(o.date_created).toLocaleString('pt-BR') : '',
+                o.ml_order_id || '',
+                o.buyer_nickname || '',
+                o.item_title || '',
+                o.quantity || 1,
+                `R$ ${Number(o.total_amount || 0).toFixed(2)}`,
+                o.status || '',
+                o.payment_status || '',
+                o.shipping_status || '—'
+            ]);
+        } else if (data_type === 'items') {
+            headers = ['Item ID', 'Título', 'Preço', 'Estoque', 'Vendidos', 'Status', 'Tipo', 'Patrocinado'];
+            const { data: items } = await client.from('ml_items')
+                .select('item_id, title, price, available_quantity, sold_quantity, status, listing_type_id, is_sponsored')
+                .eq('user_id', authUser.id);
+            rows = (items || []).map(i => [
+                i.item_id || '',
+                i.title || '',
+                `R$ ${Number(i.price || 0).toFixed(2)}`,
+                i.available_quantity || 0,
+                i.sold_quantity || 0,
+                i.status || '',
+                i.listing_type_id || '',
+                i.is_sponsored ? 'Sim' : 'Não'
+            ]);
+        } else if (data_type === 'ads') {
+            headers = ['Campanha', 'Status', 'Cliques', 'Impressões', 'CTR', 'CPC', 'Gasto', 'Vendas', 'ROAS', 'TACOS'];
+            const { data: campaigns } = await client.from('ml_ad_campaigns')
+                .select('name, status, clicks, prints, cost, total_amount, roas, tacos')
+                .eq('user_id', authUser.id);
+            rows = (campaigns || []).map(c => [
+                c.name || '',
+                c.status || '',
+                c.clicks || 0,
+                c.prints || 0,
+                c.prints > 0 ? `${((c.clicks || 0) / c.prints * 100).toFixed(2)}%` : '0%',
+                c.clicks > 0 ? `R$ ${(Number(c.cost || 0) / c.clicks).toFixed(2)}` : 'R$ 0',
+                `R$ ${Number(c.cost || 0).toFixed(2)}`,
+                `R$ ${Number(c.total_amount || 0).toFixed(2)}`,
+                c.roas ? `${Number(c.roas).toFixed(1)}x` : '—',
+                c.tacos ? `${Number(c.tacos).toFixed(1)}%` : '—'
+            ]);
+        } else if (data_type === 'dashboard') {
+            headers = ['Métrica', 'Valor'];
+            const { data: orders } = await client.from('ml_orders')
+                .select('total_amount')
+                .eq('user_id', authUser.id);
+            const { data: campaigns } = await client.from('ml_ad_campaigns')
+                .select('cost')
+                .eq('user_id', authUser.id);
+            const rev = (orders || []).reduce((s, o) => s + Number(o.total_amount || 0), 0);
+            const adsCost = (campaigns || []).reduce((s, c) => s + Number(c.cost || 0), 0);
+            const tacosVal = rev > 0 ? (adsCost / rev * 100).toFixed(1) : '0';
+            rows = [
+                ['Faturamento Total', `R$ ${rev.toFixed(2)}`],
+                ['Total de Pedidos', (orders || []).length],
+                ['Gasto em Ads', `R$ ${adsCost.toFixed(2)}`],
+                ['TACOS', `${tacosVal}%`],
+                ['Data do Relatório', new Date().toLocaleString('pt-BR')]
+            ];
+        }
+        
+        const values = [headers, ...rows];
+        
+        const writeRes = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(sheet_name)}!A1:Z10000?valueInputOption=RAW`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${tokenToUse}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ values })
+            }
+        );
+        
+        if (!writeRes.ok) {
+            const errText = await writeRes.text();
+            return res.status(writeRes.status).json({ error: `Erro ao escrever na planilha do Google Sheets: ${errText}` });
+        }
+        
+        const result = await writeRes.json();
+        return res.json({ 
+            ok: true, 
+            rows_written: rows.length,
+            updated_range: result.updatedRange,
+            message: `${rows.length} linhas exportadas para ${sheet_name}`
+        });
+    } catch (err) {
+        console.error('[Sheets Export] Erro:', err);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -9800,8 +10070,8 @@ app.post('/api/ml/advertising/sync', async (req, res) => {
         const dateFromStr = dateFrom.toISOString().split('T')[0];
         const dateToStr = dateTo.toISOString().split('T')[0];
         
-        // Lista CANÔNICA de métricas (testadas — todas válidas na API v2)
-        const metricsList = 'clicks,prints,ctr,cost,cpc,acos,roas,direct_amount,indirect_amount,total_amount,direct_units_quantity,indirect_units_quantity,units_quantity,organic_units_quantity';
+        // Lista CANÔNICA expandida (testada — todas funcionam):
+        const metricsList = 'clicks,prints,ctr,cost,cpc,acos,roas,cv,tacos,sov,direct_amount,indirect_amount,total_amount,direct_units_quantity,indirect_units_quantity,units_quantity,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity';
         
         // 1. Buscar campanhas COM métricas
         const campRes = await fetch(
@@ -9839,6 +10109,11 @@ app.post('/api/ml/advertising/sync', async (req, res) => {
                 total_amount: m.total_amount || 0,
                 units_quantity: m.units_quantity || 0,
                 roas: m.roas || null,
+                cvr: m.cv || m.cvr || 0,
+                tacos: m.tacos || 0,
+                sov: m.sov || 0,
+                organic_units_quantity: m.organic_units_quantity || 0,
+                organic_units_amount: m.organic_units_amount || 0,
                 raw_payload: camp,
                 last_synced_at: new Date().toISOString()
             }, { onConflict: 'advertiser_id,campaign_id' });
