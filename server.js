@@ -9972,8 +9972,9 @@ app.post('/api/google-sheets/export', async (req, res) => {
         
         const values = [headers, ...rows];
         
+        const range = `${sheet_name}!A1:Z10000`;
         const writeRes = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(sheet_name)}!A1:Z10000?valueInputOption=RAW`,
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
             {
                 method: 'PUT',
                 headers: {
