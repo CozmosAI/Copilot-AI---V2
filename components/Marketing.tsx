@@ -90,6 +90,8 @@ const Marketing: React.FC = () => {
   const [exportEndDate, setExportEndDate] = useState(() => marketingDateFilter.end || new Date().toISOString().split('T')[0]);
   const [sheetsError, setSheetsError] = useState<string | null>(null);
   const [sheetsSuccess, setSheetsSuccess] = useState<string | null>(null);
+  const [exportAggregation, setExportAggregation] = useState<'daily' | 'monthly' | 'total'>('total');
+  const [exportCampaignIds, setExportCampaignIds] = useState<string[]>(['all']);
 
   useEffect(() => {
     if (marketingDateFilter.start) setExportStartDate(marketingDateFilter.start);
@@ -1240,6 +1242,11 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       setSheetsError('Por favor, informe o ID ou link da planilha.');
       return;
     }
+
+    if (!exportCampaignIds.includes('all') && exportCampaignIds.length === 0) {
+      setSheetsError('Por favor, selecione ao menos uma campanha para exportar, ou selecione "Exportar Todas".');
+      return;
+    }
     
     setIsExportingSheets(true);
     setSheetsError(null);
@@ -1258,7 +1265,9 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
           data_type: 'google_ads',
           start_date: exportStartDate,
           end_date: exportEndDate,
-          sheets_token: googleSheetsToken
+          sheets_token: googleSheetsToken,
+          campaign_ids: exportCampaignIds,
+          aggregation: exportAggregation
         })
       });
       
@@ -1271,7 +1280,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
         throw new Error(data.error || 'Erro ao exportar dados para a planilha.');
       }
       
-      setSheetsSuccess('Dados do Google Ads exportados com sucesso! Verifique sua planilha.');
+      setSheetsSuccess(data.message || 'Dados do Google Ads exportados com sucesso! Verifique sua planilha.');
     } catch (err: any) {
       console.error('[Google Ads Sheet Export Error]:', err);
       setSheetsError(err.message || 'Ocorreu um erro desconhecido ao exportar.');
@@ -4428,8 +4437,8 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       {/* GOOGLE SHEETS EXPORT MODAL */}
       {isSheetsModalOpen && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
                       <div className="flex items-center gap-3">
                           <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl"><FileSpreadsheet size={20} /></div>
                           <h3 className="text-lg font-bold text-slate-900">Exportar para Google Sheets</h3>
@@ -4437,7 +4446,7 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                       <button onClick={() => setIsSheetsModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={20} /></button>
                   </div>
                   
-                  <div className="p-6 space-y-6">
+                  <div className="p-6 space-y-6 overflow-y-auto flex-1">
                       {/* Connection Status */}
                       <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
                           <div>
@@ -4503,14 +4512,120 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                           </div>
                       </div>
 
+                      {/* Aggregation Level */}
+                      <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                              Visualização de Campanhas (Agregação)
+                          </label>
+                          <div className="grid grid-cols-3 gap-2">
+                              <button
+                                  type="button"
+                                  onClick={() => setExportAggregation('total')}
+                                  className={`px-3 py-2 text-[11px] font-bold rounded-xl border transition-all ${
+                                      exportAggregation === 'total'
+                                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm'
+                                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                              >
+                                  Total Acumulado
+                              </button>
+                              <button
+                                  type="button"
+                                  onClick={() => setExportAggregation('daily')}
+                                  className={`px-3 py-2 text-[11px] font-bold rounded-xl border transition-all ${
+                                      exportAggregation === 'daily'
+                                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm'
+                                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                              >
+                                  Por Dia
+                              </button>
+                              <button
+                                  type="button"
+                                  onClick={() => setExportAggregation('monthly')}
+                                  className={`px-3 py-2 text-[11px] font-bold rounded-xl border transition-all ${
+                                      exportAggregation === 'monthly'
+                                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm'
+                                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                              >
+                                  Por Mês
+                              </button>
+                          </div>
+                          <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                              {exportAggregation === 'daily' && "📅 Cada linha na planilha representará o resultado de uma campanha em um dia específico (dia a dia)."}
+                              {exportAggregation === 'monthly' && "🗓️ Cada linha representará os resultados consolidados de uma campanha por mês (mês a mês)."}
+                              {exportAggregation === 'total' && "📊 Mostrará uma única linha por campanha com o total acumulado do período selecionado."}
+                          </p>
+                      </div>
+
+                      {/* Campaign Selection Option */}
+                      <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                              Campanhas para Exportar
+                          </label>
+                          <select
+                              value={exportCampaignIds.includes('all') ? 'all' : 'select'}
+                              onChange={(e) => {
+                                  if (e.target.value === 'all') {
+                                      setExportCampaignIds(['all']);
+                                  } else {
+                                      setExportCampaignIds([]);
+                                  }
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                          >
+                              <option value="all">Exportar Todas as Campanhas ({campaigns.length})</option>
+                              <option value="select">Selecionar Campanhas Específicas</option>
+                          </select>
+
+                          {/* Scrollable Campaign Checkbox List */}
+                          {!exportCampaignIds.includes('all') && (
+                              <div className="mt-2 border border-slate-200 bg-white rounded-xl p-2 max-h-36 overflow-y-auto space-y-1 animate-in fade-in duration-200 shadow-inner">
+                                  {campaigns.length === 0 ? (
+                                      <p className="text-[10px] text-slate-400 p-2 text-center">Nenhuma campanha carregada nesta conta.</p>
+                                  ) : (
+                                      campaigns.map((camp: any) => {
+                                          const isChecked = exportCampaignIds.includes(String(camp.id));
+                                          return (
+                                              <label 
+                                                  key={camp.id} 
+                                                  className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-xs font-medium text-slate-800 transition-colors"
+                                              >
+                                                  <input 
+                                                      type="checkbox"
+                                                      checked={isChecked}
+                                                      onChange={() => {
+                                                          if (isChecked) {
+                                                              setExportCampaignIds(prev => prev.filter(id => id !== String(camp.id)));
+                                                          } else {
+                                                              setExportCampaignIds(prev => [...prev.filter(id => id !== 'all'), String(camp.id)]);
+                                                          }
+                                                      }}
+                                                      className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 border-slate-300"
+                                                  />
+                                                  <span className="truncate">{camp.name || camp.id}</span>
+                                              </label>
+                                          );
+                                      })
+                                  )}
+                              </div>
+                          )}
+                          {!exportCampaignIds.includes('all') && exportCampaignIds.length > 0 && (
+                              <p className="text-[10px] text-emerald-600 font-bold mt-1.5">
+                                  ✨ {exportCampaignIds.length} campanha(s) selecionada(s).
+                              </p>
+                          )}
+                      </div>
+
                       {/* Information */}
-                      <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
-                          <h4 className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1 flex items-center gap-1">📋 Relatório Multi-Abas</h4>
+                      <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 shrink-0">
+                          <h4 className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1 flex items-center gap-1">📋 Relatório Inteligente Multi-Abas</h4>
                           <p className="text-[10px] text-slate-600 leading-relaxed">
-                              Esta exportação criará ou substituirá automaticamente 3 abas separadas na planilha fornecida:
+                              Esta exportação gravará 3 abas na planilha com métricas estendidas (Gasto, Impressões, Cliques, CTR, CPC, Conversões, CPA, ROAS, Receita):
                           </p>
                           <ul className="text-[10px] text-slate-600 font-bold mt-1.5 list-disc pl-4 space-y-1">
-                              <li>Google Ads - Campanhas</li>
+                              <li>Google Ads - Campanhas ({exportAggregation === 'daily' ? 'Diário' : exportAggregation === 'monthly' ? 'Mensal' : 'Acumulado'})</li>
                               <li>Google Ads - Palavras-Chave</li>
                               <li>Google Ads - Termos de Pesquisa</li>
                           </ul>
@@ -4518,12 +4633,12 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
 
                       {/* Status Notifications */}
                       {sheetsError && (
-                          <div className="p-3.5 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl font-medium">
+                          <div className="p-3.5 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl font-medium shrink-0">
                               ⚠️ {sheetsError}
                           </div>
                       )}
                       {sheetsSuccess && (
-                          <div className="p-3.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs rounded-xl font-medium">
+                          <div className="p-3.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs rounded-xl font-medium shrink-0">
                               ✅ {sheetsSuccess}
                           </div>
                       )}

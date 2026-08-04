@@ -9869,7 +9869,7 @@ app.post('/api/google-sheets/export', async (req, res) => {
         const authUser = await getAuthUser(req);
         if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
         
-        let { spreadsheet_id, sheet_name, data_type, sheets_token } = req.body;
+        let { spreadsheet_id, sheet_name, data_type, sheets_token, campaign_ids, aggregation } = req.body;
         if (!spreadsheet_id) {
             return res.status(400).json({ error: 'Informe o ID ou URL da planilha do Google Sheets.' });
         }
@@ -9978,6 +9978,7 @@ app.post('/api/google-sheets/export', async (req, res) => {
                     campaign.name, 
                     campaign.status, 
                     campaign.advertising_channel_type,
+                    segments.date,
                     campaign_budget.amount_micros,
                     metrics.clicks, 
                     metrics.impressions, 
@@ -9996,24 +9997,28 @@ app.post('/api/google-sheets/export', async (req, res) => {
                     ad_group_criterion.keyword.match_type, 
                     ad_group_criterion.status, 
                     ad_group_criterion.quality_info.quality_score, 
+                    campaign.id,
                     campaign.name, 
                     ad_group.name, 
                     metrics.clicks, 
                     metrics.impressions, 
                     metrics.cost_micros, 
-                    metrics.conversions 
+                    metrics.conversions,
+                    metrics.conversions_value
                 FROM keyword_view 
                 WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
             `;
             const searchTermQuery = `
                 SELECT 
                     search_term_view.search_term, 
+                    campaign.id,
                     campaign.name, 
                     ad_group.name,
                     metrics.clicks, 
                     metrics.impressions, 
                     metrics.cost_micros,
                     metrics.conversions, 
+                    metrics.conversions_value,
                     metrics.ctr
                 FROM search_term_view
                 WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
@@ -10028,89 +10033,311 @@ app.post('/api/google-sheets/export', async (req, res) => {
                 executeGoogleAdsQuery(authUser.id, searchTermQuery, false, customerId).catch(err => { console.error('Erro search terms ads:', err); return []; })
             ]);
 
-            // Formatar os dados para cada aba
+            // Filtragem por ID de Campanhas selecionadas
+            const campaignIdSet = new Set();
+            if (Array.isArray(campaign_ids) && campaign_ids.length > 0 && !campaign_ids.includes('all')) {
+                campaign_ids.forEach(id => campaignIdSet.add(String(id)));
+            }
+
+            const filteredCampaignResults = (campaignResults || []).filter(row => {
+                const cid = row.campaign?.id ? String(row.campaign.id) : '';
+                if (campaignIdSet.size > 0 && !campaignIdSet.has(cid)) {
+                    return false;
+                }
+                return true;
+            });
+
+            const filteredKeywordResults = (keywordResults || []).filter(row => {
+                const cid = row.campaign?.id ? String(row.campaign.id) : '';
+                if (campaignIdSet.size > 0 && !campaignIdSet.has(cid)) {
+                    return false;
+                }
+                return true;
+            });
+
+            const filteredSearchTermResults = (searchTermResults || []).filter(row => {
+                const cid = row.campaign?.id ? String(row.campaign.id) : '';
+                if (campaignIdSet.size > 0 && !campaignIdSet.has(cid)) {
+                    return false;
+                }
+                return true;
+            });
+
+            // Determinar o tipo de agregação para as campanhas
+            const agg = aggregation || 'total'; // 'daily' | 'monthly' | 'total'
+            let campaignHeaders = [];
+            let campaignRows = [];
+
+            if (agg === 'daily') {
+                campaignHeaders = [
+                    'Data', 'ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 
+                    'Orçamento Diário', 'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 
+                    'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
+                    'Valor de Conversão (Receita)', 'ROAS'
+                ];
+                
+                campaignRows = filteredCampaignResults.map(row => {
+                    const budget = (parseInt(row.campaignBudget?.amountMicros) || 0) / 1000000;
+                    const clicks = parseInt(row.metrics?.clicks) || 0;
+                    const impressions = parseInt(row.metrics?.impressions) || 0;
+                    const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+                    const conversions = parseFloat(row.metrics?.conversions) || 0;
+                    const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
+                    
+                    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                    const averageCpc = clicks > 0 ? (cost / clicks) : 0;
+                    const cpa = conversions > 0 ? (cost / conversions) : 0;
+                    const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
+                    const roas = cost > 0 ? (convValue / cost) : 0;
+                    
+                    return [
+                        row.segments?.date || '',
+                        row.campaign?.id || '',
+                        row.campaign?.name || '',
+                        row.campaign?.status || '',
+                        row.campaign?.advertisingChannelType || '',
+                        `R$ ${budget.toFixed(2)}`,
+                        impressions,
+                        clicks,
+                        `${ctr.toFixed(2)}%`,
+                        `R$ ${averageCpc.toFixed(2)}`,
+                        `R$ ${cost.toFixed(2)}`,
+                        conversions,
+                        conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
+                        `${convRate.toFixed(2)}%`,
+                        `R$ ${convValue.toFixed(2)}`,
+                        `${roas.toFixed(2)}x`
+                    ];
+                });
+                // Ordenar por data chronologicamente
+                campaignRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2])));
+            } else if (agg === 'monthly') {
+                campaignHeaders = [
+                    'Mês', 'ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 
+                    'Orçamento Diário', 'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 
+                    'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
+                    'Valor de Conversão (Receita)', 'ROAS'
+                ];
+
+                const monthlyGroups = {};
+                for (const row of filteredCampaignResults) {
+                    const date = row.segments?.date || '';
+                    const month = date ? date.substring(0, 7) : 'Desconhecido';
+                    const campaignId = row.campaign?.id || 'unknown';
+                    const key = `${campaignId}_${month}`;
+                    
+                    if (!monthlyGroups[key]) {
+                        monthlyGroups[key] = {
+                            month,
+                            id: row.campaign?.id || '',
+                            name: row.campaign?.name || '',
+                            status: row.campaign?.status || '',
+                            channelType: row.campaign?.advertisingChannelType || '',
+                            budgetMicros: parseInt(row.campaignBudget?.amountMicros) || 0,
+                            impressions: 0,
+                            clicks: 0,
+                            costMicros: 0,
+                            conversions: 0,
+                            conversionsValue: 0
+                        };
+                    }
+                    
+                    monthlyGroups[key].impressions += parseInt(row.metrics?.impressions) || 0;
+                    monthlyGroups[key].clicks += parseInt(row.metrics?.clicks) || 0;
+                    monthlyGroups[key].costMicros += parseInt(row.metrics?.costMicros) || 0;
+                    monthlyGroups[key].conversions += parseFloat(row.metrics?.conversions) || 0;
+                    monthlyGroups[key].conversionsValue += parseFloat(row.metrics?.conversionsValue) || 0;
+                }
+                
+                campaignRows = Object.values(monthlyGroups).map(g => {
+                    const budget = g.budgetMicros / 1000000;
+                    const cost = g.costMicros / 1000000;
+                    const ctr = g.impressions > 0 ? (g.clicks / g.impressions) * 100 : 0;
+                    const averageCpc = g.clicks > 0 ? (cost / g.clicks) : 0;
+                    const cpa = g.conversions > 0 ? (cost / g.conversions) : 0;
+                    const convRate = g.clicks > 0 ? (g.conversions / g.clicks) * 100 : 0;
+                    const roas = cost > 0 ? (g.conversionsValue / cost) : 0;
+                    
+                    return [
+                        g.month,
+                        g.id,
+                        g.name,
+                        g.status,
+                        g.channelType,
+                        `R$ ${budget.toFixed(2)}`,
+                        g.impressions,
+                        g.clicks,
+                        `${ctr.toFixed(2)}%`,
+                        `R$ ${averageCpc.toFixed(2)}`,
+                        `R$ ${cost.toFixed(2)}`,
+                        g.conversions,
+                        g.conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
+                        `${convRate.toFixed(2)}%`,
+                        `R$ ${g.conversionsValue.toFixed(2)}`,
+                        `${roas.toFixed(2)}x`
+                    ];
+                });
+                // Ordenar por mês
+                campaignRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2])));
+            } else {
+                // total
+                campaignHeaders = [
+                    'ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 
+                    'Orçamento Diário', 'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 
+                    'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
+                    'Valor de Conversão (Receita)', 'ROAS'
+                ];
+
+                const totalGroups = {};
+                for (const row of filteredCampaignResults) {
+                    const campaignId = row.campaign?.id || 'unknown';
+                    
+                    if (!totalGroups[campaignId]) {
+                        totalGroups[campaignId] = {
+                            id: row.campaign?.id || '',
+                            name: row.campaign?.name || '',
+                            status: row.campaign?.status || '',
+                            channelType: row.campaign?.advertisingChannelType || '',
+                            budgetMicros: parseInt(row.campaignBudget?.amountMicros) || 0,
+                            impressions: 0,
+                            clicks: 0,
+                            costMicros: 0,
+                            conversions: 0,
+                            conversionsValue: 0
+                        };
+                    }
+                    
+                    totalGroups[campaignId].impressions += parseInt(row.metrics?.impressions) || 0;
+                    totalGroups[campaignId].clicks += parseInt(row.metrics?.clicks) || 0;
+                    totalGroups[campaignId].costMicros += parseInt(row.metrics?.costMicros) || 0;
+                    totalGroups[campaignId].conversions += parseFloat(row.metrics?.conversions) || 0;
+                    totalGroups[campaignId].conversionsValue += parseFloat(row.metrics?.conversionsValue) || 0;
+                }
+                
+                campaignRows = Object.values(totalGroups).map(g => {
+                    const budget = g.budgetMicros / 1000000;
+                    const cost = g.costMicros / 1000000;
+                    const ctr = g.impressions > 0 ? (g.clicks / g.impressions) * 100 : 0;
+                    const averageCpc = g.clicks > 0 ? (cost / g.clicks) : 0;
+                    const cpa = g.conversions > 0 ? (cost / g.conversions) : 0;
+                    const convRate = g.clicks > 0 ? (g.conversions / g.clicks) * 100 : 0;
+                    const roas = cost > 0 ? (g.conversionsValue / cost) : 0;
+                    
+                    return [
+                        g.id,
+                        g.name,
+                        g.status,
+                        g.channelType,
+                        `R$ ${budget.toFixed(2)}`,
+                        g.impressions,
+                        g.clicks,
+                        `${ctr.toFixed(2)}%`,
+                        `R$ ${averageCpc.toFixed(2)}`,
+                        `R$ ${cost.toFixed(2)}`,
+                        g.conversions,
+                        g.conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
+                        `${convRate.toFixed(2)}%`,
+                        `R$ ${g.conversionsValue.toFixed(2)}`,
+                        `${roas.toFixed(2)}x`
+                    ];
+                });
+                campaignRows.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+            }
+
+            // Formatar Palavras-Chave com todas as métricas extras
+            const keywordHeaders = [
+                'Palavra-Chave', 'Tipo de Correspondência', 'Status', 'Índice de Qualidade', 
+                'ID da Campanha', 'Campanha', 'Grupo de Anúncios', 'Impressões', 'Cliques', 
+                'CTR (%)', 'CPC Médio', 'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 
+                'Taxa de Conversão (%)', 'Valor de Conversão (Receita)', 'ROAS'
+            ];
+            const keywordRows = filteredKeywordResults.map(row => {
+                const clicks = parseInt(row.metrics?.clicks) || 0;
+                const impressions = parseInt(row.metrics?.impressions) || 0;
+                const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+                const conversions = parseFloat(row.metrics?.conversions) || 0;
+                const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
+                
+                const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                const averageCpc = clicks > 0 ? (cost / clicks) : 0;
+                const cpa = conversions > 0 ? (cost / conversions) : 0;
+                const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
+                const roas = cost > 0 ? (convValue / cost) : 0;
+                
+                return [
+                    row.adGroupCriterion?.keyword?.text || '',
+                    row.adGroupCriterion?.keyword?.matchType || '',
+                    row.adGroupCriterion?.status || '',
+                    row.adGroupCriterion?.qualityInfo?.qualityScore || '-',
+                    row.campaign?.id || '',
+                    row.campaign?.name || '',
+                    row.adGroup?.name || '',
+                    impressions,
+                    clicks,
+                    `${ctr.toFixed(2)}%`,
+                    `R$ ${averageCpc.toFixed(2)}`,
+                    `R$ ${cost.toFixed(2)}`,
+                    conversions,
+                    conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
+                    `${convRate.toFixed(2)}%`,
+                    `R$ ${convValue.toFixed(2)}`,
+                    `${roas.toFixed(2)}x`
+                ];
+            });
+
+            // Formatar Termos de Pesquisa com todas as métricas extras
+            const searchTermHeaders = [
+                'Termo de Pesquisa', 'ID da Campanha', 'Campanha', 'Grupo de Anúncios', 
+                'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 'Gasto Total', 
+                'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
+                'Valor de Conversão (Receita)', 'ROAS'
+            ];
+            const searchTermRows = filteredSearchTermResults.map(row => {
+                const clicks = parseInt(row.metrics?.clicks) || 0;
+                const impressions = parseInt(row.metrics?.impressions) || 0;
+                const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+                const conversions = parseFloat(row.metrics?.conversions) || 0;
+                const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
+                
+                const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                const averageCpc = clicks > 0 ? (cost / clicks) : 0;
+                const cpa = conversions > 0 ? (cost / conversions) : 0;
+                const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
+                const roas = cost > 0 ? (convValue / cost) : 0;
+                
+                return [
+                    row.searchTermView?.searchTerm || '',
+                    row.campaign?.id || '',
+                    row.campaign?.name || '',
+                    row.adGroup?.name || '',
+                    impressions,
+                    clicks,
+                    `${ctr.toFixed(2)}%`,
+                    `R$ ${averageCpc.toFixed(2)}`,
+                    `R$ ${cost.toFixed(2)}`,
+                    conversions,
+                    conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
+                    `${convRate.toFixed(2)}%`,
+                    `R$ ${convValue.toFixed(2)}`,
+                    `${roas.toFixed(2)}x`
+                ];
+            });
+
             const sheetsData = [
                 {
                     title: 'Google Ads - Campanhas',
-                    headers: ['ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 'Orçamento Diário', 'Cliques', 'Impressões', 'CTR', 'CPC Médio', 'Gasto', 'Conversões', 'Valor de Conversão', 'ROAS'],
-                    rows: (campaignResults || []).map(row => {
-                        const budget = (parseInt(row.campaignBudget?.amountMicros) || 0) / 1000000;
-                        const clicks = parseInt(row.metrics?.clicks) || 0;
-                        const impressions = parseInt(row.metrics?.impressions) || 0;
-                        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
-                        const conversions = parseFloat(row.metrics?.conversions) || 0;
-                        const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
-                        const ctr = parseFloat(row.metrics?.ctr || 0) * 100;
-                        const averageCpc = (parseInt(row.metrics?.averageCpc) || 0) / 1000000;
-                        const roas = cost > 0 ? (convValue / cost) : 0;
-                        return [
-                            row.campaign?.id || '',
-                            row.campaign?.name || '',
-                            row.campaign?.status || '',
-                            row.campaign?.advertisingChannelType || '',
-                            `R$ ${budget.toFixed(2)}`,
-                            clicks,
-                            impressions,
-                            `${ctr.toFixed(2)}%`,
-                            `R$ ${averageCpc.toFixed(2)}`,
-                            `R$ ${cost.toFixed(2)}`,
-                            conversions,
-                            `R$ ${convValue.toFixed(2)}`,
-                            `${roas.toFixed(2)}x`
-                        ];
-                    })
+                    headers: campaignHeaders,
+                    rows: campaignRows
                 },
                 {
                     title: 'Google Ads - Palavras-Chave',
-                    headers: ['Palavra-Chave', 'Tipo de Correspondência', 'Status', 'Índice de Qualidade', 'Campanha', 'Grupo de Anúncios', 'Cliques', 'Impressões', 'Gasto', 'Conversões'],
-                    rows: (keywordResults || []).map(row => {
-                        const text = row.adGroupCriterion?.keyword?.text || '';
-                        const matchType = row.adGroupCriterion?.keyword?.matchType || '';
-                        const status = row.adGroupCriterion?.status || '';
-                        const qualityScore = row.adGroupCriterion?.qualityInfo?.qualityScore || '-';
-                        const campaignName = row.campaign?.name || '';
-                        const adGroupName = row.adGroup?.name || '';
-                        const clicks = parseInt(row.metrics?.clicks) || 0;
-                        const impressions = parseInt(row.metrics?.impressions) || 0;
-                        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
-                        const conversions = parseFloat(row.metrics?.conversions) || 0;
-                        return [
-                            text,
-                            matchType,
-                            status,
-                            qualityScore,
-                            campaignName,
-                            adGroupName,
-                            clicks,
-                            impressions,
-                            `R$ ${cost.toFixed(2)}`,
-                            conversions
-                        ];
-                    })
+                    headers: keywordHeaders,
+                    rows: keywordRows
                 },
                 {
                     title: 'Google Ads - Termos de Pesquisa',
-                    headers: ['Termo de Pesquisa', 'Campanha', 'Grupo de Anúncios', 'Cliques', 'Impressões', 'Gasto', 'Conversões', 'CTR'],
-                    rows: (searchTermResults || []).map(row => {
-                        const term = row.searchTermView?.searchTerm || '';
-                        const campaignName = row.campaign?.name || '';
-                        const adGroupName = row.adGroup?.name || '';
-                        const clicks = parseInt(row.metrics?.clicks) || 0;
-                        const impressions = parseInt(row.metrics?.impressions) || 0;
-                        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
-                        const conversions = parseFloat(row.metrics?.conversions) || 0;
-                        const ctr = parseFloat(row.metrics?.ctr || 0) * 100;
-                        return [
-                            term,
-                            campaignName,
-                            adGroupName,
-                            clicks,
-                            impressions,
-                            `R$ ${cost.toFixed(2)}`,
-                            conversions,
-                            `${ctr.toFixed(2)}%`
-                        ];
-                    })
+                    headers: searchTermHeaders,
+                    rows: searchTermRows
                 }
             ];
 
@@ -10170,7 +10397,7 @@ app.post('/api/google-sheets/export', async (req, res) => {
 
             return res.json({
                 ok: true,
-                message: 'Dados do Google Ads exportados com sucesso em 3 abas!'
+                message: `Dados do Google Ads exportados com sucesso em 3 abas (Agregação: ${agg === 'daily' ? 'Diária' : agg === 'monthly' ? 'Mensal' : 'Total acumulado'})!`
             });
         }
 
