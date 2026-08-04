@@ -9912,6 +9912,289 @@ app.post('/api/google-sheets/export', async (req, res) => {
                 code: 'UNAUTHENTICATED' 
             });
         }
+
+        // 1. Buscar metadados para validar o token e obter abas existentes
+        let metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}?fields=sheets.properties.title`, {
+            headers: { 'Authorization': `Bearer ${tokenToUse}` }
+        });
+        
+        if (metaRes.status === 401 && profile?.google_sheets_refresh_token && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+            try {
+                const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        client_id: GOOGLE_CLIENT_ID,
+                        client_secret: GOOGLE_CLIENT_SECRET,
+                        refresh_token: profile.google_sheets_refresh_token,
+                        grant_type: 'refresh_token'
+                    })
+                });
+                if (refreshRes.ok) {
+                    const refreshData = await refreshRes.json();
+                    if (refreshData.access_token) {
+                        tokenToUse = refreshData.access_token;
+                        await client.from('profiles').update({ google_sheets_token: tokenToUse }).eq('id', authUser.id);
+                        metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}?fields=sheets.properties.title`, {
+                            headers: { 'Authorization': `Bearer ${tokenToUse}` }
+                        });
+                    }
+                }
+            } catch (refErr) {
+                console.warn('[Sheets Export] Erro na renovação automática do token:', refErr);
+            }
+        }
+        
+        if (!metaRes.ok) {
+            const errText = await metaRes.text();
+            if (metaRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
+                return res.status(401).json({ 
+                    error: 'Token do Google Sheets expirado ou não autorizado. Por favor, clique em "Conectar Google Sheets" para reautorizar a sua conta.',
+                    code: 'UNAUTHENTICATED'
+                });
+            }
+            return res.status(metaRes.status).json({ error: `Erro ao acessar a planilha do Google Sheets: ${errText}` });
+        }
+        
+        const meta = await metaRes.json();
+        const existingSheets = (meta.sheets || []).map(s => s.properties?.title || '');
+
+        // Caso especial: EXPORTAÇÃO DO GOOGLE ADS (Multi-Abas)
+        if (data_type === 'google_ads') {
+            const { data: googleAds } = await client.from('google_ads_integrations').select('*').eq('user_id', authUser.id).maybeSingle();
+            if (!googleAds || !googleAds.customer_id) {
+                return res.status(400).json({ error: 'Sua conta do Google Ads não está conectada ou não possui um ID de cliente configurado.' });
+            }
+            const customerId = googleAds.customer_id;
+
+            // Sanitizar datas de início e fim no formato YYYY-MM-DD
+            const sanitizedStart = start_date ? String(start_date).replace(/[^0-9-]/g, '') : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const sanitizedEnd = end_date ? String(end_date).replace(/[^0-9-]/g, '') : new Date().toISOString().split('T')[0];
+
+            // Consultar as 3 visões do Google Ads em paralelo
+            const campaignQuery = `
+                SELECT 
+                    campaign.id, 
+                    campaign.name, 
+                    campaign.status, 
+                    campaign.advertising_channel_type,
+                    campaign_budget.amount_micros,
+                    metrics.clicks, 
+                    metrics.impressions, 
+                    metrics.cost_micros, 
+                    metrics.conversions,
+                    metrics.conversions_value,
+                    metrics.ctr,
+                    metrics.average_cpc
+                FROM campaign 
+                WHERE campaign.status != 'REMOVED' 
+                AND segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
+            `;
+            const keywordQuery = `
+                SELECT 
+                    ad_group_criterion.keyword.text, 
+                    ad_group_criterion.keyword.match_type, 
+                    ad_group_criterion.status, 
+                    ad_group_criterion.quality_info.quality_score, 
+                    campaign.name, 
+                    ad_group.name, 
+                    metrics.clicks, 
+                    metrics.impressions, 
+                    metrics.cost_micros, 
+                    metrics.conversions 
+                FROM keyword_view 
+                WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
+            `;
+            const searchTermQuery = `
+                SELECT 
+                    search_term_view.search_term, 
+                    campaign.name, 
+                    ad_group.name,
+                    metrics.clicks, 
+                    metrics.impressions, 
+                    metrics.cost_micros,
+                    metrics.conversions, 
+                    metrics.ctr
+                FROM search_term_view
+                WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
+                AND metrics.impressions > 0
+                ORDER BY metrics.cost_micros DESC
+                LIMIT 200
+            `;
+
+            const [campaignResults, keywordResults, searchTermResults] = await Promise.all([
+                executeGoogleAdsQuery(authUser.id, campaignQuery, false, customerId).catch(err => { console.error('Erro campanhas ads:', err); return []; }),
+                executeGoogleAdsQuery(authUser.id, keywordQuery, false, customerId).catch(err => { console.error('Erro keywords ads:', err); return []; }),
+                executeGoogleAdsQuery(authUser.id, searchTermQuery, false, customerId).catch(err => { console.error('Erro search terms ads:', err); return []; })
+            ]);
+
+            // Formatar os dados para cada aba
+            const sheetsData = [
+                {
+                    title: 'Google Ads - Campanhas',
+                    headers: ['ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 'Orçamento Diário', 'Cliques', 'Impressões', 'CTR', 'CPC Médio', 'Gasto', 'Conversões', 'Valor de Conversão', 'ROAS'],
+                    rows: (campaignResults || []).map(row => {
+                        const budget = (parseInt(row.campaignBudget?.amountMicros) || 0) / 1000000;
+                        const clicks = parseInt(row.metrics?.clicks) || 0;
+                        const impressions = parseInt(row.metrics?.impressions) || 0;
+                        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+                        const conversions = parseFloat(row.metrics?.conversions) || 0;
+                        const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
+                        const ctr = parseFloat(row.metrics?.ctr || 0) * 100;
+                        const averageCpc = (parseInt(row.metrics?.averageCpc) || 0) / 1000000;
+                        const roas = cost > 0 ? (convValue / cost) : 0;
+                        return [
+                            row.campaign?.id || '',
+                            row.campaign?.name || '',
+                            row.campaign?.status || '',
+                            row.campaign?.advertisingChannelType || '',
+                            `R$ ${budget.toFixed(2)}`,
+                            clicks,
+                            impressions,
+                            `${ctr.toFixed(2)}%`,
+                            `R$ ${averageCpc.toFixed(2)}`,
+                            `R$ ${cost.toFixed(2)}`,
+                            conversions,
+                            `R$ ${convValue.toFixed(2)}`,
+                            `${roas.toFixed(2)}x`
+                        ];
+                    })
+                },
+                {
+                    title: 'Google Ads - Palavras-Chave',
+                    headers: ['Palavra-Chave', 'Tipo de Correspondência', 'Status', 'Índice de Qualidade', 'Campanha', 'Grupo de Anúncios', 'Cliques', 'Impressões', 'Gasto', 'Conversões'],
+                    rows: (keywordResults || []).map(row => {
+                        const text = row.adGroupCriterion?.keyword?.text || '';
+                        const matchType = row.adGroupCriterion?.keyword?.matchType || '';
+                        const status = row.adGroupCriterion?.status || '';
+                        const qualityScore = row.adGroupCriterion?.qualityInfo?.qualityScore || '-';
+                        const campaignName = row.campaign?.name || '';
+                        const adGroupName = row.adGroup?.name || '';
+                        const clicks = parseInt(row.metrics?.clicks) || 0;
+                        const impressions = parseInt(row.metrics?.impressions) || 0;
+                        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+                        const conversions = parseFloat(row.metrics?.conversions) || 0;
+                        return [
+                            text,
+                            matchType,
+                            status,
+                            qualityScore,
+                            campaignName,
+                            adGroupName,
+                            clicks,
+                            impressions,
+                            `R$ ${cost.toFixed(2)}`,
+                            conversions
+                        ];
+                    })
+                },
+                {
+                    title: 'Google Ads - Termos de Pesquisa',
+                    headers: ['Termo de Pesquisa', 'Campanha', 'Grupo de Anúncios', 'Cliques', 'Impressões', 'Gasto', 'Conversões', 'CTR'],
+                    rows: (searchTermResults || []).map(row => {
+                        const term = row.searchTermView?.searchTerm || '';
+                        const campaignName = row.campaign?.name || '';
+                        const adGroupName = row.adGroup?.name || '';
+                        const clicks = parseInt(row.metrics?.clicks) || 0;
+                        const impressions = parseInt(row.metrics?.impressions) || 0;
+                        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+                        const conversions = parseFloat(row.metrics?.conversions) || 0;
+                        const ctr = parseFloat(row.metrics?.ctr || 0) * 100;
+                        return [
+                            term,
+                            campaignName,
+                            adGroupName,
+                            clicks,
+                            impressions,
+                            `R$ ${cost.toFixed(2)}`,
+                            conversions,
+                            `${ctr.toFixed(2)}%`
+                        ];
+                    })
+                }
+            ];
+
+            // Garantir que as 3 abas existam
+            const requiredSheets = sheetsData.map(s => s.title);
+            const sheetsToAdd = requiredSheets.filter(title => !existingSheets.includes(title));
+
+            if (sheetsToAdd.length > 0) {
+                const addRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}:batchUpdate`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${tokenToUse}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        requests: sheetsToAdd.map(title => ({
+                            addSheet: {
+                                properties: { title }
+                            }
+                        }))
+                    })
+                });
+                if (!addRes.ok) {
+                    const addText = await addRes.text();
+                    console.warn('[Sheets Export] Erro ao adicionar abas:', addText);
+                }
+            }
+
+            // Escrever em cada aba de forma sequencial
+            for (const sheet of sheetsData) {
+                const values = [sheet.headers, ...sheet.rows];
+                
+                // Limpar dados anteriores
+                await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(sheet.title + '!A1:Z20000')}:clear`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${tokenToUse}`
+                    }
+                });
+
+                // Gravar novos dados
+                const range = `${sheet.title}!A1`;
+                const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${tokenToUse}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ values })
+                });
+
+                if (!writeRes.ok) {
+                    const errText = await writeRes.text();
+                    console.error(`[Sheets Export] Erro ao escrever na aba ${sheet.title}:`, errText);
+                }
+            }
+
+            return res.json({
+                ok: true,
+                message: 'Dados do Google Ads exportados com sucesso em 3 abas!'
+            });
+        }
+
+        // Criar aba se não existir (para outros tipos de dados)
+        if (!existingSheets.includes(sheet_name)) {
+            const addRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}:batchUpdate`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${tokenToUse}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    requests: [{
+                        addSheet: {
+                            properties: { title: sheet_name }
+                        }
+                    }]
+                })
+            });
+            if (!addRes.ok) {
+                const addText = await addRes.text();
+                console.warn(`[Sheets Export] Erro ao adicionar aba ${sheet_name}:`, addText);
+            }
+        }
         
         let rows = [];
         let headers = [];
