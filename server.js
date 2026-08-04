@@ -10733,6 +10733,12 @@ app.get('/api/google-sheets/automation', async (req, res) => {
             .maybeSingle();
 
         if (error) {
+            if (error.message && (error.message.includes('column') && error.message.includes('ai_config'))) {
+                return res.status(400).json({
+                    error: 'A coluna "ai_config" está ausente no seu banco de dados Supabase. Para corrigir, vá no SQL Editor do Supabase e execute:\n\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_config jsonb DEFAULT \'{}\'::jsonb;',
+                    code: 'MISSING_AI_CONFIG_COLUMN'
+                });
+            }
             return res.status(500).json({ error: 'Erro ao buscar configuração: ' + error.message });
         }
 
@@ -10777,6 +10783,12 @@ app.post('/api/google-sheets/automation', async (req, res) => {
             .maybeSingle();
 
         if (getErr) {
+            if (getErr.message && (getErr.message.includes('column') && getErr.message.includes('ai_config'))) {
+                return res.status(400).json({
+                    error: 'A coluna "ai_config" está ausente no seu banco de dados Supabase. Para corrigir, vá no SQL Editor do Supabase e execute:\n\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_config jsonb DEFAULT \'{}\'::jsonb;',
+                    code: 'MISSING_AI_CONFIG_COLUMN'
+                });
+            }
             return res.status(500).json({ error: 'Erro ao carregar perfil: ' + getErr.message });
         }
 
@@ -10803,6 +10815,12 @@ app.post('/api/google-sheets/automation', async (req, res) => {
             .eq('id', authUser.id);
 
         if (updateErr) {
+            if (updateErr.message && (updateErr.message.includes('column') && updateErr.message.includes('ai_config'))) {
+                return res.status(400).json({
+                    error: 'A coluna "ai_config" está ausente no seu banco de dados Supabase. Para corrigir, vá no SQL Editor do Supabase e execute:\n\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_config jsonb DEFAULT \'{}\'::jsonb;',
+                    code: 'MISSING_AI_CONFIG_COLUMN'
+                });
+            }
             return res.status(500).json({ error: 'Erro ao salvar configuração: ' + updateErr.message });
         }
 
@@ -10826,6 +10844,12 @@ app.get('/api/ml/google-sheets/automation', async (req, res) => {
             .maybeSingle();
 
         if (error) {
+            if (error.message && (error.message.includes('column') && error.message.includes('ai_config'))) {
+                return res.status(400).json({
+                    error: 'A coluna "ai_config" está ausente no seu banco de dados Supabase. Para corrigir, vá no SQL Editor do Supabase e execute:\n\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_config jsonb DEFAULT \'{}\'::jsonb;',
+                    code: 'MISSING_AI_CONFIG_COLUMN'
+                });
+            }
             return res.status(500).json({ error: 'Erro ao buscar configuração: ' + error.message });
         }
 
@@ -10870,6 +10894,12 @@ app.post('/api/ml/google-sheets/automation', async (req, res) => {
             .maybeSingle();
 
         if (getErr) {
+            if (getErr.message && (getErr.message.includes('column') && getErr.message.includes('ai_config'))) {
+                return res.status(400).json({
+                    error: 'A coluna "ai_config" está ausente no seu banco de dados Supabase. Para corrigir, vá no SQL Editor do Supabase e execute:\n\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_config jsonb DEFAULT \'{}\'::jsonb;',
+                    code: 'MISSING_AI_CONFIG_COLUMN'
+                });
+            }
             return res.status(500).json({ error: 'Erro ao carregar perfil: ' + getErr.message });
         }
 
@@ -10896,6 +10926,12 @@ app.post('/api/ml/google-sheets/automation', async (req, res) => {
             .eq('id', authUser.id);
 
         if (updateErr) {
+            if (updateErr.message && (updateErr.message.includes('column') && updateErr.message.includes('ai_config'))) {
+                return res.status(400).json({
+                    error: 'A coluna "ai_config" está ausente no seu banco de dados Supabase. Para corrigir, vá no SQL Editor do Supabase e execute:\n\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS ai_config jsonb DEFAULT \'{}\'::jsonb;',
+                    code: 'MISSING_AI_CONFIG_COLUMN'
+                });
+            }
             return res.status(500).json({ error: 'Erro ao salvar configuração: ' + updateErr.message });
         }
 
