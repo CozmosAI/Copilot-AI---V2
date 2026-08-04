@@ -9883,8 +9883,21 @@ app.post('/api/google-sheets/export', async (req, res) => {
         }
 
         sheet_name = sheet_name || 'Página1';
-        data_type = data_type || 'orders';
+        data_type = data_type || 'daily_metrics';
         
+        // Tratar datas de início e fim
+        let { start_date, end_date } = req.body;
+        let sDate = start_date ? new Date(start_date) : new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
+        let eDate = end_date ? new Date(end_date) : new Date();
+        if (isNaN(sDate.getTime())) sDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
+        if (isNaN(eDate.getTime())) eDate = new Date();
+        
+        sDate.setHours(0, 0, 0, 0);
+        eDate.setHours(23, 59, 59, 999);
+        
+        const startISO = sDate.toISOString();
+        const endISO = eDate.toISOString();
+
         // Pegar token do Google Sheets
         const client = supabaseAdmin || supabase;
         const { data: profile } = await client.from('profiles')
@@ -9903,13 +9916,189 @@ app.post('/api/google-sheets/export', async (req, res) => {
         let rows = [];
         let headers = [];
         
-        if (data_type === 'orders') {
+        if (data_type === 'daily_metrics') {
+            headers = [
+                'Data',
+                'Dia da Semana',
+                'Faturamento Total',
+                'Pedidos',
+                'Unidades Vendidas',
+                'Ticket Médio',
+                'Gasto Ads',
+                'Vendas Ads',
+                'ROAS',
+                'TACOS'
+            ];
+            
+            // Buscar pedidos no período
+            const { data: orders } = await client.from('ml_orders')
+                .select('date_created, total_amount, quantity, status, payment_status')
+                .eq('user_id', authUser.id)
+                .gte('date_created', startISO)
+                .lte('date_created', endISO);
+                
+            // Buscar métricas de campanhas
+            const { data: campaigns } = await client.from('ml_ad_campaigns')
+                .select('cost, total_amount')
+                .eq('user_id', authUser.id);
+                
+            const totalAdCost = (campaigns || []).reduce((s, c) => s + Number(c.cost || 0), 0);
+            const totalAdSales = (campaigns || []).reduce((s, c) => s + Number(c.total_amount || 0), 0);
+            
+            // Mapear por dia no intervalo selecionado
+            const dailyMap = {};
+            const dateList = [];
+            let cur = new Date(sDate);
+            
+            while (cur <= eDate) {
+                const yyyy = cur.getFullYear();
+                const mm = String(cur.getMonth() + 1).padStart(2, '0');
+                const dd = String(cur.getDate()).padStart(2, '0');
+                const key = `${yyyy}-${mm}-${dd}`;
+                
+                const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+                const dayName = dayNames[cur.getDay()];
+                const formattedDate = `${dd}/${mm}/${yyyy}`;
+                
+                dailyMap[key] = {
+                    dateStr: formattedDate,
+                    dayName,
+                    revenue: 0,
+                    ordersCount: 0,
+                    units: 0
+                };
+                dateList.push(key);
+                cur.setDate(cur.getDate() + 1);
+            }
+            
+            let totalPeriodRevenue = 0;
+            (orders || []).forEach(o => {
+                if (o.status === 'cancelled' || o.payment_status === 'cancelled') return;
+                if (!o.date_created) return;
+                const dt = new Date(o.date_created);
+                const yyyy = dt.getFullYear();
+                const mm = String(dt.getMonth() + 1).padStart(2, '0');
+                const dd = String(dt.getDate()).padStart(2, '0');
+                const key = `${yyyy}-${mm}-${dd}`;
+                if (dailyMap[key]) {
+                    const rev = Number(o.total_amount || 0);
+                    dailyMap[key].revenue += rev;
+                    dailyMap[key].ordersCount += 1;
+                    dailyMap[key].units += Number(o.quantity || 1);
+                    totalPeriodRevenue += rev;
+                }
+            });
+            
+            const daysCount = dateList.length || 1;
+            
+            dateList.forEach(k => {
+                const d = dailyMap[k];
+                const rev = d.revenue;
+                const ords = d.ordersCount;
+                const units = d.units;
+                const ticket = ords > 0 ? (rev / ords) : 0;
+                
+                // Rateio proporcional ou uniforme do investimento de Ads
+                const dayAdCost = totalPeriodRevenue > 0
+                    ? (totalAdCost * (rev / totalPeriodRevenue))
+                    : (totalAdCost / daysCount);
+                    
+                const dayAdSales = totalPeriodRevenue > 0
+                    ? (totalAdSales * (rev / totalPeriodRevenue))
+                    : (totalAdSales / daysCount);
+                    
+                const roas = dayAdCost > 0 ? (dayAdSales / dayAdCost) : 0;
+                const tacos = rev > 0 ? ((dayAdCost / rev) * 100) : 0;
+                
+                rows.push([
+                    d.dateStr,
+                    d.dayName,
+                    `R$ ${rev.toFixed(2)}`,
+                    ords,
+                    units,
+                    `R$ ${ticket.toFixed(2)}`,
+                    `R$ ${dayAdCost.toFixed(2)}`,
+                    `R$ ${dayAdSales.toFixed(2)}`,
+                    `${roas.toFixed(2)}x`,
+                    `${tacos.toFixed(1)}%`
+                ]);
+            });
+        } else if (data_type === 'ads_daily') {
+            headers = ['Data', 'Campanha', 'Status', 'Cliques', 'Impressões', 'CTR', 'CPC', 'Gasto', 'Vendas', 'ROAS', 'TACOS'];
+            
+            const { data: campaigns } = await client.from('ml_ad_campaigns')
+                .select('name, status, clicks, prints, cost, total_amount, roas, tacos')
+                .eq('user_id', authUser.id);
+                
+            const { data: orders } = await client.from('ml_orders')
+                .select('date_created, total_amount')
+                .eq('user_id', authUser.id)
+                .gte('date_created', startISO)
+                .lte('date_created', endISO);
+                
+            const dailyRevMap = {};
+            let totalPeriodRev = 0;
+            (orders || []).forEach(o => {
+                if (!o.date_created) return;
+                const dt = new Date(o.date_created);
+                const yyyy = dt.getFullYear();
+                const mm = String(dt.getMonth() + 1).padStart(2, '0');
+                const dd = String(dt.getDate()).padStart(2, '0');
+                const key = `${dd}/${mm}/${yyyy}`;
+                const amt = Number(o.total_amount || 0);
+                dailyRevMap[key] = (dailyRevMap[key] || 0) + amt;
+                totalPeriodRev += amt;
+            });
+
+            let cur = new Date(sDate);
+            while (cur <= eDate) {
+                const yyyy = cur.getFullYear();
+                const mm = String(cur.getMonth() + 1).padStart(2, '0');
+                const dd = String(cur.getDate()).padStart(2, '0');
+                const dateStr = `${dd}/${mm}/${yyyy}`;
+                const dayRev = dailyRevMap[dateStr] || 0;
+
+                (campaigns || []).forEach(c => {
+                    const cCost = Number(c.cost || 0);
+                    const cSales = Number(c.total_amount || 0);
+                    const cClicks = Number(c.clicks || 0);
+                    const cPrints = Number(c.prints || 0);
+
+                    const dayCost = totalPeriodRev > 0 ? cCost * (dayRev / totalPeriodRev) : cCost / 30;
+                    const daySales = totalPeriodRev > 0 ? cSales * (dayRev / totalPeriodRev) : cSales / 30;
+                    const dayClicks = totalPeriodRev > 0 ? Math.round(cClicks * (dayRev / totalPeriodRev)) : Math.round(cClicks / 30);
+                    const dayPrints = totalPeriodRev > 0 ? Math.round(cPrints * (dayRev / totalPeriodRev)) : Math.round(cPrints / 30);
+
+                    const ctr = dayPrints > 0 ? (dayClicks / dayPrints * 100) : 0;
+                    const cpc = dayClicks > 0 ? (dayCost / dayClicks) : 0;
+                    const roas = dayCost > 0 ? (daySales / dayCost) : 0;
+                    const tacos = dayRev > 0 ? (dayCost / dayRev * 100) : 0;
+
+                    rows.push([
+                        dateStr,
+                        c.name || 'Campanha',
+                        c.status || 'active',
+                        dayClicks,
+                        dayPrints,
+                        `${ctr.toFixed(2)}%`,
+                        `R$ ${cpc.toFixed(2)}`,
+                        `R$ ${dayCost.toFixed(2)}`,
+                        `R$ ${daySales.toFixed(2)}`,
+                        `${roas.toFixed(2)}x`,
+                        `${tacos.toFixed(1)}%`
+                    ]);
+                });
+                cur.setDate(cur.getDate() + 1);
+            }
+        } else if (data_type === 'orders') {
             headers = ['Data', 'Pedido ID', 'Comprador', 'Item', 'Qtd', 'Total', 'Status', 'Pagamento', 'Envio'];
             const { data: orders } = await client.from('ml_orders')
                 .select('date_created, ml_order_id, buyer_nickname, item_title, quantity, total_amount, status, payment_status, shipping_status')
                 .eq('user_id', authUser.id)
+                .gte('date_created', startISO)
+                .lte('date_created', endISO)
                 .order('date_created', { ascending: false })
-                .limit(1000);
+                .limit(2000);
             rows = (orders || []).map(o => [
                 o.date_created ? new Date(o.date_created).toLocaleString('pt-BR') : '',
                 o.ml_order_id || '',
@@ -9956,18 +10145,28 @@ app.post('/api/google-sheets/export', async (req, res) => {
         } else if (data_type === 'dashboard') {
             headers = ['Métrica', 'Valor'];
             const { data: orders } = await client.from('ml_orders')
-                .select('total_amount')
-                .eq('user_id', authUser.id);
+                .select('total_amount, status, payment_status')
+                .eq('user_id', authUser.id)
+                .gte('date_created', startISO)
+                .lte('date_created', endISO);
             const { data: campaigns } = await client.from('ml_ad_campaigns')
-                .select('cost')
+                .select('cost, total_amount')
                 .eq('user_id', authUser.id);
-            const rev = (orders || []).reduce((s, o) => s + Number(o.total_amount || 0), 0);
+            const validOrders = (orders || []).filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled');
+            const rev = validOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
             const adsCost = (campaigns || []).reduce((s, c) => s + Number(c.cost || 0), 0);
+            const adsSales = (campaigns || []).reduce((s, c) => s + Number(c.total_amount || 0), 0);
             const tacosVal = rev > 0 ? (adsCost / rev * 100).toFixed(1) : '0';
+            const roasVal = adsCost > 0 ? (adsSales / adsCost).toFixed(2) : '0';
             rows = [
+                ['Período Inicial', sDate.toLocaleDateString('pt-BR')],
+                ['Período Final', eDate.toLocaleDateString('pt-BR')],
                 ['Faturamento Total', `R$ ${rev.toFixed(2)}`],
-                ['Total de Pedidos', (orders || []).length],
+                ['Total de Pedidos', validOrders.length],
+                ['Ticket Médio', validOrders.length > 0 ? `R$ ${(rev / validOrders.length).toFixed(2)}` : 'R$ 0,00'],
                 ['Gasto em Ads', `R$ ${adsCost.toFixed(2)}`],
+                ['Vendas em Ads', `R$ ${adsSales.toFixed(2)}`],
+                ['ROAS Geral', `${roasVal}x`],
                 ['TACOS', `${tacosVal}%`],
                 ['Data do Relatório', new Date().toLocaleString('pt-BR')]
             ];

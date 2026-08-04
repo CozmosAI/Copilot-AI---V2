@@ -304,7 +304,15 @@ export function MercadoLivreDashboard() {
   const [modalExportOpen, setModalExportOpen] = useState(false);
   const [exportSpreadsheetId, setExportSpreadsheetId] = useState('');
   const [exportSheetName, setExportSheetName] = useState('AXIS_ML');
-  const [exportDataType, setExportDataType] = useState<'orders' | 'items' | 'ads' | 'dashboard'>('orders');
+  const [exportDataType, setExportDataType] = useState<'daily_metrics' | 'orders' | 'items' | 'ads' | 'ads_daily' | 'dashboard'>('daily_metrics');
+  const [exportStartDate, setExportStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [exportEndDate, setExportEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
   const [exportingSheets, setExportingSheets] = useState(false);
 
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
@@ -366,6 +374,8 @@ export function MercadoLivreDashboard() {
           spreadsheet_id: exportSpreadsheetId,
           sheet_name: exportSheetName || 'AXIS_ML',
           data_type: exportDataType,
+          start_date: exportStartDate,
+          end_date: exportEndDate,
           sheets_token: sheetsToken
         })
       });
@@ -3139,11 +3149,81 @@ export function MercadoLivreDashboard() {
                     onChange={(e) => setExportDataType(e.target.value as any)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold focus:ring-2 focus:ring-emerald-600 outline-none transition-all"
                   >
-                    <option value="orders">Pedidos / Vendas</option>
-                    <option value="items">Anúncios (Itens)</option>
-                    <option value="ads">Product Ads</option>
-                    <option value="dashboard">Resumo / Dashboard</option>
+                    <option value="daily_metrics">📅 Métricas Diárias (Dia a Dia - Ex: Dia 1 ao 30)</option>
+                    <option value="orders">📦 Pedidos / Vendas Detalhadas</option>
+                    <option value="ads_daily">📢 Product Ads por Dia (Campanhas por Data)</option>
+                    <option value="ads">📊 Product Ads (Resumo Campanhas)</option>
+                    <option value="items">🏷️ Anúncios (Itens e Estoque)</option>
+                    <option value="dashboard">📈 Resumo Executivo / Dashboard</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Seleção de Intervalo de Datas */}
+              <div className="space-y-2 bg-slate-50/80 border border-slate-200/80 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">
+                    Período do Relatório
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(1);
+                        setExportStartDate(d.toISOString().split('T')[0]);
+                        setExportEndDate(new Date().toISOString().split('T')[0]);
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 cursor-pointer"
+                    >
+                      Mês Atual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        const past = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+                        setExportStartDate(past.toISOString().split('T')[0]);
+                        setExportEndDate(now.toISOString().split('T')[0]);
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 cursor-pointer"
+                    >
+                      30 Dias
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+                        setExportStartDate(past.toISOString().split('T')[0]);
+                        setExportEndDate(now.toISOString().split('T')[0]);
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 cursor-pointer"
+                    >
+                      7 Dias
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="block text-[10px] font-medium text-slate-500 mb-0.5">Data Início:</span>
+                    <input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-bold focus:ring-1 focus:ring-emerald-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-medium text-slate-500 mb-0.5">Data Fim:</span>
+                    <input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-bold focus:ring-1 focus:ring-emerald-600 outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
