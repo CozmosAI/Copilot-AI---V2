@@ -93,6 +93,44 @@ const Marketing: React.FC = () => {
   const [exportAggregation, setExportAggregation] = useState<'daily' | 'monthly' | 'total'>('total');
   const [exportCampaignIds, setExportCampaignIds] = useState<string[]>(['all']);
 
+  // Google Sheets Daily Automation States
+  const [sheetsAutomationEnabled, setSheetsAutomationEnabled] = useState(false);
+  const [sheetsAutomationLastRunAt, setSheetsAutomationLastRunAt] = useState<string | null>(null);
+  const [sheetsAutomationLastRunStatus, setSheetsAutomationLastRunStatus] = useState<string | null>(null);
+  const [sheetsAutomationLastRunError, setSheetsAutomationLastRunError] = useState<string | null>(null);
+  const [isSavingAutomation, setIsSavingAutomation] = useState(false);
+
+  useEffect(() => {
+    if (isSheetsModalOpen) {
+      const loadSheetsAutomation = async () => {
+        try {
+          const res = await apiFetch('/api/google-sheets/automation');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok && data.automation) {
+              setSheetsAutomationEnabled(data.automation.enabled);
+              setSheetsAutomationLastRunAt(data.automation.last_run_at);
+              setSheetsAutomationLastRunStatus(data.automation.last_run_status);
+              setSheetsAutomationLastRunError(data.automation.last_run_error);
+              if (data.automation.spreadsheet_id) {
+                setExportSpreadsheetId(data.automation.spreadsheet_id);
+              }
+              if (data.automation.campaign_ids) {
+                setExportCampaignIds(data.automation.campaign_ids);
+              }
+              if (data.automation.aggregation) {
+                setExportAggregation(data.automation.aggregation);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Erro ao carregar automação do Google Sheets:', err);
+        }
+      };
+      loadSheetsAutomation();
+    }
+  }, [isSheetsModalOpen]);
+
   useEffect(() => {
     if (marketingDateFilter.start) setExportStartDate(marketingDateFilter.start);
     if (marketingDateFilter.end) setExportEndDate(marketingDateFilter.end);
@@ -1286,6 +1324,48 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       setSheetsError(err.message || 'Ocorreu um erro desconhecido ao exportar.');
     } finally {
       setIsExportingSheets(false);
+    }
+  };
+
+  const handleSaveSheetsAutomation = async (enabledVal?: boolean) => {
+    const isEnabled = enabledVal !== undefined ? enabledVal : sheetsAutomationEnabled;
+    if (isEnabled && !exportSpreadsheetId.trim()) {
+      setSheetsError('Por favor, informe o ID ou link da planilha para configurar a atualização diária.');
+      return;
+    }
+
+    setIsSavingAutomation(true);
+    setSheetsError(null);
+    setSheetsSuccess(null);
+
+    try {
+      const res = await apiFetch('/api/google-sheets/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          spreadsheet_id: exportSpreadsheetId.trim(),
+          campaign_ids: exportCampaignIds,
+          aggregation: exportAggregation
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao salvar configuração de automação.');
+      }
+
+      setSheetsAutomationEnabled(data.automation.enabled);
+      setSheetsAutomationLastRunAt(data.automation.last_run_at);
+      setSheetsAutomationLastRunStatus(data.automation.last_run_status);
+      setSheetsAutomationLastRunError(data.automation.last_run_error);
+      
+      setSheetsSuccess(data.message || 'Configuração de atualização diária salva com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao salvar automação:', err);
+      setSheetsError(err.message || 'Erro desconhecido ao salvar.');
+    } finally {
+      setIsSavingAutomation(false);
     }
   };
 
@@ -4629,6 +4709,68 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                               <li>Google Ads - Palavras-Chave</li>
                               <li>Google Ads - Termos de Pesquisa</li>
                           </ul>
+                      </div>
+
+                      {/* Daily Automation Block */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shrink-0">
+                          <div className="flex items-center justify-between">
+                              <div>
+                                  <p className="text-xs font-bold text-slate-900">Atualização Diária Automática</p>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">
+                                      Exporta as campanhas automaticamente a cada 24 horas.
+                                  </p>
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                      const newVal = !sheetsAutomationEnabled;
+                                      setSheetsAutomationEnabled(newVal);
+                                      handleSaveSheetsAutomation(newVal);
+                                  }}
+                                  disabled={isSavingAutomation || !exportSpreadsheetId.trim()}
+                                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                      sheetsAutomationEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                  <span
+                                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                          sheetsAutomationEnabled ? 'translate-x-5' : 'translate-x-0'
+                                      }`}
+                                  />
+                              </button>
+                          </div>
+
+                          {sheetsAutomationEnabled && (
+                              <div className="border-t border-slate-200 pt-3 space-y-2 text-[10px] text-slate-600 animate-in fade-in duration-200">
+                                  <div className="flex justify-between items-center">
+                                      <span className="font-medium">Status da Automação:</span>
+                                      <span className={`font-bold uppercase ${
+                                          sheetsAutomationLastRunStatus === 'success' 
+                                              ? 'text-emerald-600' 
+                                              : sheetsAutomationLastRunStatus === 'error' 
+                                              ? 'text-rose-600' 
+                                              : 'text-slate-500'
+                                      }`}>
+                                          {sheetsAutomationLastRunStatus === 'success' 
+                                              ? 'Ativo & Atualizado' 
+                                              : sheetsAutomationLastRunStatus === 'error' 
+                                              ? 'Falha na Execução' 
+                                              : 'Agendado (Próximas 24h)'}
+                                      </span>
+                                  </div>
+                                  {sheetsAutomationLastRunAt && (
+                                      <div className="flex justify-between items-center text-slate-400">
+                                          <span>Última Execução:</span>
+                                          <span>{new Date(sheetsAutomationLastRunAt).toLocaleString('pt-BR')}</span>
+                                      </div>
+                                  )}
+                                  {sheetsAutomationLastRunStatus === 'error' && sheetsAutomationLastRunError && (
+                                      <div className="bg-rose-50 border border-rose-100 text-rose-700 p-2 rounded-lg mt-1 font-mono text-[9px] leading-relaxed break-all">
+                                          Erro: {sheetsAutomationLastRunError}
+                                      </div>
+                                  )}
+                              </div>
+                          )}
                       </div>
 
                       {/* Status Notifications */}

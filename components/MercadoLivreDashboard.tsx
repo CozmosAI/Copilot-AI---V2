@@ -333,6 +333,78 @@ export function MercadoLivreDashboard() {
   });
   const [exportingSheets, setExportingSheets] = useState(false);
 
+  // Google Sheets Daily Automation States (Mercado Livre)
+  const [mlSheetsAutomationEnabled, setMlSheetsAutomationEnabled] = useState(false);
+  const [mlSheetsAutomationLastRunAt, setMlSheetsAutomationLastRunAt] = useState<string | null>(null);
+  const [mlSheetsAutomationLastRunStatus, setMlSheetsAutomationLastRunStatus] = useState<string | null>(null);
+  const [mlSheetsAutomationLastRunError, setMlSheetsAutomationLastRunError] = useState<string | null>(null);
+  const [isSavingMlAutomation, setIsSavingMlAutomation] = useState(false);
+
+  useEffect(() => {
+    if (modalExportOpen) {
+      const loadMlSheetsAutomation = async () => {
+        try {
+          const res = await apiFetch('/api/ml/google-sheets/automation');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok && data.automation) {
+              setMlSheetsAutomationEnabled(data.automation.enabled);
+              setMlSheetsAutomationLastRunAt(data.automation.last_run_at);
+              setMlSheetsAutomationLastRunStatus(data.automation.last_run_status);
+              setMlSheetsAutomationLastRunError(data.automation.last_run_error);
+              if (data.automation.spreadsheet_id) {
+                setExportSpreadsheetId(data.automation.spreadsheet_id);
+              }
+              if (data.automation.sheet_name) {
+                setExportSheetName(data.automation.sheet_name);
+              }
+              if (data.automation.data_type) {
+                setExportDataType(data.automation.data_type);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Erro ao carregar automação do Google Sheets do Mercado Livre:', err);
+        }
+      };
+      loadMlSheetsAutomation();
+    }
+  }, [modalExportOpen]);
+
+  const handleToggleMlAutomation = async (isEnabled: boolean) => {
+    if (!exportSpreadsheetId) {
+      showToast('error', 'Por favor, informe a URL ou ID da planilha para salvar a automação.');
+      return;
+    }
+    setIsSavingMlAutomation(true);
+    try {
+      const res = await apiFetch('/api/ml/google-sheets/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          spreadsheet_id: exportSpreadsheetId.trim(),
+          sheet_name: exportSheetName || 'AXIS_ML',
+          data_type: exportDataType
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao salvar configuração de automação.');
+      }
+      setMlSheetsAutomationEnabled(data.automation.enabled);
+      setMlSheetsAutomationLastRunAt(data.automation.last_run_at);
+      setMlSheetsAutomationLastRunStatus(data.automation.last_run_status);
+      setMlSheetsAutomationLastRunError(data.automation.last_run_error);
+      showToast('success', isEnabled ? 'Atualização diária do Mercado Livre ativada!' : 'Atualização diária desativada.');
+    } catch (err: any) {
+      console.error('Erro ao salvar automação do Mercado Livre:', err);
+      showToast('error', err.message || 'Erro ao salvar.');
+    } finally {
+      setIsSavingMlAutomation(false);
+    }
+  };
+
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
     setToastMessage({ type, text });
     setTimeout(() => setToastMessage(null), 4000);
@@ -3733,6 +3805,59 @@ export function MercadoLivreDashboard() {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Automação de Exportação Diária */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="block text-xs font-bold text-slate-800">Exportação Diária Automática</span>
+                    <span className="block text-[10px] text-slate-500">Atualizar esta aba automaticamente todo dia</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleMlAutomation(!mlSheetsAutomationEnabled)}
+                    disabled={isSavingMlAutomation}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      mlSheetsAutomationEnabled ? 'bg-emerald-600' : 'bg-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        mlSheetsAutomationEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {mlSheetsAutomationEnabled && (
+                  <div className="border-t border-slate-200/60 pt-2.5 text-[10px] space-y-1.5 text-slate-600">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Status da Automação:</span>
+                      <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm text-[8px] ${
+                        mlSheetsAutomationLastRunStatus === 'success' ? 'bg-emerald-100 text-emerald-800' :
+                        mlSheetsAutomationLastRunStatus === 'error' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'
+                      }`}>
+                        {mlSheetsAutomationLastRunStatus === 'success' ? 'Ativo / Sucesso' :
+                         mlSheetsAutomationLastRunStatus === 'error' ? 'Erro na Execução' : 'Aguardando Primeira Execução'}
+                      </span>
+                    </div>
+                    {mlSheetsAutomationLastRunAt && (
+                      <div className="flex items-center justify-between">
+                        <span>Última Execução:</span>
+                        <span className="font-bold text-slate-800">{new Date(mlSheetsAutomationLastRunAt).toLocaleString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {mlSheetsAutomationLastRunError && (
+                      <div className="bg-rose-50 border border-rose-100 rounded-lg p-2 text-rose-700 mt-1 break-words font-medium">
+                        <strong>Erro:</strong> {mlSheetsAutomationLastRunError}
+                      </div>
+                    )}
+                    <p className="text-[9px] text-slate-400 leading-normal italic mt-1 text-center">
+                      A planilha selecionada acima será sincronizada diariamente em segundo plano.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3 text-xs text-emerald-800 space-y-2">

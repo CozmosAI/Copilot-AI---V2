@@ -4,5 +4,8 @@
   "description": "Uma plataforma inteligente para médicos e clínicas que transforma dados de marketing, vendas e financeiro em decisões estratégicas através de IA.",
   "requestFramePermissions": [
     "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
