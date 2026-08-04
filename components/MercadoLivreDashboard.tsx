@@ -293,6 +293,24 @@ export function MercadoLivreDashboard() {
     status: 'active'
   });
 
+  // Automated Ad Rules State
+  const [modalRulesOpen, setModalRulesOpen] = useState(false);
+  const [adRules, setAdRules] = useState<any[]>([]);
+  const [loadingRules, setLoadingRules] = useState(false);
+  const [isEvaluatingRules, setIsEvaluatingRules] = useState(false);
+  const [ruleEvaluationResult, setRuleEvaluationResult] = useState<any | null>(null);
+  const [modalNewRuleOpen, setModalNewRuleOpen] = useState(false);
+  const [ruleForm, setRuleForm] = useState({
+    name: '',
+    campaign_id: 'all',
+    metric: 'roas',
+    operator: '<',
+    target_value: 3.0,
+    days_window: 3,
+    action: 'reduce_budget_percent',
+    action_value: 20
+  });
+
   // Product Preview Drawer State
   const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
   const [selectedPreviewItemId, setSelectedPreviewItemId] = useState<string | null>(null);
@@ -741,12 +759,13 @@ export function MercadoLivreDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: modalEditCampaign.name,
+          status: modalEditCampaign.status || 'active',
           budget_amount: Number(modalEditCampaign.budget_amount || modalEditCampaign.daily_budget),
           roas_target: Number(modalEditCampaign.roas_target || modalEditCampaign.target_acos)
         })
       });
       if (res.ok) {
-        showToast('success', 'Campanha atualizada!');
+        showToast('success', 'Campanha atualizada com sucesso!');
         setModalEditCampaign(null);
         loadCampaigns();
       } else {
@@ -775,6 +794,113 @@ export function MercadoLivreDashboard() {
       }
     } catch (err: any) {
       showToast('error', err.message || 'Erro ao excluir');
+    }
+  };
+
+  // --- HANDLERS DE REGRAS AUTOMÁTICAS DE PRODUCT ADS ---
+  const loadAdRules = async () => {
+    setLoadingRules(true);
+    try {
+      const res = await apiFetch('/api/ml/advertising/rules');
+      if (res.ok) {
+        const data = await safeJsonResponse(res);
+        setAdRules(data.rules || []);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar regras de ads:', err);
+    } finally {
+      setLoadingRules(false);
+    }
+  };
+
+  const handleCreateAdRule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      showToast('info', 'Criando regra automática...');
+      const res = await apiFetch('/api/ml/advertising/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ruleForm)
+      });
+      if (res.ok) {
+        showToast('success', 'Regra criada com sucesso!');
+        setModalNewRuleOpen(false);
+        setRuleForm({
+          name: '',
+          campaign_id: 'all',
+          metric: 'roas',
+          operator: '<',
+          target_value: 3.0,
+          days_window: 3,
+          action: 'reduce_budget_percent',
+          action_value: 20
+        });
+        loadAdRules();
+      } else {
+        const data = await safeJsonResponse(res);
+        showToast('error', data.error || 'Erro ao criar regra');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao salvar');
+    }
+  };
+
+  const handleToggleRuleStatus = async (rule: any) => {
+    const newStatus = rule.status === 'active' ? 'paused' : 'active';
+    try {
+      const res = await apiFetch(`/api/ml/advertising/rules/${rule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        showToast('success', `Regra ${newStatus === 'active' ? 'ativada' : 'pausada'}!`);
+        loadAdRules();
+      }
+    } catch (err) {
+      showToast('error', 'Erro ao alterar status da regra');
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!window.confirm('Deseja realmente excluir esta regra automática?')) return;
+    try {
+      const res = await apiFetch(`/api/ml/advertising/rules/${ruleId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast('success', 'Regra excluída');
+        loadAdRules();
+      }
+    } catch (err) {
+      showToast('error', 'Erro ao excluir regra');
+    }
+  };
+
+  const handleEvaluateRules = async () => {
+    setIsEvaluatingRules(true);
+    setRuleEvaluationResult(null);
+    try {
+      showToast('info', 'Avaliando e executando regras de automação...');
+      const res = await apiFetch('/api/ml/advertising/rules/evaluate', {
+        method: 'POST'
+      });
+      const data = await safeJsonResponse(res);
+      if (res.ok) {
+        setRuleEvaluationResult(data);
+        if (data.triggered_count > 0) {
+          showToast('success', `⚡ ${data.triggered_count} ação(ões) executadas com sucesso!`);
+          loadCampaigns();
+        } else {
+          showToast('info', 'Todas as regras foram avaliadas. Nenhuma ação necessária.');
+        }
+      } else {
+        showToast('error', data.error || 'Erro ao avaliar regras');
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao executar automações');
+    } finally {
+      setIsEvaluatingRules(false);
     }
   };
 
@@ -2282,18 +2408,42 @@ export function MercadoLivreDashboard() {
                 Gerencie suas campanhas de publicidade do Mercado Livre, analise métricas de ROAS, CTR e crie relatórios executivos com Gemini IA.
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setModalRulesOpen(true);
+                  loadAdRules();
+                }}
+                className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all"
+              >
+                <Sliders size={14} className="text-amber-600" />
+                <span>Regras Automáticas</span>
+                {adRules.length > 0 && (
+                  <span className="bg-amber-200 text-amber-900 font-extrabold px-1.5 py-0.5 rounded-full text-[10px]">
+                    {adRules.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={handleEvaluateRules}
+                disabled={isEvaluatingRules}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+                title="Avaliar regras e aplicar ajustes de ACOS/Orçamento imediatamente"
+              >
+                <Zap size={14} className={isEvaluatingRules ? 'animate-bounce' : ''} />
+                {isEvaluatingRules ? 'Avaliando...' : 'Executar Automações'}
+              </button>
               <button
                 onClick={handleSyncAds}
                 disabled={isSyncingAds}
-                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
               >
                 <RefreshCw size={14} className={isSyncingAds ? 'animate-spin text-blue-600' : 'text-slate-500'} />
-                {isSyncingAds ? 'Sincronizando...' : 'Sincronizar Product Ads'}
+                {isSyncingAds ? 'Sincronizando...' : 'Sincronizar Ads'}
               </button>
               <button
                 onClick={() => setModalNewCampaignOpen(true)}
-                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all"
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition-all"
               >
                 <Plus size={14} /> Nova Campanha
               </button>
@@ -2773,7 +2923,7 @@ export function MercadoLivreDashboard() {
         </div>
       )}
 
-      {/* MODAL: EDITAR CAMPANHA */}
+      {/* MODAL: EDITAR CAMPANHA DE PRODUCT ADS */}
       {modalEditCampaign && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
@@ -2804,6 +2954,36 @@ export function MercadoLivreDashboard() {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Status da Campanha
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalEditCampaign({ ...modalEditCampaign, status: 'active' })}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                      (modalEditCampaign.status || 'active') === 'active'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800 ring-1 ring-emerald-500'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Play size={14} className="text-emerald-600 fill-emerald-600" /> Ativa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalEditCampaign({ ...modalEditCampaign, status: 'paused' })}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                      modalEditCampaign.status === 'paused'
+                        ? 'bg-amber-50 border-amber-500 text-amber-800 ring-1 ring-amber-500'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Pause size={14} className="text-amber-600 fill-amber-600" /> Pausada
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -2821,17 +3001,55 @@ export function MercadoLivreDashboard() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    ROAS Target (x)
+                    ROAS Alvo (x)
                   </label>
                   <input
                     type="number"
                     required
                     min="1"
-                    step="0.5"
-                    value={modalEditCampaign.roas_target || modalEditCampaign.target_acos || 15}
+                    step="0.1"
+                    value={modalEditCampaign.roas_target || modalEditCampaign.target_acos || 5}
                     onChange={(e) => setModalEditCampaign({ ...modalEditCampaign, roas_target: Number(e.target.value) })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Equivalente a <strong className="text-slate-800">{(100 / (Number(modalEditCampaign.roas_target || modalEditCampaign.target_acos) || 5)).toFixed(1)}% ACOS Target</strong>
+                  </p>
+                </div>
+              </div>
+
+              {/* Presets de ESTRATÉGIA */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Estratégia Recomendada</span>
+                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setModalEditCampaign({ ...modalEditCampaign, roas_target: 3.3 })}
+                    className="p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-left font-medium text-slate-700"
+                  >
+                    🚀 <strong>Agressivo</strong> (ROAS 3.3x / ACOS 30%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalEditCampaign({ ...modalEditCampaign, roas_target: 5.0 })}
+                    className="p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-left font-medium text-slate-700"
+                  >
+                    📈 <strong>Crescimento</strong> (ROAS 5.0x / ACOS 20%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalEditCampaign({ ...modalEditCampaign, roas_target: 7.0 })}
+                    className="p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-left font-medium text-slate-700"
+                  >
+                    🎯 <strong>Equilibrado</strong> (ROAS 7.0x / ACOS 14%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalEditCampaign({ ...modalEditCampaign, roas_target: 10.0 })}
+                    className="p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-left font-medium text-slate-700"
+                  >
+                    🛡️ <strong>Rentabilidade</strong> (ROAS 10x / ACOS 10%)
+                  </button>
                 </div>
               </div>
 
@@ -2848,6 +3066,296 @@ export function MercadoLivreDashboard() {
                   className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs"
                 >
                   Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: GERENCIAR REGRAS AUTOMÁTICAS DE PRODUCT ADS */}
+      {modalRulesOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Sliders size={18} className="text-amber-500" />
+                  Regras Automáticas de Ads (Product Ads Control)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Crie automações para pausar campanhas de baixo desempenho, reduzir orçamentos ou ajustar ACOS alvo.
+                </p>
+              </div>
+              <button
+                onClick={() => setModalRulesOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 p-3.5 rounded-xl">
+              <div className="flex items-center gap-2 text-xs font-medium text-amber-900">
+                <Zap size={16} className="text-amber-600 fill-amber-600 shrink-0" />
+                <span>As regras são avaliadas periodicamente com base nos dados do Mercado Livre.</span>
+              </div>
+              <button
+                onClick={handleEvaluateRules}
+                disabled={isEvaluatingRules}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shrink-0 shadow-xs transition-all disabled:opacity-50"
+              >
+                <Zap size={12} className={isEvaluatingRules ? 'animate-bounce' : ''} />
+                {isEvaluatingRules ? 'Executando...' : 'Testar Agora'}
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Regras Configuradas ({adRules.length})</h4>
+                <button
+                  onClick={() => setModalNewRuleOpen(true)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs transition-all"
+                >
+                  <Plus size={14} /> Nova Regra
+                </button>
+              </div>
+
+              {loadingRules ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-slate-600" />
+                  Carregando regras...
+                </div>
+              ) : adRules.length === 0 ? (
+                <div className="p-8 border border-dashed border-slate-200 rounded-xl text-center space-y-2">
+                  <Sliders size={28} className="text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700">Nenhuma regra automática cadastrada</p>
+                  <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                    Exemplo: "Se o ROAS da campanha ficar abaixo de 3.0x por 3 dias, reduzir orçamento em 20%".
+                  </p>
+                  <button
+                    onClick={() => setModalNewRuleOpen(true)}
+                    className="mt-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-xl transition-all"
+                  >
+                    Criar Primeira Regra
+                  </button>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                  {adRules.map((rule) => {
+                    const isActive = rule.status === 'active';
+                    return (
+                      <div key={rule.id} className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                            <h5 className="text-xs font-bold text-slate-900">{rule.name}</h5>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {isActive ? 'Ativa' : 'Pausada'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 font-medium">
+                            <strong className="text-slate-800">SE</strong> {rule.metric?.toUpperCase()} {rule.operator} {rule.target_value} ({rule.days_window || 3} dias)
+                            <span className="mx-1.5 text-slate-400">→</span>
+                            <strong className="text-amber-800">ENTÃO</strong> {rule.action === 'reduce_budget_percent' ? `Reduzir orçamento em ${rule.action_value}%` :
+                             rule.action === 'increase_budget_percent' ? `Aumentar orçamento em ${rule.action_value}%` :
+                             rule.action === 'pause_campaign' ? 'Pausar Campanha' :
+                             rule.action === 'activate_campaign' ? 'Ativar Campanha' :
+                             `Definir ROAS em ${rule.action_value}x`}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            Aplica-se a: {rule.campaign_id === 'all' ? 'Todas as Campanhas' : `Campanha ID #${rule.campaign_id}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          <button
+                            onClick={() => handleToggleRuleStatus(rule)}
+                            className={`p-1.5 rounded-lg border text-xs font-bold transition-all ${
+                              isActive ? 'border-amber-200 hover:bg-amber-50 text-amber-700' : 'border-emerald-200 hover:bg-emerald-50 text-emerald-700'
+                            }`}
+                            title={isActive ? 'Pausar Regra' : 'Ativar Regra'}
+                          >
+                            {isActive ? <Pause size={14} /> : <Play size={14} />}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRule(rule.id)}
+                            className="p-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 transition-all"
+                            title="Excluir Regra"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setModalRulesOpen(false)}
+                className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CRIAR NOVA REGRA AUTOMÁTICA */}
+      {modalNewRuleOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Zap size={18} className="text-amber-500 fill-amber-500" />
+                Criar Nova Regra Automática
+              </h3>
+              <button
+                onClick={() => setModalNewRuleOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAdRule} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Nome da Regra
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Reduzir orçamento se ROAS < 3.0"
+                  value={ruleForm.name}
+                  onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Campanha Aplicável
+                </label>
+                <select
+                  value={ruleForm.campaign_id}
+                  onChange={(e) => setRuleForm({ ...ruleForm, campaign_id: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-slate-900 focus:bg-white outline-none transition-all"
+                >
+                  <option value="all">Todas as Campanhas de Product Ads</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id || c.campaign_id} value={c.campaign_id || c.id}>
+                      {c.name || `Campanha #${c.campaign_id || c.id}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* CONDIÇÃO SE */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider block">
+                  1. Condição (SE)
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Métrica</label>
+                    <select
+                      value={ruleForm.metric}
+                      onChange={(e) => setRuleForm({ ...ruleForm, metric: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none"
+                    >
+                      <option value="roas">ROAS Real (x)</option>
+                      <option value="tacos">TACOS (%)</option>
+                      <option value="cost">Gasto Total (R$)</option>
+                      <option value="clicks">Cliques</option>
+                      <option value="ctr">CTR (%)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Condição</label>
+                    <select
+                      value={ruleForm.operator}
+                      onChange={(e) => setRuleForm({ ...ruleForm, operator: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none"
+                    >
+                      <option value="<">Menor que (&lt;)</option>
+                      <option value=">">Maior que (&gt;)</option>
+                      <option value="<=">Menor ou igual (&le;)</option>
+                      <option value=">=">Maior ou igual (&ge;)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Valor Limite</label>
+                    <input
+                      type="number"
+                      required
+                      step="0.1"
+                      value={ruleForm.target_value}
+                      onChange={(e) => setRuleForm({ ...ruleForm, target_value: Number(e.target.value) })}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* AÇÃO ENTÃO */}
+              <div className="bg-amber-50/70 p-3.5 rounded-xl border border-amber-200 space-y-3">
+                <span className="text-xs font-bold text-amber-900 uppercase tracking-wider block">
+                  2. Ação Automática (ENTÃO)
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-amber-800 uppercase mb-1">Ação</label>
+                    <select
+                      value={ruleForm.action}
+                      onChange={(e) => setRuleForm({ ...ruleForm, action: e.target.value })}
+                      className="w-full bg-white border border-amber-200 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none"
+                    >
+                      <option value="reduce_budget_percent">Reduzir Orçamento (%)</option>
+                      <option value="increase_budget_percent">Aumentar Orçamento (%)</option>
+                      <option value="pause_campaign">Pausar Campanha</option>
+                      <option value="activate_campaign">Ativar Campanha</option>
+                      <option value="set_target_acos">Definir Novo ROAS Alvo</option>
+                    </select>
+                  </div>
+                  {['reduce_budget_percent', 'increase_budget_percent', 'set_target_acos'].includes(ruleForm.action) && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-800 uppercase mb-1">
+                        {ruleForm.action.includes('percent') ? 'Percentual (%)' : 'Novo ROAS (x)'}
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="1"
+                        step="1"
+                        value={ruleForm.action_value}
+                        onChange={(e) => setRuleForm({ ...ruleForm, action_value: Number(e.target.value) })}
+                        className="w-full bg-white border border-amber-200 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalNewRuleOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs"
+                >
+                  Salvar Regra
                 </button>
               </div>
             </form>

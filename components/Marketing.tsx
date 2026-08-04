@@ -5,7 +5,7 @@ import {
   Instagram, DollarSign, TrendingUp, Bot, Users, Target, MousePointer2, Eye,
   Filter, Loader2, Zap, AlertCircle, LayoutDashboard, Layers, Grid, Type, MessageSquare,
   ArrowUpRight, ArrowDownRight, Search, ChevronDown, ChevronUp, ChevronRight, X, Plus, Trash2, Calculator, Save, Bell,
-  FileUp, Download, Image as ImageIcon, Play, Pause, Pencil, Settings, Folder, HelpCircle, Edit2
+  FileUp, Download, Image as ImageIcon, Play, Pause, Pencil, Settings, Folder, HelpCircle, Edit2, FileSpreadsheet
 } from 'lucide-react';
 import { AdPreviewDrawer } from './AdPreviewDrawer';
 import { 
@@ -22,6 +22,7 @@ import {
   getMetaOverview, getMetaCampaigns, getMetaAdGroups, getMetaAds, getMetaSearchTerms,
   toggleMetaCampaignStatus, updateMetaCampaignBudget
 } from '../services/metaAdsService';
+import { signInWithGoogleSheets } from '../services/googleSheetsService';
 import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
 import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
 import { CustomMetricBuilder } from './CustomMetricBuilder';
@@ -76,10 +77,24 @@ const DEFAULT_METRIC_STYLES: Record<string, { label: string, color: string, axis
 };
 
 const Marketing: React.FC = () => {
-  const { marketingDateFilter, setMarketingDateFilterByLabel, setMarketingCustomDateRange, googleAdsToken, metrics, user, metaAdsStatus, adsData, preloadAdsData } = useApp();
+  const { marketingDateFilter, setMarketingDateFilterByLabel, setMarketingCustomDateRange, googleAdsToken, googleSheetsToken, setGoogleSheetsToken, metrics, user, metaAdsStatus, adsData, preloadAdsData } = useApp();
   const [loading, setLoading] = useState(false);
   const [activePlatform, setActivePlatform] = useState<'google' | 'meta'>('google');
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adgroups' | 'keywords' | 'ads' | 'assetgroups' | 'searchterms' | 'accounts'>('overview');
+  
+  // Google Sheets Export States
+  const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
+  const [exportSpreadsheetId, setExportSpreadsheetId] = useState(() => localStorage.getItem('google_sheets_export_id') || '');
+  const [isExportingSheets, setIsExportingSheets] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState(() => marketingDateFilter.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [exportEndDate, setExportEndDate] = useState(() => marketingDateFilter.end || new Date().toISOString().split('T')[0]);
+  const [sheetsError, setSheetsError] = useState<string | null>(null);
+  const [sheetsSuccess, setSheetsSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (marketingDateFilter.start) setExportStartDate(marketingDateFilter.start);
+    if (marketingDateFilter.end) setExportEndDate(marketingDateFilter.end);
+  }, [marketingDateFilter]);
   
   // Data States
   const [overviewData, setOverviewData] = useState<any[]>([]);
@@ -1212,6 +1227,59 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
       }
   };
 
+  const handleConnectSheets = async () => {
+    try {
+      await signInWithGoogleSheets();
+    } catch (err: any) {
+      alert("Erro ao conectar ao Google Sheets: " + err.message);
+    }
+  };
+
+  const handleExportGoogleAdsToSheets = async () => {
+    if (!exportSpreadsheetId.trim()) {
+      setSheetsError('Por favor, informe o ID ou link da planilha.');
+      return;
+    }
+    
+    setIsExportingSheets(true);
+    setSheetsError(null);
+    setSheetsSuccess(null);
+    
+    try {
+      localStorage.setItem('google_sheets_export_id', exportSpreadsheetId.trim());
+      
+      const res = await apiFetch('/api/google-sheets/export', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          spreadsheet_id: exportSpreadsheetId.trim(),
+          data_type: 'google_ads',
+          start_date: exportStartDate,
+          end_date: exportEndDate,
+          sheets_token: googleSheetsToken
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        if (res.status === 401 || data.code === 'UNAUTHENTICATED') {
+          throw new Error('Autenticação expirada do Google Sheets. Por favor, reautorize sua conta clicando em conectar.');
+        }
+        throw new Error(data.error || 'Erro ao exportar dados para a planilha.');
+      }
+      
+      setSheetsSuccess('Dados do Google Ads exportados com sucesso! Verifique sua planilha.');
+    } catch (err: any) {
+      console.error('[Google Ads Sheet Export Error]:', err);
+      setSheetsError(err.message || 'Ocorreu um erro desconhecido ao exportar.');
+    } finally {
+      setIsExportingSheets(false);
+    }
+  };
+
   const isPlatformConnected = activePlatform === 'meta' ? !!metaAdsStatus : isConnected;
 
   return (
@@ -1276,6 +1344,22 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                     >
                         <FileUp size={18} />
                     </button>
+
+                    {/* EXPORT GOOGLE SHEETS */}
+                    {activePlatform === 'google' && (
+                        <button 
+                            onClick={() => {
+                                setSheetsError(null);
+                                setSheetsSuccess(null);
+                                setIsSheetsModalOpen(true);
+                            }}
+                            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 hover:text-emerald-700 transition-all shadow-sm shrink-0 flex items-center gap-1.5 font-semibold text-xs px-3"
+                            title="Exportar para Google Sheets"
+                        >
+                            <FileSpreadsheet size={16} />
+                            <span className="hidden sm:inline">Exportar para Sheets</span>
+                        </button>
+                    )}
 
                     {/* ALERTS */}
                     <div className="relative shrink-0">
@@ -4334,6 +4418,134 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                               <><Loader2 size={16} className="animate-spin" /> Gerando...</>
                           ) : (
                               <><Download size={16} /> Baixar PDF</>
+                          )}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* GOOGLE SHEETS EXPORT MODAL */}
+      {isSheetsModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl"><FileSpreadsheet size={20} /></div>
+                          <h3 className="text-lg font-bold text-slate-900">Exportar para Google Sheets</h3>
+                      </div>
+                      <button onClick={() => setIsSheetsModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={20} /></button>
+                  </div>
+                  
+                  <div className="p-6 space-y-6">
+                      {/* Connection Status */}
+                      <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                          <div>
+                              <p className="text-xs font-bold text-slate-900">Google Sheets Integration</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">
+                                  {googleSheetsToken ? "Conectado e pronto para exportar" : "Requer conexão para autorizar exportação"}
+                              </p>
+                          </div>
+                          {googleSheetsToken ? (
+                              <button 
+                                  onClick={handleConnectSheets} 
+                                  className="px-3 py-1.5 border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase rounded-lg hover:bg-emerald-100 transition-all"
+                              >
+                                  Reautorizar
+                              </button>
+                          ) : (
+                              <button 
+                                  onClick={handleConnectSheets} 
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase rounded-lg shadow-sm hover:shadow-md transition-all"
+                              >
+                                  Conectar
+                              </button>
+                          )}
+                      </div>
+
+                      {/* Spreadsheet Link / ID */}
+                      <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Link ou ID da Planilha</label>
+                          <input 
+                              type="text" 
+                              value={exportSpreadsheetId}
+                              onChange={(e) => setExportSpreadsheetId(e.target.value)}
+                              placeholder="Ex: https://docs.google.com/spreadsheets/d/..."
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
+                              disabled={isExportingSheets}
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1.5">
+                              Insira o link completo da sua planilha ou o ID correspondente.
+                          </p>
+                      </div>
+
+                      {/* Custom Dates for Export */}
+                      <div className="grid grid-cols-2 gap-3 bg-slate-50/50 p-3 rounded-2xl border border-slate-150">
+                          <div>
+                              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Data Início</label>
+                              <input 
+                                  type="date"
+                                  value={exportStartDate}
+                                  onChange={(e) => setExportStartDate(e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-emerald-500"
+                                  disabled={isExportingSheets}
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Data Fim</label>
+                              <input 
+                                  type="date"
+                                  value={exportEndDate}
+                                  onChange={(e) => setExportEndDate(e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-emerald-500"
+                                  disabled={isExportingSheets}
+                              />
+                          </div>
+                      </div>
+
+                      {/* Information */}
+                      <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                          <h4 className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1 flex items-center gap-1">📋 Relatório Multi-Abas</h4>
+                          <p className="text-[10px] text-slate-600 leading-relaxed">
+                              Esta exportação criará ou substituirá automaticamente 3 abas separadas na planilha fornecida:
+                          </p>
+                          <ul className="text-[10px] text-slate-600 font-bold mt-1.5 list-disc pl-4 space-y-1">
+                              <li>Google Ads - Campanhas</li>
+                              <li>Google Ads - Palavras-Chave</li>
+                              <li>Google Ads - Termos de Pesquisa</li>
+                          </ul>
+                      </div>
+
+                      {/* Status Notifications */}
+                      {sheetsError && (
+                          <div className="p-3.5 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl font-medium">
+                              ⚠️ {sheetsError}
+                          </div>
+                      )}
+                      {sheetsSuccess && (
+                          <div className="p-3.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs rounded-xl font-medium">
+                              ✅ {sheetsSuccess}
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+                      <button 
+                          onClick={() => setIsSheetsModalOpen(false)}
+                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors"
+                          disabled={isExportingSheets}
+                      >
+                          Fechar
+                      </button>
+                      <button 
+                          onClick={handleExportGoogleAdsToSheets}
+                          disabled={isExportingSheets || !googleSheetsToken}
+                          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                      >
+                          {isExportingSheets ? (
+                              <><Loader2 size={16} className="animate-spin" /> Exportando...</>
+                          ) : (
+                              <><FileSpreadsheet size={16} /> Exportar para Sheets</>
                           )}
                       </button>
                   </div>

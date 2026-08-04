@@ -10699,6 +10699,307 @@ app.delete('/api/ml/advertising/campaigns/:id', async (req, res) => {
     }
 });
 
+// --- HELPER DE REGRAS AUTOMÁTICAS DE ADS ---
+async function getAdRules(userId) {
+    const client = supabaseAdmin || supabase;
+    try {
+        const { data, error } = await client.from('ml_ad_rules').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+        if (!error && Array.isArray(data)) return data;
+    } catch (e) {}
+    try {
+        const { data } = await client.from('profiles').select('ml_ad_rules').eq('id', userId).maybeSingle();
+        return Array.isArray(data?.ml_ad_rules) ? data.ml_ad_rules : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+async function saveAdRulesFallback(userId, rules) {
+    const client = supabaseAdmin || supabase;
+    try {
+        await client.from('profiles').update({ ml_ad_rules: rules }).eq('id', userId);
+    } catch (e) {}
+}
+
+// 7) GET /api/ml/advertising/rules (Listar Regras Automáticas)
+app.get('/api/ml/advertising/rules', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const rules = await getAdRules(authUser.id);
+        res.json({ ok: true, rules });
+    } catch (err) {
+        console.error('[ML Ad Rules] GET erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 8) POST /api/ml/advertising/rules (Criar Regra Automática)
+app.post('/api/ml/advertising/rules', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const { name, campaign_id, metric, operator, target_value, days_window, action, action_value } = req.body;
+        if (!name || !metric || !operator || target_value === undefined || !action) {
+            return res.status(400).json({ error: 'Preencha todos os campos obrigatórios da regra' });
+        }
+
+        const newRule = {
+            id: 'rule_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+            user_id: authUser.id,
+            name,
+            campaign_id: campaign_id || 'all',
+            metric, // 'roas', 'tacos', 'cost', 'clicks', 'ctr'
+            operator, // '<', '>', '<=', '>='
+            target_value: Number(target_value),
+            days_window: Number(days_window || 3),
+            action, // 'pause_campaign', 'activate_campaign', 'reduce_budget_percent', 'increase_budget_percent', 'set_target_acos'
+            action_value: action_value !== undefined ? Number(action_value) : null,
+            status: 'active',
+            last_run_at: null,
+            created_at: new Date().toISOString()
+        };
+
+        const client = supabaseAdmin || supabase;
+        try {
+            const { data, error } = await client.from('ml_ad_rules').insert([newRule]).select().single();
+            if (!error && data) {
+                return res.json({ ok: true, rule: data });
+            }
+        } catch (e) {}
+
+        // Fallback no profiles
+        const existingRules = await getAdRules(authUser.id);
+        const updatedRules = [newRule, ...existingRules];
+        await saveAdRulesFallback(authUser.id, updatedRules);
+
+        res.json({ ok: true, rule: newRule });
+    } catch (err) {
+        console.error('[ML Ad Rules] POST erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 9) PUT /api/ml/advertising/rules/:id (Atualizar ou Alternar Ativa/Pausada)
+app.put('/api/ml/advertising/rules/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const ruleId = req.params.id;
+        const updates = req.body;
+
+        const client = supabaseAdmin || supabase;
+        try {
+            const { data, error } = await client.from('ml_ad_rules')
+                .update(updates)
+                .eq('id', ruleId)
+                .eq('user_id', authUser.id)
+                .select()
+                .maybeSingle();
+            if (!error && data) {
+                return res.json({ ok: true, rule: data });
+            }
+        } catch (e) {}
+
+        // Fallback profiles
+        const existingRules = await getAdRules(authUser.id);
+        const updatedRules = existingRules.map(r => r.id === ruleId ? { ...r, ...updates } : r);
+        await saveAdRulesFallback(authUser.id, updatedRules);
+
+        const updatedRule = updatedRules.find(r => r.id === ruleId);
+        res.json({ ok: true, rule: updatedRule });
+    } catch (err) {
+        console.error('[ML Ad Rules] PUT erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 10) DELETE /api/ml/advertising/rules/:id (Excluir Regra)
+app.delete('/api/ml/advertising/rules/:id', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const ruleId = req.params.id;
+        const client = supabaseAdmin || supabase;
+        try {
+            await client.from('ml_ad_rules').delete().eq('id', ruleId).eq('user_id', authUser.id);
+        } catch (e) {}
+
+        const existingRules = await getAdRules(authUser.id);
+        const updatedRules = existingRules.filter(r => r.id !== ruleId);
+        await saveAdRulesFallback(authUser.id, updatedRules);
+
+        res.json({ ok: true, message: 'Regra excluída com sucesso' });
+    } catch (err) {
+        console.error('[ML Ad Rules] DELETE erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 11) POST /api/ml/advertising/rules/evaluate (Executar/Avaliar Regras Automáticas)
+app.post('/api/ml/advertising/rules/evaluate', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const rules = await getAdRules(authUser.id);
+        const activeRules = rules.filter(r => r.status === 'active');
+
+        if (activeRules.length === 0) {
+            return res.json({ ok: true, message: 'Nenhuma regra ativa para executar', triggered_actions: [] });
+        }
+
+        const client = supabaseAdmin || supabase;
+        const { data: campaigns } = await client.from('ml_ad_campaigns')
+            .select('*')
+            .eq('user_id', authUser.id);
+
+        if (!campaigns || campaigns.length === 0) {
+            return res.json({ ok: true, message: 'Nenhuma campanha encontrada para avaliar', triggered_actions: [] });
+        }
+
+        let token = null;
+        let siteId = 'MLB';
+        try {
+            const advInfo = await getMlAdvertiserId(authUser.id);
+            siteId = advInfo.site_id || 'MLB';
+            token = await getValidMlToken(authUser.id);
+        } catch (e) {
+            console.warn('[Ad Rules Evaluate] Token ML não disponível:', e.message);
+        }
+
+        const triggeredActions = [];
+
+        for (const rule of activeRules) {
+            const targetCamps = (rule.campaign_id === 'all' || !rule.campaign_id)
+                ? campaigns
+                : campaigns.filter(c => String(c.campaign_id) === String(rule.campaign_id) || String(c.id) === String(rule.campaign_id));
+
+            for (const camp of targetCamps) {
+                // Pegar valor da métrica
+                let metricVal = 0;
+                if (rule.metric === 'roas') metricVal = Number(camp.roas || (camp.cost > 0 ? camp.total_amount / camp.cost : 0));
+                else if (rule.metric === 'tacos') metricVal = Number(camp.tacos || 0);
+                else if (rule.metric === 'cost') metricVal = Number(camp.cost || 0);
+                else if (rule.metric === 'clicks') metricVal = Number(camp.clicks || 0);
+                else if (rule.metric === 'ctr') metricVal = Number(camp.ctr || 0);
+
+                let isTriggered = false;
+                if (rule.operator === '<' || rule.operator === 'below') isTriggered = metricVal < rule.target_value;
+                else if (rule.operator === '>') isTriggered = metricVal > rule.target_value;
+                else if (rule.operator === '<=') isTriggered = metricVal <= rule.target_value;
+                else if (rule.operator === '>=') isTriggered = metricVal >= rule.target_value;
+
+                if (isTriggered) {
+                    let actionDescription = '';
+                    const campId = camp.campaign_id;
+                    const updatePayload = { updated_at_ml: new Date().toISOString() };
+                    const mlApiPayload = {};
+
+                    if (rule.action === 'pause_campaign') {
+                        if (camp.status !== 'paused') {
+                            updatePayload.status = 'paused';
+                            mlApiPayload.status = 'paused';
+                            actionDescription = `Pausou a campanha "${camp.name}" (${rule.metric.toUpperCase()} = ${metricVal.toFixed(2)} ${rule.operator} ${rule.target_value})`;
+                        }
+                    } else if (rule.action === 'activate_campaign') {
+                        if (camp.status !== 'active') {
+                            updatePayload.status = 'active';
+                            mlApiPayload.status = 'active';
+                            actionDescription = `Ativou a campanha "${camp.name}" (${rule.metric.toUpperCase()} = ${metricVal.toFixed(2)} ${rule.operator} ${rule.target_value})`;
+                        }
+                    } else if (rule.action === 'reduce_budget_percent') {
+                        const pct = rule.action_value || 20;
+                        const oldBudget = Number(camp.budget_amount || 0);
+                        const newBudget = Math.max(10, Number((oldBudget * (1 - pct / 100)).toFixed(2)));
+                        updatePayload.budget_amount = newBudget;
+                        mlApiPayload.budget = { amount: newBudget, type: camp.budget_type || 'daily' };
+                        actionDescription = `Reduziu orçamento da campanha "${camp.name}" de R$ ${oldBudget.toFixed(2)} para R$ ${newBudget.toFixed(2)} (-${pct}%)`;
+                    } else if (rule.action === 'increase_budget_percent') {
+                        const pct = rule.action_value || 20;
+                        const oldBudget = Number(camp.budget_amount || 0);
+                        const newBudget = Number((oldBudget * (1 + pct / 100)).toFixed(2));
+                        updatePayload.budget_amount = newBudget;
+                        mlApiPayload.budget = { amount: newBudget, type: camp.budget_type || 'daily' };
+                        actionDescription = `Aumentou orçamento da campanha "${camp.name}" de R$ ${oldBudget.toFixed(2)} para R$ ${newBudget.toFixed(2)} (+${pct}%)`;
+                    } else if (rule.action === 'set_target_acos') {
+                        const targetVal = rule.action_value || 15;
+                        updatePayload.roas_target = targetVal;
+                        mlApiPayload.roas_target = targetVal;
+                        actionDescription = `Ajustou ACOS/ROAS Alvo da campanha "${camp.name}" para ${targetVal}`;
+                    }
+
+                    if (actionDescription) {
+                        // Enviar atualização para Mercado Livre se houver token
+                        if (token && Object.keys(mlApiPayload).length > 0 && campId) {
+                            try {
+                                await fetch(
+                                    `https://api.mercadolibre.com/marketplace/advertising/${siteId}/product_ads/campaigns/${campId}`,
+                                    {
+                                        method: 'PUT',
+                                        headers: {
+                                            'Authorization': `Bearer ${token}`,
+                                            'Content-Type': 'application/json',
+                                            'api-version': '2'
+                                        },
+                                        body: JSON.stringify(mlApiPayload)
+                                    }
+                                );
+                            } catch (apiErr) {
+                                console.warn('[Rule Eval] Erro ao enviar para ML API:', apiErr.message);
+                            }
+                        }
+
+                        // Atualizar BD local
+                        if (campId) {
+                            await client.from('ml_ad_campaigns')
+                                .update(updatePayload)
+                                .eq('user_id', authUser.id)
+                                .eq('campaign_id', campId);
+                        }
+
+                        triggeredActions.push({
+                            rule_id: rule.id,
+                            rule_name: rule.name,
+                            campaign_id: campId,
+                            campaign_name: camp.name,
+                            action: rule.action,
+                            description: actionDescription,
+                            executed_at: new Date().toISOString()
+                        });
+                    }
+                }
+            }
+
+            // Atualizar last_run_at da regra
+            rule.last_run_at = new Date().toISOString();
+            try {
+                await client.from('ml_ad_rules').update({ last_run_at: rule.last_run_at }).eq('id', rule.id);
+            } catch (e) {}
+        }
+
+        // Salvar fallback profiles
+        await saveAdRulesFallback(authUser.id, rules);
+
+        res.json({
+            ok: true,
+            evaluated_count: activeRules.length,
+            triggered_count: triggeredActions.length,
+            triggered_actions: triggeredActions,
+            message: triggeredActions.length > 0 
+                ? `${triggeredActions.length} ações automáticas foram executadas com sucesso!` 
+                : 'Todas as regras foram avaliadas e nenhuma ação foi necessária.'
+        });
+    } catch (err) {
+        console.error('[ML Ad Rules Evaluate] Erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 7) POST /api/ml/advertising/ai-report (Análise com IA do Product Ads)
 app.post('/api/ml/advertising/ai-report', async (req, res) => {
     try {
