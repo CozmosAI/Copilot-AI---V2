@@ -9888,13 +9888,16 @@ app.post('/api/google-sheets/export', async (req, res) => {
         // Pegar token do Google Sheets
         const client = supabaseAdmin || supabase;
         const { data: profile } = await client.from('profiles')
-            .select('google_sheets_token')
+            .select('google_sheets_token, google_sheets_refresh_token')
             .eq('id', authUser.id)
             .maybeSingle();
         
-        const tokenToUse = sheets_token || profile?.google_sheets_token;
+        let tokenToUse = sheets_token || profile?.google_sheets_token;
         if (!tokenToUse) {
-            return res.status(400).json({ error: 'Google Sheets não conectado. Conecte sua conta do Google nas configurações ou forneça o token.' });
+            return res.status(401).json({ 
+                error: 'Sua conta do Google Sheets não está conectada ou o token expirou. Por favor, clique em "Conectar Google Sheets" para autorizar.',
+                code: 'UNAUTHENTICATED' 
+            });
         }
         
         let rows = [];
@@ -9973,7 +9976,7 @@ app.post('/api/google-sheets/export', async (req, res) => {
         const values = [headers, ...rows];
         
         const range = `${sheet_name}!A1:Z10000`;
-        const writeRes = await fetch(
+        let writeRes = await fetch(
             `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
             {
                 method: 'PUT',
@@ -9985,8 +9988,49 @@ app.post('/api/google-sheets/export', async (req, res) => {
             }
         );
         
+        if (writeRes.status === 401 && profile?.google_sheets_refresh_token && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+            try {
+                const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        client_id: GOOGLE_CLIENT_ID,
+                        client_secret: GOOGLE_CLIENT_SECRET,
+                        refresh_token: profile.google_sheets_refresh_token,
+                        grant_type: 'refresh_token'
+                    })
+                });
+                if (refreshRes.ok) {
+                    const refreshData = await refreshRes.json();
+                    if (refreshData.access_token) {
+                        tokenToUse = refreshData.access_token;
+                        await client.from('profiles').update({ google_sheets_token: tokenToUse }).eq('id', authUser.id);
+                        writeRes = await fetch(
+                            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+                            {
+                                method: 'PUT',
+                                headers: {
+                                    'Authorization': `Bearer ${tokenToUse}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ values })
+                            }
+                        );
+                    }
+                }
+            } catch (refErr) {
+                console.warn('[Sheets Export] Erro na renovação automática do token:', refErr);
+            }
+        }
+        
         if (!writeRes.ok) {
             const errText = await writeRes.text();
+            if (writeRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
+                return res.status(401).json({ 
+                    error: 'Token do Google Sheets expirado ou não autorizado. Por favor, clique em "Conectar Google Sheets" para reautorizar a sua conta.',
+                    code: 'UNAUTHENTICATED'
+                });
+            }
             return res.status(writeRes.status).json({ error: `Erro ao escrever na planilha do Google Sheets: ${errText}` });
         }
         

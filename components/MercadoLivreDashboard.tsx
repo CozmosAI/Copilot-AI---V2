@@ -77,6 +77,7 @@ import {
 } from 'recharts';
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
 import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
+import { signInWithGoogleSheets } from '../services/googleSheetsService';
 
 // Helper de formatação de BRL
 const formatCurrency = (value: number) => {
@@ -340,6 +341,15 @@ export function MercadoLivreDashboard() {
     }
   };
 
+  // Conectar ou Reautorizar Google Sheets
+  const handleConnectSheets = async () => {
+    try {
+      await signInWithGoogleSheets();
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao iniciar autenticação com o Google');
+    }
+  };
+
   // Exportar dados para Google Sheets
   const handleExportSheets = async () => {
     if (!exportSpreadsheetId) {
@@ -360,7 +370,9 @@ export function MercadoLivreDashboard() {
         })
       });
       const data = await safeJsonResponse(res);
-      if (data.ok) {
+      if (res.status === 401 || data.code === 'UNAUTHENTICATED') {
+        showToast('error', data.error || 'Autenticação do Google Sheets expirada. Por favor, reautorize sua conta do Google.');
+      } else if (data.ok) {
         showToast('success', data.message || `${data.rows_written} linhas exportadas com sucesso!`);
         setModalExportOpen(false);
       } else {
@@ -3135,12 +3147,22 @@ export function MercadoLivreDashboard() {
                 </div>
               </div>
 
-              <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3 text-xs text-emerald-800 space-y-1">
-                <p className="font-bold flex items-center gap-1.5">
-                  <CheckCircle size={14} className="text-emerald-600" /> Exportação Direta via API
-                </p>
+              <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3 text-xs text-emerald-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <CheckCircle size={14} className="text-emerald-600" /> Exportação Direta via API
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleConnectSheets}
+                    className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Conectar / Reautorizar Google</span>
+                    <ExternalLink size={11} />
+                  </button>
+                </div>
                 <p className="text-[11px] text-emerald-700 leading-normal">
-                  Os dados selecionados serão escritos diretamente na planilha do Google Sheets.
+                  Os dados selecionados serão escritos diretamente na planilha do Google Sheets. Se a exportação falhar por token expirado, clique em <strong>Conectar / Reautorizar Google</strong>.
                 </p>
               </div>
 

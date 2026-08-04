@@ -548,6 +548,9 @@ const App: React.FC = () => {
              } else if (authIntent === 'google_sheets') {
                 setGoogleSheetsToken(session.provider_token);
                 localStorage.setItem('google_sheets_token', session.provider_token);
+                const updatesSheets: any = { google_sheets_token: session.provider_token };
+                if (session.provider_refresh_token) updatesSheets.google_sheets_refresh_token = session.provider_refresh_token;
+                await supabase.from('profiles').update(updatesSheets).eq('id', userId);
                 localStorage.removeItem('auth_intent');
              }
           }
