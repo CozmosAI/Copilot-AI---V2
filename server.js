@@ -10720,6 +10720,329 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
     return `Dados do Mercado Livre exportados com sucesso! (${rows.length} linhas escritas na aba ${sheet_name})`;
 }
 
+// FUNÇÃO AUXILIAR: Executar exportação de Meta Ads para Google Sheets
+async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, sheetsToken, selectedCampaigns) {
+    const client = supabaseAdmin || supabase;
+    const { data: profile } = await client.from('profiles')
+        .select('google_sheets_token, google_sheets_refresh_token')
+        .eq('id', userId)
+        .maybeSingle();
+
+    let tokenToUse = sheetsToken || profile?.google_sheets_token;
+    if (!tokenToUse) {
+        throw new Error('Sua conta do Google Sheets não está conectada ou o token expirou.');
+    }
+
+    // Se for URL completa, extrair ID
+    let targetSpreadsheetId = spreadsheetId;
+    if (targetSpreadsheetId && targetSpreadsheetId.includes('spreadsheets/d/')) {
+        const match = targetSpreadsheetId.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (match && match[1]) {
+            targetSpreadsheetId = match[1];
+        }
+    }
+
+    // 1. Validar token do Sheets e obter abas existentes
+    let metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties.title`, {
+        headers: { 'Authorization': `Bearer ${tokenToUse}` }
+    });
+
+    if (metaRes.status === 401 && profile?.google_sheets_refresh_token && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+        try {
+            const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: GOOGLE_CLIENT_ID,
+                    client_secret: GOOGLE_CLIENT_SECRET,
+                    refresh_token: profile.google_sheets_refresh_token,
+                    grant_type: 'refresh_token'
+                })
+            });
+            if (refreshRes.ok) {
+                const refreshData = await refreshRes.json();
+                if (refreshData.access_token) {
+                    tokenToUse = refreshData.access_token;
+                    await client.from('profiles').update({ google_sheets_token: tokenToUse }).eq('id', userId);
+                    metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties.title`, {
+                        headers: { 'Authorization': `Bearer ${tokenToUse}` }
+                    });
+                }
+            }
+        } catch (refErr) {
+            console.warn('[Meta Sheets Export Helper] Erro na renovação automática do token:', refErr);
+        }
+    }
+
+    if (!metaRes.ok) {
+        const errText = await metaRes.text();
+        throw new Error(`Erro ao acessar a planilha do Google Sheets: ${errText}`);
+    }
+
+    const meta = await metaRes.json();
+    const existingTabs = (meta.sheets || []).map(s => s.properties?.title || '');
+
+    // 2. Obter token do Meta Ads
+    const { accessToken, adAccountId } = await getValidMetaToken(userId);
+    const ad_account_id = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+
+    const start = dateRange?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const end = dateRange?.end || new Date().toISOString().split('T')[0];
+    const time_range = JSON.stringify({ since: start, until: end });
+    
+    const fieldsList = 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,unique_clicks,unique_ctr,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers';
+    
+    // 3. Buscar campanhas
+    const campRes = await fetch(
+        `https://graph.facebook.com/v25.0/${ad_account_id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget,objective,insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
+    );
+    const campData = await campRes.json();
+    if (campData.error) {
+        throw new Error(`Erro na API do Meta (Campanhas): ${campData.error.message}`);
+    }
+    const allCampaigns = campData.data || [];
+    const campaigns = selectedCampaigns && selectedCampaigns.length > 0
+        ? allCampaigns.filter(c => selectedCampaigns.includes(c.id))
+        : allCampaigns;
+    
+    // 4. Buscar ad groups
+    const adsetRes = await fetch(
+        `https://graph.facebook.com/v25.0/${ad_account_id}/adsets?fields=id,name,status,campaign{id,name},insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
+    );
+    const adsetData = await adsetRes.json();
+    if (adsetData.error) {
+        throw new Error(`Erro na API do Meta (Conjuntos): ${adsetData.error.message}`);
+    }
+    const allAdSets = adsetData.data || [];
+    const adSets = selectedCampaigns && selectedCampaigns.length > 0
+        ? allAdSets.filter(a => selectedCampaigns.includes(a.campaign?.id))
+        : allAdSets;
+    
+    // 5. Buscar ads
+    const adsRes = await fetch(
+        `https://graph.facebook.com/v25.0/${ad_account_id}/ads?fields=id,name,status,adset{id,name},campaign{id,name},adcreatives{body,title,image_url,thumbnail_url},insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
+    );
+    const adsData = await adsRes.json();
+    if (adsData.error) {
+        throw new Error(`Erro na API do Meta (Anúncios): ${adsData.error.message}`);
+    }
+    const allAds = adsData.data || [];
+    const ads = selectedCampaigns && selectedCampaigns.length > 0
+        ? allAds.filter(a => selectedCampaigns.includes(a.campaign?.id))
+        : allAds;
+    
+    // 6. Buscar overview (agregado por dia)
+    const overviewRes = await fetch(
+        `https://graph.facebook.com/v25.0/${ad_account_id}/insights?fields=${fieldsList}&time_range=${encodeURIComponent(time_range)}&level=account&time_increment=1&limit=1000&access_token=${accessToken}`
+    );
+    const overviewData = await overviewRes.json();
+    if (overviewData.error) {
+        throw new Error(`Erro na API do Meta (Overview): ${overviewData.error.message}`);
+    }
+    const overviewDaily = overviewData.data || [];
+    
+    // 7. Preparar dados das 4 abas
+    const tabNames = ['Meta Ads - Overview', 'Meta Ads - Campanhas', 'Meta Ads - Conjuntos', 'Meta Ads - Anuncios'];
+    
+    // Aba 1: Overview
+    const overviewHeaders = ['Data', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'CPM (R$)', 'Alcance', 'Frequencia', 'Conversoes', 'Valor Conversao (R$)', 'ROAS'];
+    const overviewRows = overviewDaily.map(d => {
+        const spend = parseFloat(d.spend || 0);
+        const clicks = parseInt(d.clicks || 0);
+        const impressions = parseInt(d.impressions || 0);
+        const conversions = extractConversions(d);
+        const convValue = getFieldValue('purchase', d);
+        return [
+            d.date_start || d.date || '',
+            spend.toFixed(2),
+            impressions,
+            clicks,
+            impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
+            clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            impressions > 0 ? (spend / impressions * 1000).toFixed(2) : '0',
+            d.reach || 0,
+            d.frequency || 0,
+            conversions,
+            convValue.toFixed(2),
+            spend > 0 ? (convValue / spend).toFixed(2) : '0'
+        ];
+    });
+    
+    // Aba 2: Campanhas
+    const campHeaders = ['Campanha', 'Status', 'Objetivo', 'Orcamento/Dia (R$)', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'CPA (R$)', 'ROAS', 'Alcance', 'Frequencia'];
+    const campRows = campaigns.map(c => {
+        const ins = c.insights?.data?.[0] || {};
+        const spend = parseFloat(ins.spend || 0);
+        const clicks = parseInt(ins.clicks || 0);
+        const impressions = parseInt(ins.impressions || 0);
+        const conversions = extractConversions(ins);
+        const convValue = getFieldValue('purchase', ins);
+        const budget = parseFloat(c.daily_budget || c.lifetime_budget || '0') / 100;
+        return [
+            c.name || '',
+            c.effective_status || c.status || '',
+            c.objective || '',
+            budget.toFixed(2),
+            spend.toFixed(2),
+            impressions,
+            clicks,
+            impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
+            clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            conversions,
+            conversions > 0 ? (spend / conversions).toFixed(2) : '0',
+            spend > 0 ? (convValue / spend).toFixed(2) : '0',
+            ins.reach || 0,
+            ins.frequency || 0
+        ];
+    });
+    
+    // Aba 3: Conjuntos de Anuncios
+    const adsetHeaders = ['Conjunto', 'Campanha', 'Status', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'ROAS', 'Alcance'];
+    const adsetRows = adSets.map(a => {
+        const ins = a.insights?.data?.[0] || {};
+        const spend = parseFloat(ins.spend || 0);
+        const clicks = parseInt(ins.clicks || 0);
+        const impressions = parseInt(ins.impressions || 0);
+        const conversions = extractConversions(ins);
+        const convValue = getFieldValue('purchase', ins);
+        return [
+            a.name || '',
+            a.campaign?.name || '',
+            a.status || '',
+            spend.toFixed(2),
+            impressions,
+            clicks,
+            impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
+            clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            conversions,
+            spend > 0 ? (convValue / spend).toFixed(2) : '0',
+            ins.reach || 0
+        ];
+    });
+    
+    // Aba 4: Anuncios
+    const adsHeaders = ['Anuncio', 'Campanha', 'Conjunto', 'Status', 'Titulo', 'Copy', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'ROAS', 'Imagem'];
+    const adsRows = ads.map(a => {
+        const ins = a.insights?.data?.[0] || {};
+        const creative = a.adcreatives?.data?.[0] || {};
+        const spend = parseFloat(ins.spend || 0);
+        const clicks = parseInt(ins.clicks || 0);
+        const impressions = parseInt(ins.impressions || 0);
+        const conversions = extractConversions(ins);
+        const convValue = getFieldValue('purchase', ins);
+        return [
+            a.name || '',
+            a.campaign?.name || '',
+            a.adset?.name || '',
+            a.status || '',
+            creative.title || '',
+            creative.body || '',
+            spend.toFixed(2),
+            impressions,
+            clicks,
+            impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
+            clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            conversions,
+            spend > 0 ? (convValue / spend).toFixed(2) : '0',
+            creative.thumbnail_url || creative.image_url || ''
+        ];
+    });
+    
+    // 8. Criar abas se nao existirem
+    const tabsToCreate = tabNames.filter(t => !existingTabs.includes(t));
+    
+    if (tabsToCreate.length > 0) {
+        const addSheetRes = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`,
+            {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requests: tabsToCreate.map(title => ({ addSheet: { properties: { title } } }))
+                })
+            }
+        );
+        if (!addSheetRes.ok) {
+            console.warn(`[Meta Sheets Export] Erro ao criar abas extras:`, await addSheetRes.text());
+        }
+    }
+    
+    // 9. Escrever dados em cada aba
+    const writeData = async (tabName, headers, rows) => {
+        const values = [headers, ...rows];
+        const range = `${tabName}!A1:Z10000`;
+        const writeRes = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+            {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values })
+            }
+        );
+        if (!writeRes.ok) {
+            console.warn(`[Meta Sheets Export] Erro ao escrever na aba ${tabName}:`, await writeRes.text());
+        }
+    };
+    
+    await writeData(tabNames[0], overviewHeaders, overviewRows);
+    await writeData(tabNames[1], campHeaders, campRows);
+    await writeData(tabNames[2], adsetHeaders, adsetRows);
+    await writeData(tabNames[3], adsHeaders, adsRows);
+    
+    return {
+        tabs_created: tabNames.length,
+        overview_rows: overviewRows.length,
+        campaigns_rows: campRows.length,
+        adsets_rows: adsetRows.length,
+        ads_rows: adsRows.length
+    };
+}
+
+// POST /api/google-sheets/export-meta-ads
+app.post('/api/google-sheets/export-meta-ads', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+        
+        let { spreadsheet_id, date_range, selected_campaigns } = req.body;
+        if (!spreadsheet_id) return res.status(400).json({ error: 'ID da planilha obrigatório' });
+
+        if (spreadsheet_id.includes('spreadsheets/d/')) {
+            const match = spreadsheet_id.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+            if (match && match[1]) {
+                spreadsheet_id = match[1];
+            }
+        }
+        
+        const client = supabaseAdmin || supabase;
+        const { data: profile } = await client.from('profiles')
+            .select('google_sheets_token')
+            .eq('id', authUser.id)
+            .maybeSingle();
+        
+        if (!profile?.google_sheets_token) {
+            return res.status(400).json({ error: 'Google Sheets não conectado' });
+        }
+        
+        const result = await executeMetaAdsSheetsExport(
+            authUser.id,
+            spreadsheet_id,
+            date_range,
+            profile.google_sheets_token,
+            selected_campaigns
+        );
+        
+        res.json({
+            ok: true,
+            ...result,
+            message: `Exportado com sucesso: ${result.campaigns_rows} campanhas, ${result.adsets_rows} conjuntos, ${result.ads_rows} anúncios`
+        });
+    } catch (err) {
+        console.error('[Meta Ads Sheets Export] Erro:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Obter configuração de automação de planilhas
 app.get('/api/google-sheets/automation', async (req, res) => {
     try {
@@ -10938,6 +11261,93 @@ app.post('/api/ml/google-sheets/automation', async (req, res) => {
         return res.json({ ok: true, message: 'Configuração de automação de Mercado Livre salva com sucesso!', automation: updatedAutomation });
     } catch (err) {
         console.error('[ML Sheets Automation POST] Erro:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/meta-ads/sheets-automation
+app.get('/api/meta-ads/sheets-automation', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        const { data: profile, error } = await client.from('profiles')
+            .select('meta_sheets_automation, meta_sheets_automation_enabled, meta_sheets_automation_status, meta_sheets_automation_last_run, meta_sheets_automation_error')
+            .eq('id', authUser.id)
+            .maybeSingle();
+
+        if (error) {
+            return res.status(500).json({ error: 'Erro ao buscar configuração: ' + error.message });
+        }
+
+        const metaAutomation = profile?.meta_sheets_automation || {
+            spreadsheet_id: '',
+            selected_campaigns: []
+        };
+
+        return res.json({ 
+            ok: true, 
+            automation: {
+                enabled: !!profile?.meta_sheets_automation_enabled,
+                spreadsheet_id: metaAutomation.spreadsheet_id || '',
+                selected_campaigns: metaAutomation.selected_campaigns || [],
+                last_run_at: profile?.meta_sheets_automation_last_run || null,
+                last_run_status: profile?.meta_sheets_automation_status || null,
+                last_run_error: profile?.meta_sheets_automation_error || null
+            }
+        });
+    } catch (err) {
+        console.error('[Meta Sheets Automation GET] Erro:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/meta-ads/sheets-automation
+app.post('/api/meta-ads/sheets-automation', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        let { enabled, spreadsheet_id, selected_campaigns } = req.body;
+
+        // Se for URL completa, extrair ID
+        if (spreadsheet_id && spreadsheet_id.includes('spreadsheets/d/')) {
+            const match = spreadsheet_id.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+            if (match && match[1]) {
+                spreadsheet_id = match[1];
+            }
+        }
+
+        const client = supabaseAdmin || supabase;
+        
+        const metaAutomation = {
+            spreadsheet_id: spreadsheet_id || '',
+            selected_campaigns: selected_campaigns || []
+        };
+
+        const { error: updateErr } = await client.from('profiles')
+            .update({ 
+                meta_sheets_automation_enabled: !!enabled,
+                meta_sheets_automation: metaAutomation
+            })
+            .eq('id', authUser.id);
+
+        if (updateErr) {
+            return res.status(500).json({ error: 'Erro ao salvar configuração: ' + updateErr.message });
+        }
+
+        return res.json({ 
+            ok: true, 
+            message: 'Configuração de automação do Meta Ads salva com sucesso!', 
+            automation: {
+                enabled: !!enabled,
+                spreadsheet_id: spreadsheet_id || '',
+                selected_campaigns: selected_campaigns || []
+            }
+        });
+    } catch (err) {
+        console.error('[Meta Sheets Automation POST] Erro:', err);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -12986,7 +13396,7 @@ async function runGoogleSheetsAutomationQueue() {
     const client = supabaseAdmin || supabase;
     try {
         const { data: profiles, error } = await client.from('profiles')
-            .select('id, google_sheets_token, google_sheets_refresh_token, ai_config');
+            .select('id, google_sheets_token, google_sheets_refresh_token, ai_config, meta_sheets_automation, meta_sheets_automation_enabled, meta_sheets_automation_status, meta_sheets_automation_last_run, meta_sheets_automation_error');
 
         if (error) {
             console.error('[Sheets Automation] Erro ao buscar perfis:', error);
@@ -13123,6 +13533,53 @@ async function runGoogleSheetsAutomationQueue() {
                     isChanged = true;
                 } else {
                     console.log(`[Sheets Automation - ML] Usuário ${profile.id} já atualizado nas últimas 23 horas (última execução: ${mlAuto.last_run_at}).`);
+                }
+            }
+
+            // 3) Meta Ads Automation (meta_sheets_automation_enabled)
+            const metaAutoEnabled = profile.meta_sheets_automation_enabled;
+            const metaAuto = profile.meta_sheets_automation;
+            if (metaAutoEnabled && metaAuto && metaAuto.spreadsheet_id) {
+                const lastRun = profile.meta_sheets_automation_last_run ? new Date(profile.meta_sheets_automation_last_run) : null;
+                const now = new Date();
+                const diffMs = lastRun ? (now.getTime() - lastRun.getTime()) : null;
+                const diffHours = diffMs ? diffMs / (1000 * 60 * 60) : null;
+
+                if (lastRun === null || diffHours >= 23) {
+                    console.log(`[Sheets Automation - Meta] Iniciando exportação para usuário ${profile.id} na planilha ${metaAuto.spreadsheet_id}`);
+                    try {
+                        await renewTokenIfNecessary();
+                        if (!tokenToUse) {
+                            throw new Error('Sua conta do Google Sheets não está conectada ou o token expirou. Reconecte na interface.');
+                        }
+
+                        const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        const endDate = new Date().toISOString().split('T')[0];
+
+                        await executeMetaAdsSheetsExport(
+                            profile.id,
+                            metaAuto.spreadsheet_id,
+                            { start: startDate, end: endDate },
+                            tokenToUse,
+                            metaAuto.selected_campaigns || []
+                        );
+
+                        await client.from('profiles').update({
+                            meta_sheets_automation_last_run: new Date().toISOString(),
+                            meta_sheets_automation_status: 'success',
+                            meta_sheets_automation_error: null
+                        }).eq('id', profile.id);
+                        console.log(`[Sheets Automation - Meta] Concluído para ${profile.id}`);
+                    } catch (exportErr) {
+                        console.error(`[Sheets Automation - Meta] Falha para ${profile.id}:`, exportErr.message);
+                        await client.from('profiles').update({
+                            meta_sheets_automation_last_run: new Date().toISOString(),
+                            meta_sheets_automation_status: 'error',
+                            meta_sheets_automation_error: exportErr.message
+                        }).eq('id', profile.id);
+                    }
+                } else {
+                    console.log(`[Sheets Automation - Meta] Usuário ${profile.id} já atualizado nas últimas 23 horas (última execução: ${profile.meta_sheets_automation_last_run}).`);
                 }
             }
 

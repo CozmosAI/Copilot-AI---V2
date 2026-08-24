@@ -100,6 +100,21 @@ const Marketing: React.FC = () => {
   const [sheetsAutomationLastRunError, setSheetsAutomationLastRunError] = useState<string | null>(null);
   const [isSavingAutomation, setIsSavingAutomation] = useState(false);
 
+  // Meta Ads Sheets Export States
+  const [isMetaSheetsModalOpen, setIsMetaSheetsModalOpen] = useState(false);
+  const [metaExportSpreadsheetId, setMetaExportSpreadsheetId] = useState(() => localStorage.getItem('meta_sheets_export_id') || '');
+  const [isExportingMetaSheets, setIsExportingMetaSheets] = useState(false);
+  const [metaSheetsError, setMetaSheetsError] = useState<string | null>(null);
+  const [metaSheetsSuccess, setMetaSheetsSuccess] = useState<string | null>(null);
+  const [metaExportCampaignIds, setMetaExportCampaignIds] = useState<string[]>(['all']);
+
+  // Meta Ads Sheets Daily Automation States
+  const [metaSheetsAutomationEnabled, setMetaSheetsAutomationEnabled] = useState(false);
+  const [metaSheetsAutomationLastRunAt, setMetaSheetsAutomationLastRunAt] = useState<string | null>(null);
+  const [metaSheetsAutomationLastRunStatus, setMetaSheetsAutomationLastRunStatus] = useState<string | null>(null);
+  const [metaSheetsAutomationLastRunError, setMetaSheetsAutomationLastRunError] = useState<string | null>(null);
+  const [isSavingMetaAutomation, setIsSavingMetaAutomation] = useState(false);
+
   useEffect(() => {
     if (isSheetsModalOpen) {
       const loadSheetsAutomation = async () => {
@@ -130,6 +145,34 @@ const Marketing: React.FC = () => {
       loadSheetsAutomation();
     }
   }, [isSheetsModalOpen]);
+
+  useEffect(() => {
+    if (isMetaSheetsModalOpen) {
+      const loadMetaSheetsAutomation = async () => {
+        try {
+          const res = await apiFetch('/api/meta-ads/sheets-automation');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok && data.automation) {
+              setMetaSheetsAutomationEnabled(data.automation.enabled);
+              setMetaSheetsAutomationLastRunAt(data.automation.last_run_at);
+              setMetaSheetsAutomationLastRunStatus(data.automation.last_run_status);
+              setMetaSheetsAutomationLastRunError(data.automation.last_run_error);
+              if (data.automation.spreadsheet_id) {
+                setMetaExportSpreadsheetId(data.automation.spreadsheet_id);
+              }
+              if (data.automation.selected_campaigns) {
+                setMetaExportCampaignIds(data.automation.selected_campaigns.length > 0 ? data.automation.selected_campaigns : ['all']);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Erro ao carregar automação do Meta Sheets:', err);
+        }
+      };
+      loadMetaSheetsAutomation();
+    }
+  }, [isMetaSheetsModalOpen]);
 
   useEffect(() => {
     if (marketingDateFilter.start) setExportStartDate(marketingDateFilter.start);
@@ -1369,6 +1412,98 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
     }
   };
 
+  const handleExportMetaAdsToSheets = async () => {
+    if (!metaExportSpreadsheetId.trim()) {
+      setMetaSheetsError('Por favor, informe o ID ou link da planilha.');
+      return;
+    }
+
+    if (!metaExportCampaignIds.includes('all') && metaExportCampaignIds.length === 0) {
+      setMetaSheetsError('Por favor, selecione ao menos uma campanha para exportar, ou selecione "Exportar Todas".');
+      return;
+    }
+    
+    setIsExportingMetaSheets(true);
+    setMetaSheetsError(null);
+    setMetaSheetsSuccess(null);
+    
+    try {
+      localStorage.setItem('meta_sheets_export_id', metaExportSpreadsheetId.trim());
+      
+      const res = await apiFetch('/api/google-sheets/export-meta-ads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          spreadsheet_id: metaExportSpreadsheetId.trim(),
+          date_range: {
+            start: exportStartDate,
+            end: exportEndDate
+          },
+          selected_campaigns: metaExportCampaignIds
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        if (res.status === 401 || data.code === 'UNAUTHENTICATED') {
+          throw new Error('Autenticação expirada do Google Sheets. Por favor, reautorize sua conta do Sheets.');
+        }
+        throw new Error(data.error || 'Erro ao exportar dados do Meta Ads para a planilha.');
+      }
+      
+      setMetaSheetsSuccess(data.message || 'Dados do Meta Ads exportados com sucesso! Verifique sua planilha.');
+    } catch (err: any) {
+      console.error('[Meta Ads Sheet Export Error]:', err);
+      setMetaSheetsError(err.message || 'Ocorreu um erro desconhecido ao exportar.');
+    } finally {
+      setIsExportingMetaSheets(false);
+    }
+  };
+
+  const handleSaveMetaSheetsAutomation = async (enabledVal?: boolean) => {
+    const isEnabled = enabledVal !== undefined ? enabledVal : metaSheetsAutomationEnabled;
+    if (isEnabled && !metaExportSpreadsheetId.trim()) {
+      setMetaSheetsError('Por favor, informe o ID ou link da planilha para configurar a atualização diária.');
+      return;
+    }
+
+    setIsSavingMetaAutomation(true);
+    setMetaSheetsError(null);
+    setMetaSheetsSuccess(null);
+
+    try {
+      const res = await apiFetch('/api/meta-ads/sheets-automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          spreadsheet_id: metaExportSpreadsheetId.trim(),
+          selected_campaigns: metaExportCampaignIds
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao salvar configuração de automação.');
+      }
+
+      setMetaSheetsAutomationEnabled(data.automation.enabled);
+      setMetaSheetsAutomationLastRunAt(data.automation.last_run_at);
+      setMetaSheetsAutomationLastRunStatus(data.automation.last_run_status);
+      setMetaSheetsAutomationLastRunError(data.automation.last_run_error);
+      
+      setMetaSheetsSuccess(data.message || 'Configuração de atualização diária do Meta Ads salva com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao salvar automação do Meta:', err);
+      setMetaSheetsError(err.message || 'Erro desconhecido ao salvar.');
+    } finally {
+      setIsSavingMetaAutomation(false);
+    }
+  };
+
   const isPlatformConnected = activePlatform === 'meta' ? !!metaAdsStatus : isConnected;
 
   return (
@@ -1441,6 +1576,22 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                                 setSheetsError(null);
                                 setSheetsSuccess(null);
                                 setIsSheetsModalOpen(true);
+                            }}
+                            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 hover:text-emerald-700 transition-all shadow-sm shrink-0 flex items-center gap-1.5 font-semibold text-xs px-3"
+                            title="Exportar para Google Sheets"
+                        >
+                            <FileSpreadsheet size={16} />
+                            <span className="hidden sm:inline">Exportar para Sheets</span>
+                        </button>
+                    )}
+
+                    {/* EXPORT META SHEETS */}
+                    {activePlatform === 'meta' && (
+                        <button 
+                            onClick={() => {
+                                setMetaSheetsError(null);
+                                setMetaSheetsSuccess(null);
+                                setIsMetaSheetsModalOpen(true);
                             }}
                             className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-emerald-600 hover:text-emerald-700 transition-all shadow-sm shrink-0 flex items-center gap-1.5 font-semibold text-xs px-3"
                             title="Exportar para Google Sheets"
@@ -4800,6 +4951,256 @@ const [budgetModal, setBudgetModal] = useState<{ open: boolean, campaignId: stri
                           className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
                       >
                           {isExportingSheets ? (
+                              <><Loader2 size={16} className="animate-spin" /> Exportando...</>
+                          ) : (
+                              <><FileSpreadsheet size={16} /> Exportar para Sheets</>
+                          )}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* META ADS GOOGLE SHEETS EXPORT MODAL */}
+      {isMetaSheetsModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl"><FileSpreadsheet size={20} /></div>
+                          <h3 className="text-lg font-bold text-slate-900">Exportar Meta Ads para Sheets</h3>
+                      </div>
+                      <button onClick={() => setIsMetaSheetsModalOpen(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={20} /></button>
+                  </div>
+                  
+                  <div className="p-6 space-y-6 overflow-y-auto flex-1">
+                      {/* Connection Status */}
+                      <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                          <div>
+                              <p className="text-xs font-bold text-slate-900">Google Sheets Integration</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">
+                                  {googleSheetsToken ? "Conectado e pronto para exportar" : "Requer conexão para autorizar exportação"}
+                              </p>
+                          </div>
+                          {googleSheetsToken ? (
+                              <button 
+                                  onClick={handleConnectSheets} 
+                                  className="px-3 py-1.5 border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase rounded-lg hover:bg-emerald-100 transition-all"
+                              >
+                                  Reautorizar
+                              </button>
+                          ) : (
+                              <button 
+                                  onClick={handleConnectSheets} 
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase rounded-lg shadow-sm hover:shadow-md transition-all"
+                              >
+                                  Conectar
+                              </button>
+                          )}
+                      </div>
+
+                      {/* Spreadsheet Link / ID */}
+                      <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Link ou ID da Planilha</label>
+                          <input 
+                              type="text" 
+                              value={metaExportSpreadsheetId}
+                              onChange={(e) => setMetaExportSpreadsheetId(e.target.value)}
+                              placeholder="Ex: https://docs.google.com/spreadsheets/d/..."
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all placeholder:text-slate-400"
+                              disabled={isExportingMetaSheets}
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1.5">
+                              Insira o link completo da sua planilha ou o ID correspondente.
+                          </p>
+                      </div>
+
+                      {/* Custom Dates for Export */}
+                      <div className="grid grid-cols-2 gap-3 bg-slate-50/50 p-3 rounded-2xl border border-slate-150">
+                          <div>
+                              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Data Início</label>
+                              <input 
+                                  type="date"
+                                  value={exportStartDate}
+                                  onChange={(e) => setExportStartDate(e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-emerald-500"
+                                  disabled={isExportingMetaSheets}
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Data Fim</label>
+                              <input 
+                                  type="date"
+                                  value={exportEndDate}
+                                  onChange={(e) => setExportEndDate(e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-emerald-500"
+                                  disabled={isExportingMetaSheets}
+                              />
+                          </div>
+                      </div>
+
+                      {/* Campaign Selection Option */}
+                      <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                              Campanhas para Exportar
+                          </label>
+                          <select
+                              value={metaExportCampaignIds.includes('all') ? 'all' : 'select'}
+                              onChange={(e) => {
+                                  if (e.target.value === 'all') {
+                                      setMetaExportCampaignIds(['all']);
+                                  } else {
+                                      setMetaExportCampaignIds([]);
+                                  }
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                          >
+                              <option value="all">Exportar Todas as Campanhas ({metaCampaigns.length})</option>
+                              <option value="select">Selecionar Campanhas Específicas</option>
+                          </select>
+
+                          {/* Scrollable Campaign Checkbox List */}
+                          {!metaExportCampaignIds.includes('all') && (
+                              <div className="mt-2 border border-slate-200 bg-white rounded-xl p-2 max-h-36 overflow-y-auto space-y-1 animate-in fade-in duration-200 shadow-inner">
+                                  {metaCampaigns.length === 0 ? (
+                                      <p className="text-[10px] text-slate-400 p-2 text-center">Nenhuma campanha carregada nesta conta.</p>
+                                  ) : (
+                                      metaCampaigns.map((camp: any) => {
+                                          const isChecked = metaExportCampaignIds.includes(String(camp.id));
+                                          return (
+                                              <label 
+                                                  key={camp.id} 
+                                                  className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-xs font-medium text-slate-800 transition-colors"
+                                              >
+                                                  <input 
+                                                      type="checkbox"
+                                                      checked={isChecked}
+                                                      onChange={() => {
+                                                          if (isChecked) {
+                                                              setMetaExportCampaignIds(prev => prev.filter(id => id !== String(camp.id)));
+                                                          } else {
+                                                              setMetaExportCampaignIds(prev => [...prev.filter(id => id !== 'all'), String(camp.id)]);
+                                                          }
+                                                      }}
+                                                      className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 border-slate-300"
+                                                  />
+                                                  <span className="truncate">{camp.name || camp.id}</span>
+                                              </label>
+                                          );
+                                      })
+                                  )}
+                              </div>
+                          )}
+                          {!metaExportCampaignIds.includes('all') && metaExportCampaignIds.length > 0 && (
+                              <p className="text-[10px] text-emerald-600 font-bold mt-1.5">
+                                  ✨ {metaExportCampaignIds.length} campanha(s) selecionada(s).
+                              </p>
+                          )}
+                      </div>
+
+                      {/* Information */}
+                      <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 shrink-0">
+                          <h4 className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1 flex items-center gap-1">📋 Relatório Meta Ads Multi-Abas</h4>
+                          <p className="text-[10px] text-slate-600 leading-relaxed">
+                              Esta exportação gravará 4 abas na planilha com métricas consolidadas e estendidas de Meta Ads (Gasto, Impressões, Cliques, CTR, CPC, CPM, Conversões, CPA, ROAS, Receita):
+                          </p>
+                          <ul className="text-[10px] text-slate-600 font-bold mt-1.5 list-disc pl-4 space-y-1">
+                              <li>Meta Ads - Visão Geral (Histórico Diário)</li>
+                              <li>Meta Ads - Campanhas (Resultados Diários)</li>
+                              <li>Meta Ads - Ad Sets / Conjuntos (Resultados Diários)</li>
+                              <li>Meta Ads - Anúncios (Resultados Diários)</li>
+                          </ul>
+                      </div>
+
+                      {/* Daily Automation Block */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shrink-0">
+                          <div className="flex items-center justify-between">
+                              <div>
+                                  <p className="text-xs font-bold text-slate-900">Atualização Diária Automática</p>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">
+                                      Exporta o Meta Ads automaticamente a cada 24 horas.
+                                  </p>
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                      const newVal = !metaSheetsAutomationEnabled;
+                                      setMetaSheetsAutomationEnabled(newVal);
+                                      handleSaveMetaSheetsAutomation(newVal);
+                                  }}
+                                  disabled={isSavingMetaAutomation || !metaExportSpreadsheetId.trim()}
+                                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                      metaSheetsAutomationEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                  <span
+                                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                          metaSheetsAutomationEnabled ? 'translate-x-5' : 'translate-x-0'
+                                      }`}
+                                  />
+                              </button>
+                          </div>
+
+                          {metaSheetsAutomationEnabled && (
+                              <div className="border-t border-slate-200 pt-3 space-y-2 text-[10px] text-slate-600 animate-in fade-in duration-200">
+                                  <div className="flex justify-between items-center">
+                                      <span className="font-medium">Status da Automação:</span>
+                                      <span className={`font-bold uppercase ${
+                                          metaSheetsAutomationLastRunStatus === 'success' 
+                                              ? 'text-emerald-600' 
+                                              : metaSheetsAutomationLastRunStatus === 'error' 
+                                              ? 'text-rose-600' 
+                                              : 'text-slate-500'
+                                      }`}>
+                                          {metaSheetsAutomationLastRunStatus === 'success' 
+                                              ? 'Ativo & Atualizado' 
+                                              : metaSheetsAutomationLastRunStatus === 'error' 
+                                              ? 'Falha na Execução' 
+                                              : 'Agendado (Próximas 24h)'}
+                                      </span>
+                                  </div>
+                                  {metaSheetsAutomationLastRunAt && (
+                                      <div className="flex justify-between items-center text-slate-400">
+                                          <span>Última Execução:</span>
+                                          <span>{new Date(metaSheetsAutomationLastRunAt).toLocaleString('pt-BR')}</span>
+                                      </div>
+                                  )}
+                                  {metaSheetsAutomationLastRunStatus === 'error' && metaSheetsAutomationLastRunError && (
+                                      <div className="bg-rose-50 border border-rose-100 text-rose-700 p-2 rounded-lg mt-1 font-mono text-[9px] leading-relaxed break-all">
+                                          Erro: {metaSheetsAutomationLastRunError}
+                                      </div>
+                                  )}
+                              </div>
+                          )}
+                      </div>
+
+                      {/* Status Notifications */}
+                      {metaSheetsError && (
+                          <div className="p-3.5 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl font-medium shrink-0">
+                              ⚠️ {metaSheetsError}
+                          </div>
+                      )}
+                      {metaSheetsSuccess && (
+                          <div className="p-3.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs rounded-xl font-medium shrink-0">
+                              ✅ {metaSheetsSuccess}
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+                      <button 
+                          onClick={() => setIsMetaSheetsModalOpen(false)}
+                          className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 uppercase tracking-wider transition-colors"
+                          disabled={isExportingMetaSheets}
+                      >
+                          Fechar
+                      </button>
+                      <button 
+                          onClick={handleExportMetaAdsToSheets}
+                          disabled={isExportingMetaSheets || !googleSheetsToken}
+                          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                      >
+                          {isExportingMetaSheets ? (
                               <><Loader2 size={16} className="animate-spin" /> Exportando...</>
                           ) : (
                               <><FileSpreadsheet size={16} /> Exportar para Sheets</>
