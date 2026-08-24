@@ -78,6 +78,7 @@ import {
 import { apiFetch, safeJsonResponse } from '../services/apiClient';
 import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
 import { signInWithGoogleSheets } from '../services/googleSheetsService';
+import { ExportConfigDrawer } from './ExportConfigDrawer';
 
 // Helper de formatação de BRL
 const formatCurrency = (value: number) => {
@@ -371,8 +372,9 @@ export function MercadoLivreDashboard() {
     }
   }, [modalExportOpen]);
 
-  const handleToggleMlAutomation = async (isEnabled: boolean) => {
-    if (!exportSpreadsheetId) {
+  const handleToggleMlAutomation = async (isEnabled: boolean, targetSpreadsheetId?: string) => {
+    const sId = (targetSpreadsheetId || exportSpreadsheetId || '').trim();
+    if (!sId) {
       showToast('error', 'Por favor, informe a URL ou ID da planilha para salvar a automação.');
       return;
     }
@@ -383,9 +385,9 @@ export function MercadoLivreDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enabled: isEnabled,
-          spreadsheet_id: exportSpreadsheetId.trim(),
+          spreadsheet_id: sId,
           sheet_name: exportSheetName || 'AXIS_ML',
-          data_type: exportDataType
+          data_type: 'dashboard'
         })
       });
       const data = await res.json();
@@ -448,24 +450,37 @@ export function MercadoLivreDashboard() {
     }
   };
 
-  // Exportar dados para Google Sheets
-  const handleExportSheets = async () => {
-    if (!exportSpreadsheetId) {
+  // Exportar dados para Google Sheets via Drawer
+  const handleExportMLWithDrawer = async (config: {
+    spreadsheetId: string;
+    startDate: string;
+    endDate: string;
+    aggregation: 'total' | 'daily' | 'monthly';
+    selectedCampaigns: string[];
+    selectedMetrics: string[];
+    sheetName?: string;
+    dataType?: string;
+  }) => {
+    if (!config.spreadsheetId) {
       showToast('error', 'Por favor, informe a URL ou ID da planilha do Google Sheets.');
       return;
     }
     setExportingSheets(true);
     try {
+      setExportSpreadsheetId(config.spreadsheetId);
       const sheetsToken = localStorage.getItem('google_sheets_token');
       const res = await apiFetch('/api/google-sheets/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          spreadsheet_id: exportSpreadsheetId,
-          sheet_name: exportSheetName || 'AXIS_ML',
-          data_type: exportDataType,
-          start_date: exportStartDate,
-          end_date: exportEndDate,
+          spreadsheet_id: config.spreadsheetId,
+          sheet_name: config.sheetName || 'AXIS_ML',
+          data_type: config.dataType || 'dashboard',
+          start_date: config.startDate,
+          end_date: config.endDate,
+          aggregation: config.aggregation,
+          selected_metrics: config.selectedMetrics,
+          campaign_ids: config.selectedCampaigns,
           sheets_token: sheetsToken
         })
       });
@@ -473,7 +488,7 @@ export function MercadoLivreDashboard() {
       if (res.status === 401 || data.code === 'UNAUTHENTICATED') {
         showToast('error', data.error || 'Autenticação do Google Sheets expirada. Por favor, reautorize sua conta do Google.');
       } else if (data.ok) {
-        showToast('success', data.message || `${data.rows_written} linhas exportadas com sucesso!`);
+        showToast('success', data.message || `${data.rows_written || 'Dados'} exportados com sucesso!`);
         setModalExportOpen(false);
       } else {
         showToast('error', data.error || 'Erro ao exportar para o Google Sheets');
@@ -3670,246 +3685,28 @@ export function MercadoLivreDashboard() {
         </div>
       )}
 
-      {/* MODAL: EXPORTAR PARA GOOGLE SHEETS */}
-      {modalExportOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <FileSpreadsheet size={18} className="text-emerald-600" />
-                Exportar para Google Sheets
-              </h3>
-              <button
-                onClick={() => setModalExportOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  ID ou Link da Planilha do Google
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms ou URL completa"
-                  value={exportSpreadsheetId}
-                  onChange={(e) => setExportSpreadsheetId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-emerald-600 focus:bg-white outline-none transition-all"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Cole a URL completa da sua planilha ou o ID localizado na URL.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Nome da Aba (Guia)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Página1 ou ML_Vendas"
-                    value={exportSheetName}
-                    onChange={(e) => setExportSheetName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-emerald-600 focus:bg-white outline-none transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Tipo de Dado
-                  </label>
-                  <select
-                    value={exportDataType}
-                    onChange={(e) => setExportDataType(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold focus:ring-2 focus:ring-emerald-600 outline-none transition-all"
-                  >
-                    <option value="daily_metrics">📅 Métricas Diárias (Dia a Dia - Ex: Dia 1 ao 30)</option>
-                    <option value="orders">📦 Pedidos / Vendas Detalhadas</option>
-                    <option value="ads_daily">📢 Product Ads por Dia (Campanhas por Data)</option>
-                    <option value="ads">📊 Product Ads (Resumo Campanhas)</option>
-                    <option value="items">🏷️ Anúncios (Itens e Estoque)</option>
-                    <option value="dashboard">📈 Resumo Executivo / Dashboard</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Seleção de Intervalo de Datas */}
-              <div className="space-y-2 bg-slate-50/80 border border-slate-200/80 rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-slate-700 uppercase">
-                    Período do Relatório
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const d = new Date();
-                        d.setDate(1);
-                        setExportStartDate(d.toISOString().split('T')[0]);
-                        setExportEndDate(new Date().toISOString().split('T')[0]);
-                      }}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 cursor-pointer"
-                    >
-                      Mês Atual
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const now = new Date();
-                        const past = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
-                        setExportStartDate(past.toISOString().split('T')[0]);
-                        setExportEndDate(now.toISOString().split('T')[0]);
-                      }}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 cursor-pointer"
-                    >
-                      30 Dias
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const now = new Date();
-                        const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
-                        setExportStartDate(past.toISOString().split('T')[0]);
-                        setExportEndDate(now.toISOString().split('T')[0]);
-                      }}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 cursor-pointer"
-                    >
-                      7 Dias
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="block text-[10px] font-medium text-slate-500 mb-0.5">Data Início:</span>
-                    <input
-                      type="date"
-                      value={exportStartDate}
-                      onChange={(e) => setExportStartDate(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-bold focus:ring-1 focus:ring-emerald-600 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <span className="block text-[10px] font-medium text-slate-500 mb-0.5">Data Fim:</span>
-                    <input
-                      type="date"
-                      value={exportEndDate}
-                      onChange={(e) => setExportEndDate(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-bold focus:ring-1 focus:ring-emerald-600 outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Automação de Exportação Diária */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="block text-xs font-bold text-slate-800">Exportação Diária Automática</span>
-                    <span className="block text-[10px] text-slate-500">Atualizar esta aba automaticamente todo dia</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleMlAutomation(!mlSheetsAutomationEnabled)}
-                    disabled={isSavingMlAutomation}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      mlSheetsAutomationEnabled ? 'bg-emerald-600' : 'bg-slate-200'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                        mlSheetsAutomationEnabled ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {mlSheetsAutomationEnabled && (
-                  <div className="border-t border-slate-200/60 pt-2.5 text-[10px] space-y-1.5 text-slate-600">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">Status da Automação:</span>
-                      <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm text-[8px] ${
-                        mlSheetsAutomationLastRunStatus === 'success' ? 'bg-emerald-100 text-emerald-800' :
-                        mlSheetsAutomationLastRunStatus === 'error' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'
-                      }`}>
-                        {mlSheetsAutomationLastRunStatus === 'success' ? 'Ativo / Sucesso' :
-                         mlSheetsAutomationLastRunStatus === 'error' ? 'Erro na Execução' : 'Aguardando Primeira Execução'}
-                      </span>
-                    </div>
-                    {mlSheetsAutomationLastRunAt && (
-                      <div className="flex items-center justify-between">
-                        <span>Última Execução:</span>
-                        <span className="font-bold text-slate-800">{new Date(mlSheetsAutomationLastRunAt).toLocaleString('pt-BR')}</span>
-                      </div>
-                    )}
-                    {mlSheetsAutomationLastRunError && (
-                      <div className="bg-rose-50 border border-rose-100 rounded-lg p-2 text-rose-700 mt-1 break-words font-medium">
-                        <strong>Erro:</strong> {mlSheetsAutomationLastRunError}
-                      </div>
-                    )}
-                    <p className="text-[9px] text-slate-400 leading-normal italic mt-1 text-center">
-                      A planilha selecionada acima será sincronizada diariamente em segundo plano.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3 text-xs text-emerald-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="font-bold flex items-center gap-1.5">
-                    <CheckCircle size={14} className="text-emerald-600" /> Exportação Direta via API
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleConnectSheets}
-                    className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 cursor-pointer flex items-center gap-1"
-                  >
-                    <span>Conectar / Reautorizar Google</span>
-                    <ExternalLink size={11} />
-                  </button>
-                </div>
-                <p className="text-[11px] text-emerald-700 leading-normal">
-                  Os dados selecionados serão escritos diretamente na planilha do Google Sheets. Se a exportação falhar por token expirado, clique em <strong>Conectar / Reautorizar Google</strong>.
-                </p>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalExportOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportSheets}
-                  disabled={exportingSheets}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-                >
-                  {exportingSheets ? (
-                    <>
-                      <RefreshCw size={14} className="animate-spin" />
-                      <span>Exportando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FileSpreadsheet size={14} />
-                      <span>Exportar Dados</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* DRAWER DE EXPORTAÇÃO PARA GOOGLE SHEETS COM SELEÇÃO DINÂMICA DE MÉTRICAS */}
+      <ExportConfigDrawer
+        isOpen={modalExportOpen}
+        onClose={() => setModalExportOpen(false)}
+        platform="mercado_livre"
+        campaigns={campaigns.map((c: any) => ({
+          id: String(c.campaign_id || c.id || ''),
+          name: c.name || 'Campanha Product Ads'
+        }))}
+        defaultSpreadsheetId={exportSpreadsheetId}
+        defaultStartDate={exportStartDate}
+        defaultEndDate={exportEndDate}
+        onExport={handleExportMLWithDrawer}
+        isExporting={exportingSheets}
+        automationEnabled={mlSheetsAutomationEnabled}
+        automationLastRunAt={mlSheetsAutomationLastRunAt}
+        automationLastRunStatus={mlSheetsAutomationLastRunStatus}
+        automationLastRunError={mlSheetsAutomationLastRunError}
+        isSavingAutomation={isSavingMlAutomation}
+        onToggleAutomation={(enabled, spreadsheetId) => handleToggleMlAutomation(enabled, spreadsheetId)}
+        onConnectSheets={handleConnectSheets}
+      />
     </div>
   );
 }
