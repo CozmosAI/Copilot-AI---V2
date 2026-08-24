@@ -10918,66 +10918,139 @@ async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, shee
     
     const fieldsList = 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,unique_clicks,unique_ctr,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers';
     
+    // Helpers para extração segura de métricas
+    const parseConv = (item) => {
+        if (!item) return 0;
+        if (typeof item.conversions === 'number') return item.conversions;
+        if (typeof item.conversions === 'string' && !isNaN(Number(item.conversions))) return parseInt(item.conversions);
+        if (Array.isArray(item.conversions) && item.conversions.length > 0) {
+            return item.conversions.reduce((acc, c) => acc + parseInt(c.value || 0), 0);
+        }
+        if (Array.isArray(item.actions)) {
+            const convActions = item.actions.filter(a => 
+                a.action_type === 'purchase' || 
+                a.action_type === 'omni_purchase' || 
+                a.action_type === 'lead' || 
+                a.action_type === 'complete_registration' ||
+                a.action_type === 'offsite_conversion'
+            );
+            if (convActions.length > 0) {
+                return convActions.reduce((acc, a) => acc + parseInt(a.value || 0), 0);
+            }
+        }
+        return 0;
+    };
+
+    const parseConvValue = (item) => {
+        if (!item) return 0;
+        if (typeof item.conversion_values === 'number') return item.conversion_values;
+        if (typeof item.conversion_values === 'string' && !isNaN(Number(item.conversion_values))) return parseFloat(item.conversion_values);
+        if (Array.isArray(item.conversion_values) && item.conversion_values.length > 0) {
+            return item.conversion_values.reduce((acc, c) => acc + parseFloat(c.value || 0), 0);
+        }
+        if (Array.isArray(item.action_values)) {
+            const purchaseVal = item.action_values.find(a => a.action_type === 'purchase' || a.action_type === 'omni_purchase');
+            if (purchaseVal) return parseFloat(purchaseVal.value || 0);
+            return item.action_values.reduce((acc, a) => acc + parseFloat(a.value || 0), 0);
+        }
+        return 0;
+    };
+
+    const parseVideoAction = (field) => {
+        if (!field) return '0';
+        if (typeof field === 'string' || typeof field === 'number') return String(field);
+        if (Array.isArray(field) && field.length > 0) return String(field[0]?.value || '0');
+        return '0';
+    };
+
     // 3. Buscar campanhas
-    const campRes = await fetch(
-        `https://graph.facebook.com/v25.0/${ad_account_id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget,objective,insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
-    );
-    const campData = await campRes.json();
-    if (campData.error) {
-        throw new Error(`Erro na API do Meta (Campanhas): ${campData.error.message}`);
+    let campaigns = [];
+    try {
+        const campRes = await fetch(
+            `https://graph.facebook.com/v25.0/${ad_account_id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget,objective,insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
+        );
+        const campData = await campRes.json();
+        if (campData.error) {
+            console.error(`[Meta Sheets Export] Erro na API do Meta (Campanhas):`, campData.error);
+        } else {
+            const allCampaigns = campData.data || [];
+            campaigns = selectedCampaigns && selectedCampaigns.length > 0 && !selectedCampaigns.includes('all')
+                ? allCampaigns.filter(c => selectedCampaigns.includes(c.id))
+                : allCampaigns;
+        }
+    } catch (cErr) {
+        console.error(`[Meta Sheets Export] Exceção ao buscar campanhas:`, cErr.message);
     }
-    const allCampaigns = campData.data || [];
-    const campaigns = selectedCampaigns && selectedCampaigns.length > 0
-        ? allCampaigns.filter(c => selectedCampaigns.includes(c.id))
-        : allCampaigns;
     
-    // 4. Buscar ad groups
-    const adsetRes = await fetch(
-        `https://graph.facebook.com/v25.0/${ad_account_id}/adsets?fields=id,name,status,campaign{id,name},insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
-    );
-    const adsetData = await adsetRes.json();
-    if (adsetData.error) {
-        throw new Error(`Erro na API do Meta (Conjuntos): ${adsetData.error.message}`);
+    // 4. Buscar ad groups / conjuntos
+    let adSets = [];
+    try {
+        const adsetRes = await fetch(
+            `https://graph.facebook.com/v25.0/${ad_account_id}/adsets?fields=id,name,status,effective_status,bid_strategy,daily_budget,campaign{id,name},insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
+        );
+        const adsetData = await adsetRes.json();
+        if (adsetData.error) {
+            console.error(`[Meta Sheets Export] Erro na API do Meta (Conjuntos):`, adsetData.error);
+        } else {
+            const allAdSets = adsetData.data || [];
+            adSets = selectedCampaigns && selectedCampaigns.length > 0 && !selectedCampaigns.includes('all')
+                ? allAdSets.filter(a => selectedCampaigns.includes(a.campaign?.id))
+                : allAdSets;
+        }
+    } catch (aErr) {
+        console.error(`[Meta Sheets Export] Exceção ao buscar conjuntos:`, aErr.message);
     }
-    const allAdSets = adsetData.data || [];
-    const adSets = selectedCampaigns && selectedCampaigns.length > 0
-        ? allAdSets.filter(a => selectedCampaigns.includes(a.campaign?.id))
-        : allAdSets;
     
-    // 5. Buscar ads
-    const adsRes = await fetch(
-        `https://graph.facebook.com/v25.0/${ad_account_id}/ads?fields=id,name,status,adset{id,name},campaign{id,name},adcreatives{body,title,image_url,thumbnail_url},insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
-    );
-    const adsData = await adsRes.json();
-    if (adsData.error) {
-        throw new Error(`Erro na API do Meta (Anúncios): ${adsData.error.message}`);
+    // 5. Buscar ads / anúncios
+    let ads = [];
+    try {
+        const adsRes = await fetch(
+            `https://graph.facebook.com/v25.0/${ad_account_id}/ads?fields=id,name,status,effective_status,adset{id,name},campaign{id,name},adcreatives{body,title,image_url,thumbnail_url,video_id,link_url},insights.time_range(${time_range}){${fieldsList}}&limit=150&access_token=${accessToken}`
+        );
+        const adsData = await adsRes.json();
+        if (adsData.error) {
+            console.error(`[Meta Sheets Export] Erro na API do Meta (Anúncios):`, adsData.error);
+        } else {
+            const allAds = adsData.data || [];
+            ads = selectedCampaigns && selectedCampaigns.length > 0 && !selectedCampaigns.includes('all')
+                ? allAds.filter(a => selectedCampaigns.includes(a.campaign?.id))
+                : allAds;
+        }
+    } catch (adErr) {
+        console.error(`[Meta Sheets Export] Exceção ao buscar anúncios:`, adErr.message);
     }
-    const allAds = adsData.data || [];
-    const ads = selectedCampaigns && selectedCampaigns.length > 0
-        ? allAds.filter(a => selectedCampaigns.includes(a.campaign?.id))
-        : allAds;
     
     // 6. Buscar overview (agregado por dia)
-    const overviewRes = await fetch(
-        `https://graph.facebook.com/v25.0/${ad_account_id}/insights?fields=${fieldsList}&time_range=${encodeURIComponent(time_range)}&level=account&time_increment=1&limit=1000&access_token=${accessToken}`
-    );
-    const overviewData = await overviewRes.json();
-    if (overviewData.error) {
-        throw new Error(`Erro na API do Meta (Overview): ${overviewData.error.message}`);
+    let overviewDaily = [];
+    try {
+        const overviewRes = await fetch(
+            `https://graph.facebook.com/v25.0/${ad_account_id}/insights?fields=${fieldsList}&time_range=${encodeURIComponent(time_range)}&level=account&time_increment=1&limit=1000&access_token=${accessToken}`
+        );
+        const overviewData = await overviewRes.json();
+        if (overviewData.error) {
+            console.error(`[Meta Sheets Export] Erro na API do Meta (Overview):`, overviewData.error);
+        } else {
+            overviewDaily = overviewData.data || [];
+        }
+    } catch (oErr) {
+        console.error(`[Meta Sheets Export] Exceção ao buscar overview:`, oErr.message);
     }
-    const overviewDaily = overviewData.data || [];
+
+    console.log(`[Meta Sheets Export] Campanhas: ${campaigns.length}, Conjuntos: ${adSets.length}, Anúncios: ${ads.length}, Overview: ${overviewDaily.length}`);
     
     // 7. Preparar dados das 4 abas
     const tabNames = ['Meta Ads - Overview', 'Meta Ads - Campanhas', 'Meta Ads - Conjuntos', 'Meta Ads - Anuncios'];
     
     // Aba 1: Overview
-    const overviewHeaders = ['Data', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'CPM (R$)', 'Alcance', 'Frequencia', 'Conversoes', 'Valor Conversao (R$)', 'ROAS'];
+    const overviewHeaders = ['Data', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'CPM (R$)', 'CPP (R$)', 'Alcance', 'Frequencia', 'Conversoes', 'Valor Conversao (R$)', 'ROAS', 'Engajamento', 'Cliques Unicos', 'CTR Unico (%)', 'Custo/Clique Unico (R$)', 'Recall Anuncios', 'Custo/Recall (R$)'];
     const overviewRows = overviewDaily.map(d => {
         const spend = parseFloat(d.spend || 0);
         const clicks = parseInt(d.clicks || 0);
         const impressions = parseInt(d.impressions || 0);
-        const conversions = extractConversions(d);
-        const convValue = getFieldValue('purchase', d);
+        const conversions = parseConv(d);
+        const convValue = parseConvValue(d);
+        const uniqueClicks = parseInt(d.unique_clicks || 0);
+        const recallers = parseInt(d.estimated_ad_recallers || 0);
         return [
             d.date_start || d.date || '',
             spend.toFixed(2),
@@ -10986,26 +11059,35 @@ async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, shee
             impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
             clicks > 0 ? (spend / clicks).toFixed(2) : '0',
             impressions > 0 ? (spend / impressions * 1000).toFixed(2) : '0',
+            parseFloat(d.cpp || 0).toFixed(2),
             d.reach || 0,
             d.frequency || 0,
             conversions,
             convValue.toFixed(2),
-            spend > 0 ? (convValue / spend).toFixed(2) : '0'
+            spend > 0 ? (convValue / spend).toFixed(2) : '0',
+            d.post_engagement || 0,
+            uniqueClicks,
+            impressions > 0 ? (uniqueClicks / impressions * 100).toFixed(2) : '0',
+            uniqueClicks > 0 ? (spend / uniqueClicks).toFixed(2) : '0',
+            recallers,
+            recallers > 0 ? (spend / recallers).toFixed(2) : '0'
         ];
     });
     
     // Aba 2: Campanhas
-    const campHeaders = ['Campanha', 'Status', 'Objetivo', 'Orcamento/Dia (R$)', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'CPA (R$)', 'ROAS', 'Alcance', 'Frequencia'];
+    const campHeaders = ['Campanha', 'ID', 'Status', 'Objetivo', 'Orcamento/Dia (R$)', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'CPM (R$)', 'CPP (R$)', 'Alcance', 'Frequencia', 'Conversoes', 'CPA (R$)', 'Valor Conversao (R$)', 'ROAS', 'Engajamento', 'Cliques Unicos', 'CTR Unico (%)', 'Ranking Qualidade', 'Ranking Engajamento', 'Ranking Conversao'];
     const campRows = campaigns.map(c => {
         const ins = c.insights?.data?.[0] || {};
         const spend = parseFloat(ins.spend || 0);
         const clicks = parseInt(ins.clicks || 0);
         const impressions = parseInt(ins.impressions || 0);
-        const conversions = extractConversions(ins);
-        const convValue = getFieldValue('purchase', ins);
+        const conversions = parseConv(ins);
+        const convValue = parseConvValue(ins);
         const budget = parseFloat(c.daily_budget || c.lifetime_budget || '0') / 100;
+        const uniqueClicks = parseInt(ins.unique_clicks || 0);
         return [
             c.name || '',
+            c.id || '',
             c.effective_status || c.status || '',
             c.objective || '',
             budget.toFixed(2),
@@ -11014,63 +11096,91 @@ async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, shee
             clicks,
             impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
             clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            impressions > 0 ? (spend / impressions * 1000).toFixed(2) : '0',
+            parseFloat(ins.cpp || 0).toFixed(2),
+            ins.reach || 0,
+            ins.frequency || 0,
             conversions,
             conversions > 0 ? (spend / conversions).toFixed(2) : '0',
+            convValue.toFixed(2),
             spend > 0 ? (convValue / spend).toFixed(2) : '0',
-            ins.reach || 0,
-            ins.frequency || 0
+            ins.post_engagement || 0,
+            uniqueClicks,
+            impressions > 0 ? (uniqueClicks / impressions * 100).toFixed(2) : '0',
+            ins.quality_ranking || '—',
+            ins.engagement_rate_ranking || '—',
+            ins.conversion_rate_ranking || '—'
         ];
     });
     
     // Aba 3: Conjuntos de Anuncios
-    const adsetHeaders = ['Conjunto', 'Campanha', 'Status', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'ROAS', 'Alcance'];
+    const adsetHeaders = ['Conjunto', 'ID', 'Campanha', 'Status', 'Estrategia Lance', 'Orcamento/Dia (R$)', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'CPM (R$)', 'Alcance', 'Frequencia', 'Conversoes', 'CPA (R$)', 'ROAS', 'Engajamento'];
     const adsetRows = adSets.map(a => {
         const ins = a.insights?.data?.[0] || {};
         const spend = parseFloat(ins.spend || 0);
         const clicks = parseInt(ins.clicks || 0);
         const impressions = parseInt(ins.impressions || 0);
-        const conversions = extractConversions(ins);
-        const convValue = getFieldValue('purchase', ins);
+        const conversions = parseConv(ins);
+        const convValue = parseConvValue(ins);
+        const budget = parseFloat(a.daily_budget || '0') / 100;
         return [
             a.name || '',
+            a.id || '',
             a.campaign?.name || '',
-            a.status || '',
+            a.effective_status || a.status || '',
+            a.bid_strategy || '',
+            budget.toFixed(2),
             spend.toFixed(2),
             impressions,
             clicks,
             impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
             clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            impressions > 0 ? (spend / impressions * 1000).toFixed(2) : '0',
+            ins.reach || 0,
+            ins.frequency || 0,
             conversions,
+            conversions > 0 ? (spend / conversions).toFixed(2) : '0',
             spend > 0 ? (convValue / spend).toFixed(2) : '0',
-            ins.reach || 0
+            ins.post_engagement || 0
         ];
     });
     
     // Aba 4: Anuncios
-    const adsHeaders = ['Anuncio', 'Campanha', 'Conjunto', 'Status', 'Titulo', 'Copy', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'ROAS', 'Imagem'];
+    const adsHeaders = ['Anuncio', 'ID', 'Campanha', 'Conjunto', 'Status', 'Titulo', 'Copy', 'URL Imagem', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'CPM (R$)', 'Alcance', 'Frequencia', 'Conversoes', 'CPA (R$)', 'ROAS', 'Engajamento', 'Video P25 (%)', 'Video P50 (%)', 'Video P75 (%)', 'Video P100 (%)', 'Thruplay'];
     const adsRows = ads.map(a => {
         const ins = a.insights?.data?.[0] || {};
         const creative = a.adcreatives?.data?.[0] || {};
         const spend = parseFloat(ins.spend || 0);
         const clicks = parseInt(ins.clicks || 0);
         const impressions = parseInt(ins.impressions || 0);
-        const conversions = extractConversions(ins);
-        const convValue = getFieldValue('purchase', ins);
+        const conversions = parseConv(ins);
+        const convValue = parseConvValue(ins);
         return [
             a.name || '',
+            a.id || '',
             a.campaign?.name || '',
             a.adset?.name || '',
-            a.status || '',
+            a.effective_status || a.status || '',
             creative.title || '',
             creative.body || '',
+            creative.thumbnail_url || creative.image_url || '',
             spend.toFixed(2),
             impressions,
             clicks,
             impressions > 0 ? (clicks / impressions * 100).toFixed(2) : '0',
             clicks > 0 ? (spend / clicks).toFixed(2) : '0',
+            impressions > 0 ? (spend / impressions * 1000).toFixed(2) : '0',
+            ins.reach || 0,
+            ins.frequency || 0,
             conversions,
+            conversions > 0 ? (spend / conversions).toFixed(2) : '0',
             spend > 0 ? (convValue / spend).toFixed(2) : '0',
-            creative.thumbnail_url || creative.image_url || ''
+            ins.post_engagement || 0,
+            parseVideoAction(ins.video_p25_watched_actions),
+            parseVideoAction(ins.video_p50_watched_actions),
+            parseVideoAction(ins.video_p75_watched_actions),
+            parseVideoAction(ins.video_p100_watched_actions),
+            parseVideoAction(ins.video_thruplay_watched_actions)
         ];
     });
     
