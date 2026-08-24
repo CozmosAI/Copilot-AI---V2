@@ -9,31 +9,9 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import PDFDocument from 'pdfkit';
 import crypto from 'crypto';
 import multer from 'multer';
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-// Helper utilitários do MCP
-async function createMetaMcpClient(accessToken) {
-    const transport = new StreamableHTTPClientTransport(
-        "https://mcp.facebook.com/ads",
-        { requestInit: { headers: { "Authorization": `Bearer ${accessToken}` } } }
-    );
-    const client = new Client({ name: "axis-ai-gestao", version: "1.0.0" }, { capabilities: {} });
-    await client.connect(transport);
-    return client;
-}
+// MCP helpers descontinuados (escopo ads_mcp_management rejeitado/descontinuado pela Meta)
 
-async function checkMcpEnabled(accessToken) {
-    try {
-        const client = await createMetaMcpClient(accessToken);
-        const tools = await client.listTools();
-        await client.close();
-        return tools.tools && tools.tools.length > 0;
-    } catch (err) {
-        console.log('[MCP] Não habilitado:', err.message);
-        return false;
-    }
-}
 
 // Carrega variáveis de ambiente
 dotenv.config();
@@ -890,7 +868,7 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
         const params = new URLSearchParams({
             client_id: META_APP_ID,
             redirect_uri: finalRedirectUri,
-            scope: 'ads_read,ads_management,business_management,pages_show_list,pages_read_engagement,lead_retrieval',
+            scope: 'ads_read,ads_management,business_management,pages_show_list,pages_read_engagement',
             state: state,
             response_type: 'code'
         });
@@ -1192,17 +1170,8 @@ app.get('/api/meta-ads/status/:userId', async (req, res) => {
 });
 
 app.get('/api/meta-ads/mcp-status/:userId', async (req, res) => {
-    try {
-        const authUser = await getAuthUser(req);
-        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
-        const client = supabaseAdmin || supabase;
-        const { data: integration } = await client.from('meta_ads_integrations').select('access_token, mcp_enabled').eq('user_id', authUser.id).maybeSingle();
-        if (!integration || !integration.access_token) return res.json({ mcpEnabled: false });
-        if (integration.mcp_enabled === true) return res.json({ mcpEnabled: true });
-        const enabled = await checkMcpEnabled(integration.access_token);
-        await client.from('meta_ads_integrations').update({ mcp_enabled: enabled }).eq('user_id', authUser.id);
-        res.json({ mcpEnabled: enabled });
-    } catch (err) { res.json({ mcpEnabled: false, error: err.message }); }
+    // MCP desabilitado (escopo rejeitado pela Meta)
+    res.json({ mcpEnabled: false });
 });
 
 // 5. Desconectar Meta Ads (Deleta a linha)
@@ -3531,32 +3500,6 @@ app.post('/api/axis/chat', async (req, res) => {
             }
         }
 
-        // Verificar se usuário tem Meta Ads + MCP habilitado
-        let mcpClient = null;
-        let mcpTools = [];
-        try {
-            if (userId) {
-                const client = supabaseAdmin || supabase;
-                const { data: metaIntegration } = await client
-                    .from('meta_ads_integrations')
-                    .select('access_token, mcp_enabled')
-                    .eq('user_id', userId)
-                    .maybeSingle();
-                
-                if (metaIntegration && metaIntegration.access_token && metaIntegration.mcp_enabled) {
-                    mcpClient = await createMetaMcpClient(metaIntegration.access_token);
-                    const toolsResult = await mcpClient.listTools();
-                    mcpTools = toolsResult.tools.map(tool => ({
-                        name: tool.name,
-                        description: tool.description,
-                        parameters: tool.inputSchema || { type: 'object', properties: {} }
-                    }));
-                }
-            }
-        } catch (mcpErr) {
-            console.log('[AXIS AI] MCP não disponível:', mcpErr.message);
-        }
-
         // 1. Buscar dados reais (Context Augmentation)
         const dbData = await buildClinicContext(userId);
 
@@ -3579,58 +3522,22 @@ app.post('/api/axis/chat', async (req, res) => {
           5. Não use formatação markdown complexa (negrito, listas), use texto corrido natural para fala.
         `;
 
-        let mcpInstructions = '';
-        if (mcpTools.length > 0) {
-            mcpInstructions = `\n\nVocê tem acesso a ferramentas do Meta Ads MCP: ${mcpTools.map(t => t.name).join(', ')}. Quando o usuário perguntar sobre campanhas, anúncios, orçamentos ou performance do Meta Ads, use estas ferramentas.`;
-        }
-
         // 3. Chamada Gemini
         const response = await aiClient.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: [{ role: "user", parts: [{ text: message }] }],
             config: {
-                systemInstruction: systemPrompt + mcpInstructions,
-                ...(mcpTools.length > 0 ? {
-                    tools: [{ functionDeclarations: mcpTools }]
-                } : {})
+                systemInstruction: systemPrompt
             }
         });
 
-        const functionCalls = response.functionCalls;
-        if (functionCalls && functionCalls.length > 0 && mcpClient) {
-            const call = functionCalls[0];
-            try {
-                const result = await mcpClient.callTool({ name: call.name, arguments: call.args });
-                const finalResponse = await aiClient.models.generateContent({
-                    model: "gemini-3-flash-preview",
-                    contents: [
-                        { role: "user", parts: [{ text: message }] },
-                        { role: "function", parts: [{ functionResponse: { name: call.name, response: { content: JSON.stringify(result.content) } } }] }
-                    ],
-                    config: { systemInstruction: systemPrompt + mcpInstructions }
-                });
-                res.json({
-                    response: finalResponse.text,
-                    mcpUsed: true,
-                    toolCalled: call.name,
-                    dataQueried: Object.keys(dbData),
-                    actions: []
-                });
-                if (mcpClient) await mcpClient.close();
-                return;
-            } catch (toolErr) {
-                console.error('[AXIS AI] Erro ao executar MCP tool:', toolErr);
-            }
-        }
-
-        // Resposta normal (sem MCP)
+        // Resposta normal
         res.json({
             response: response.text,
-            mcpUsed: mcpTools.length > 0,
+            mcpUsed: false,
             dataQueried: Object.keys(dbData),
             actions: []
         });
-        if (mcpClient) await mcpClient.close();
 
     } catch (error) {
         console.error('AXIS AI Error:', error);
