@@ -12,7 +12,7 @@ import { generateAudioReport, playPCM } from '../services/geminiService';
 import { useApp } from '../App';
 import { AdPerformance, AppSection } from '../types';
 import { getGoogleOverview } from '../services/googleAdsService';
-import { getMetaOverview } from '../services/metaAdsService';
+import { getMetaOverview, getMetaLeadForms, MetaLeadFormItem } from '../services/metaAdsService';
 import { supabase } from '../lib/supabase';
 import { GoogleAdsLogo, MetaAdsLogo } from './icons/CustomLogos';
 import { DateRangePicker, DateRangeSelection } from './DateRangePicker';
@@ -35,6 +35,13 @@ const Dashboard: React.FC = () => {
   const [insight, setInsight] = useState<string>('Analisando sua clínica...');
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [selectedAd, setSelectedAd] = useState<AdPerformance['topAd'] | null>(null);
+
+  // States para Lead Forms do Meta Ads
+  const [metaLeadForms, setMetaLeadForms] = useState<MetaLeadFormItem[]>([]);
+  const [loadingMetaLeads, setLoadingMetaLeads] = useState(false);
+  const [showAllMetaLeadsModal, setShowAllMetaLeadsModal] = useState(false);
+  const [selectedLeadDetail, setSelectedLeadDetail] = useState<MetaLeadFormItem | null>(null);
+  const [leadSearchQuery, setLeadSearchQuery] = useState('');
 
   // States para dados reais de Ads
   const [googleStats, setGoogleStats] = useState({ spend: 0, clicks: 0, impressions: 0, conversions: 0 });
@@ -111,6 +118,25 @@ const Dashboard: React.FC = () => {
   }, [adsData.dashboard.googleOverview, adsData.dashboard.metaOverview]);
 
   const hasData = metrics.financeiro.receitaBruta > 0 || metrics.financeiro.gastosTotais > 0;
+
+  // Carregar leads de formulários nativos do Meta Ads
+  const fetchMetaLeads = async () => {
+    if (metaAccount !== null || metaStats.spend > 0) {
+      setLoadingMetaLeads(true);
+      try {
+        const list = await getMetaLeadForms();
+        setMetaLeadForms(list);
+      } catch (err) {
+        console.error('Erro ao buscar leads de formulário Meta Ads:', err);
+      } finally {
+        setLoadingMetaLeads(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchMetaLeads();
+  }, [metaAccount, refreshCount]);
 
   useEffect(() => {
     if (hasData) {
@@ -882,6 +908,362 @@ const Dashboard: React.FC = () => {
                   </div>
               </div>
             )}
+        </div>
+      )}
+
+      {/* CARD: LEADS DE FORMULÁRIO META ADS (INSTANT FORMS) */}
+      {(metaAccount !== null || metaLeadForms.length > 0) && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-300 transition-colors">
+          <div className="p-6 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 bg-slate-50/50">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white rounded-xl shadow-sm border border-slate-100">
+                <MetaIcon size={24} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-navy text-sm">Leads de Formulários Nativos Meta Ads</h3>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100/50 px-2 py-0.5 rounded-full border border-emerald-100">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Webhook Ativo
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  Instant Forms capturados em tempo real no Instagram/Facebook e sincronizados com o CRM
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchMetaLeads}
+                disabled={loadingMetaLeads}
+                className="p-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all shadow-sm flex items-center gap-1.5 text-xs font-bold"
+                title="Atualizar lista de leads"
+              >
+                <RefreshCw size={14} className={loadingMetaLeads ? 'animate-spin text-blue-600' : ''} />
+                <span className="hidden sm:inline">Atualizar</span>
+              </button>
+
+              {metaLeadForms.length > 0 && (
+                <button
+                  onClick={() => setShowAllMetaLeadsModal(true)}
+                  className="px-3.5 py-2 bg-navy hover:bg-slate-800 text-white rounded-xl transition-colors text-xs font-bold shadow-sm flex items-center gap-1.5"
+                >
+                  <span>Ver todos ({metaLeadForms.length})</span>
+                  <ArrowRight size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6">
+            {loadingMetaLeads && metaLeadForms.length === 0 ? (
+              <div className="py-8 flex flex-col items-center justify-center text-center">
+                <RefreshCw size={24} className="animate-spin text-blue-600 mb-2" />
+                <p className="text-xs text-slate-500 font-medium">Buscando leads de formulários do Meta Ads...</p>
+              </div>
+            ) : metaLeadForms.length === 0 ? (
+              <div className="py-8 px-4 rounded-2xl bg-slate-50/70 border border-dashed border-slate-200 text-center flex flex-col items-center justify-center">
+                <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-400 mb-3">
+                  <Megaphone size={22} className="text-blue-500" />
+                </div>
+                <h4 className="text-sm font-bold text-navy mb-1">Nenhum lead de formulário recebido ainda</h4>
+                <p className="text-xs text-slate-500 max-w-md mb-4">
+                  Assim que um lead preencher um formulário nativo (Instant Form) no seu anúncio do Facebook ou Instagram, ele será capturado instantaneamente aqui e enviado ao CRM.
+                </p>
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
+                  <Check size={14} className="text-emerald-500" />
+                  Inscrição Webhook configurada para eventos <code className="text-blue-600 bg-blue-50 px-1 rounded">leadgen</code>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                  <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Capturados</p>
+                      <p className="text-xl font-black text-navy">{metaLeadForms.length}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-blue-500 text-white flex items-center justify-center font-bold text-xs">
+                      <Users size={16} />
+                    </div>
+                  </div>
+                  <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Sincronizados CRM</p>
+                      <p className="text-xl font-black text-navy">
+                        {metaLeadForms.filter(f => f.lead_id || f.lead).length}
+                      </p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center font-bold text-xs">
+                      <Check size={16} />
+                    </div>
+                  </div>
+                  <div className="bg-purple-50/60 border border-purple-100 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Última Captura</p>
+                      <p className="text-xs font-bold text-navy mt-1">
+                        {timeAgo(metaLeadForms[0]?.created_time || metaLeadForms[0]?.created_at || '')}
+                      </p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-purple-500 text-white flex items-center justify-center font-bold text-xs">
+                      <CalendarCheck size={16} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lista dos 5 leads mais recentes */}
+                <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl overflow-hidden">
+                  {metaLeadForms.slice(0, 5).map((item) => {
+                    const fields = item.field_data || [];
+                    const getVal = (k: string) => {
+                      const f = fields.find(x => x.name && x.name.toLowerCase().includes(k.toLowerCase()));
+                      return f && Array.isArray(f.values) && f.values.length > 0 ? f.values[0] : '';
+                    };
+                    const name = item.lead?.name || getVal('full_name') || getVal('nome') || getVal('first_name') || 'Lead Meta Ads';
+                    const phone = item.lead?.phone || getVal('phone') || getVal('telefone') || getVal('celular') || getVal('whats') || '';
+                    const email = item.lead?.email || getVal('email') || '';
+                    const city = getVal('city') || getVal('cidade') || '';
+
+                    return (
+                      <div 
+                        key={item.id || item.leadgen_id} 
+                        className="p-4 bg-white hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center font-bold text-sm shrink-0">
+                            {name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-navy text-sm">{name}</span>
+                              <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                                {timeAgo(item.created_time || item.created_at || '')}
+                              </span>
+                              {city && (
+                                <span className="text-[10px] font-medium text-slate-500">
+                                  • {city}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                              {phone && (
+                                <span className="flex items-center gap-1 font-mono text-[11px] text-slate-600">
+                                  📞 {phone}
+                                </span>
+                              )}
+                              {email && (
+                                <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                                  ✉️ {email}
+                                </span>
+                              )}
+                              {item.form_id && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Form ID: {item.form_id}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-center">
+                          <button
+                            onClick={() => setSelectedLeadDetail(item)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+                          >
+                            Respostas
+                          </button>
+                          <button
+                            onClick={() => navigateToSection(AppSection.VENDAS)}
+                            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <span>No CRM</span>
+                            <ExternalLink size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VER TODOS OS LEADS DE FORMULÁRIOS */}
+      {showAllMetaLeadsModal && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setShowAllMetaLeadsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-3xl overflow-hidden max-w-4xl w-full shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white rounded-xl shadow-sm border border-slate-100">
+                  <MetaIcon size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-navy text-lg">Leads de Formulários Meta Ads</h3>
+                  <p className="text-xs text-slate-500">Histórico completo de leads capturados via Instant Forms</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAllMetaLeadsModal(false)}
+                className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Busca */}
+            <div className="p-4 border-b border-slate-100 bg-white">
+              <input
+                type="text"
+                placeholder="Buscar por nome, telefone, e-mail ou Form ID..."
+                value={leadSearchQuery}
+                onChange={e => setLeadSearchQuery(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Tabela de Leads */}
+            <div className="p-6 overflow-y-auto flex-1 divide-y divide-slate-100">
+              {metaLeadForms
+                .filter(item => {
+                  if (!leadSearchQuery.trim()) return true;
+                  const q = leadSearchQuery.toLowerCase();
+                  const fields = item.field_data || [];
+                  const anyFieldMatch = fields.some(f => 
+                    f.name?.toLowerCase().includes(q) || 
+                    (Array.isArray(f.values) && f.values.some(v => String(v).toLowerCase().includes(q)))
+                  );
+                  return (
+                    (item.lead?.name && item.lead.name.toLowerCase().includes(q)) ||
+                    (item.lead?.email && item.lead.email.toLowerCase().includes(q)) ||
+                    (item.lead?.phone && item.lead.phone.toLowerCase().includes(q)) ||
+                    (item.form_id && String(item.form_id).includes(q)) ||
+                    (item.leadgen_id && String(item.leadgen_id).includes(q)) ||
+                    anyFieldMatch
+                  );
+                })
+                .map(item => {
+                  const fields = item.field_data || [];
+                  const getVal = (k: string) => {
+                    const f = fields.find(x => x.name && x.name.toLowerCase().includes(k.toLowerCase()));
+                    return f && Array.isArray(f.values) && f.values.length > 0 ? f.values[0] : '';
+                  };
+                  const name = item.lead?.name || getVal('full_name') || getVal('nome') || getVal('first_name') || 'Lead Meta Ads';
+                  const phone = item.lead?.phone || getVal('phone') || getVal('telefone') || getVal('celular') || getVal('whats') || '';
+                  const email = item.lead?.email || getVal('email') || '';
+
+                  return (
+                    <div key={item.id || item.leadgen_id} className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-navy text-sm">{name}</span>
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                            {timeAgo(item.created_time || item.created_at || '')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                          {phone && <span className="font-mono text-slate-600">📞 {phone}</span>}
+                          {email && <span>✉️ {email}</span>}
+                          {item.form_id && <span className="text-slate-400 font-mono text-[10px]">Form: {item.form_id}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setSelectedLeadDetail(item)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+                        >
+                          Ver Respostas
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowAllMetaLeadsModal(false);
+                            navigateToSection(AppSection.VENDAS);
+                          }}
+                          className="px-3 py-1.5 bg-navy hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors"
+                        >
+                          Abrir CRM
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DETALHES DAS RESPOSTAS DO FORMULÁRIO */}
+      {selectedLeadDetail && (
+        <div 
+          className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-navy/90 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedLeadDetail(null)}
+        >
+          <div 
+            className="bg-white rounded-3xl overflow-hidden max-w-lg w-full shadow-2xl animate-in zoom-in-95"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-black text-navy text-base">Campos do Formulário Instantâneo</h3>
+                <p className="text-[11px] text-slate-400">Lead ID: {selectedLeadDetail.leadgen_id}</p>
+              </div>
+              <button 
+                onClick={() => setSelectedLeadDetail(null)}
+                className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
+              {Array.isArray(selectedLeadDetail.field_data) && selectedLeadDetail.field_data.length > 0 ? (
+                selectedLeadDetail.field_data.map((f, idx) => (
+                  <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{f.name}</p>
+                    <p className="text-sm font-semibold text-navy mt-0.5">
+                      {Array.isArray(f.values) ? f.values.join(', ') : String(f.values || '—')}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-400 text-center py-4">Nenhum campo personalizado registrado.</p>
+              )}
+
+              {selectedLeadDetail.created_time && (
+                <div className="text-[10px] text-slate-400 pt-2 text-right">
+                  Recebido em: {new Date(selectedLeadDetail.created_time).toLocaleString('pt-BR')}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50/50">
+              <button
+                onClick={() => setSelectedLeadDetail(null)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedLeadDetail(null);
+                  setShowAllMetaLeadsModal(false);
+                  navigateToSection(AppSection.VENDAS);
+                }}
+                className="px-4 py-2 bg-navy hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors"
+              >
+                Ir para o CRM
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

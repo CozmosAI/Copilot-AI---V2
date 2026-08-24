@@ -330,3 +330,44 @@ export const updateMetaCampaignBudget = async (userId: string, adsetId: string, 
     if (!response.ok) throw new Error(data.error || 'Erro ao atualizar orçamento Meta');
     return data;
 };
+
+export interface MetaLeadFormItem {
+  id: string;
+  user_id: string;
+  leadgen_id: string;
+  form_id?: string;
+  ad_id?: string;
+  campaign_id?: string;
+  adset_id?: string;
+  page_id?: string;
+  created_time?: string;
+  field_data?: Array<{ name: string; values: string[] }>;
+  platform?: string;
+  raw_payload?: any;
+  lead_id?: string;
+  created_at?: string;
+  lead?: {
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    status?: string;
+    temperature?: string;
+  };
+}
+
+export const getMetaLeadForms = async (): Promise<MetaLeadFormItem[]> => {
+  try {
+    const response = await apiFetch('/api/meta-ads/leads');
+    const data = await safeJsonResponse(response);
+    if (!response.ok) {
+      console.warn('[getMetaLeadForms] Erro na resposta:', data);
+      return [];
+    }
+    return Array.isArray(data.leads) ? data.leads : [];
+  } catch (error) {
+    console.error("Erro ao buscar leads de formulário Meta:", error);
+    return [];
+  }
+};
+

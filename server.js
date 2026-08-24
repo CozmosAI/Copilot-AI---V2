@@ -164,6 +164,171 @@ function validateMetaWebhookSignature(rawBody, signatureHeader, appSecret) {
     }
 }
 
+// Helper para processamento assíncrono de Leadgen de formulários nativos do Meta Ads
+async function processMetaLeadgen(entry, change, explicitUserId = null) {
+    try {
+        const client = supabaseAdmin || supabase;
+        const changeVal = change.value || {};
+        const leadgenId = changeVal.leadgen_id;
+        if (!leadgenId) {
+            console.warn('[Meta Leadgen] Evento sem leadgen_id:', change);
+            return;
+        }
+
+        const formId = changeVal.form_id;
+        const adId = changeVal.ad_id;
+        const campaignId = changeVal.campaign_id;
+        const adsetId = changeVal.adset_id;
+        const pageId = entry?.id || changeVal.page_id;
+        const createdTime = changeVal.created_time;
+
+        // Identificar user_id
+        let targetUserId = explicitUserId;
+        if (!targetUserId) {
+            const { data: integrations } = await client
+                .from('meta_ads_integrations')
+                .select('user_id, access_token, ad_account_id');
+
+            if (integrations && integrations.length > 0) {
+                if (integrations.length === 1) {
+                    targetUserId = integrations[0].user_id;
+                } else {
+                    const match = integrations.find(i => 
+                        (adId && i.ad_account_id && (String(i.ad_account_id).includes(String(adId)) || String(adId).includes(String(i.ad_account_id).replace(/^act_/, '')))) ||
+                        (pageId && (String(i.ad_account_id) === String(pageId) || String(i.ad_account_id) === `act_${pageId}`))
+                    );
+                    targetUserId = match ? match.user_id : integrations[0].user_id;
+                }
+            }
+        }
+
+        if (!targetUserId) {
+            console.warn('[Meta Leadgen] Nenhum usuário com integração Meta Ads encontrado para associar o lead.');
+            return;
+        }
+
+        // Obter token válido do Meta
+        let token = null;
+        try {
+            const tokenObj = await getValidMetaToken(targetUserId);
+            token = tokenObj?.accessToken;
+        } catch (tErr) {
+            console.warn(`[Meta Leadgen] Falha em getValidMetaToken para user ${targetUserId}:`, tErr.message);
+            const { data: fallbackConn } = await client
+                .from('meta_ads_integrations')
+                .select('access_token')
+                .eq('user_id', targetUserId)
+                .maybeSingle();
+            token = fallbackConn?.access_token;
+        }
+
+        if (!token) {
+            console.error(`[Meta Leadgen] Token do Meta Ads não disponível para user ${targetUserId}`);
+            return;
+        }
+
+        // Buscar dados completos do lead via Graph API
+        const apiVersion = process.env.META_API_VERSION || 'v25.0';
+        const leadRes = await fetch(
+            `https://graph.facebook.com/${apiVersion}/${leadgenId}?access_token=${token}`
+        );
+        const leadData = await leadRes.json();
+
+        if (leadData.error) {
+            console.error('[Meta Leadgen] Erro retornado pela Meta Graph API:', leadData.error);
+        }
+
+        // field_data é um array de {name, values}
+        const fieldData = Array.isArray(leadData.field_data) ? leadData.field_data : [];
+
+        // Extrair campos comuns
+        const getFieldValue = (fieldName) => {
+            const field = fieldData.find(f => f.name && f.name.toLowerCase() === fieldName.toLowerCase());
+            return field && Array.isArray(field.values) && field.values.length > 0 ? field.values[0] : '';
+        };
+
+        const fullName = getFieldValue('full_name') || getFieldValue('nome_completo') || getFieldValue('nome') || getFieldValue('first_name') || getFieldValue('name') || '';
+        const email = getFieldValue('email') || getFieldValue('e-mail') || '';
+        const phone = getFieldValue('phone_number') || getFieldValue('phone') || getFieldValue('telefone') || getFieldValue('celular') || getFieldValue('whatsapp') || '';
+        const city = getFieldValue('city') || getFieldValue('cidade') || '';
+
+        // Salvar em meta_lead_forms
+        try {
+            await client.from('meta_lead_forms').upsert({
+                user_id: targetUserId,
+                leadgen_id: String(leadgenId),
+                form_id: formId ? String(formId) : null,
+                ad_id: adId ? String(adId) : null,
+                campaign_id: campaignId ? String(campaignId) : null,
+                adset_id: adsetId ? String(adsetId) : null,
+                page_id: pageId ? String(pageId) : null,
+                created_time: createdTime ? new Date(createdTime * 1000).toISOString() : new Date().toISOString(),
+                field_data: fieldData,
+                platform: 'meta',
+                raw_payload: leadData
+            }, { onConflict: 'leadgen_id' });
+        } catch (dbErr) {
+            console.warn('[Meta Leadgen] Aviso ao salvar em meta_lead_forms:', dbErr.message);
+        }
+
+        // Criar ou atualizar Lead no CRM (tabela leads)
+        let existingLead = null;
+        if (phone) {
+            const { data } = await client.from('leads')
+                .select('id')
+                .eq('phone', phone)
+                .eq('user_id', targetUserId)
+                .maybeSingle();
+            existingLead = data;
+        }
+        if (!existingLead && email) {
+            const { data } = await client.from('leads')
+                .select('id')
+                .eq('email', email)
+                .eq('user_id', targetUserId)
+                .maybeSingle();
+            existingLead = data;
+        }
+
+        if (!existingLead && (fullName || email || phone)) {
+            const { data: newLead, error: insertLeadError } = await client.from('leads').insert({
+                user_id: targetUserId,
+                name: fullName || 'Lead Meta Ads',
+                email: email,
+                phone: phone,
+                source: 'Meta Ads',
+                channel: 'meta_lead_form',
+                status: 'novo',
+                temperature: 'quente',
+                custom_fields: {
+                    meta_leadgen_id: leadgenId,
+                    meta_form_id: formId,
+                    meta_campaign_id: campaignId,
+                    meta_ad_id: adId,
+                    city: city,
+                    raw_field_data: fieldData
+                }
+            }).select('id').single();
+
+            if (insertLeadError) {
+                console.error('[Meta Leadgen] Erro ao inserir lead no CRM:', insertLeadError);
+            } else if (newLead) {
+                await client.from('meta_lead_forms')
+                    .update({ lead_id: newLead.id })
+                    .eq('leadgen_id', String(leadgenId));
+                console.log(`[Meta Leadgen] Novo lead criado no CRM: ${fullName} (${phone || email}) - ID: ${newLead.id}`);
+            }
+        } else if (existingLead) {
+            await client.from('meta_lead_forms')
+                .update({ lead_id: existingLead.id })
+                .eq('leadgen_id', String(leadgenId));
+            console.log(`[Meta Leadgen] Lead já existente vinculado no CRM: ${existingLead.id} (${phone || email})`);
+        }
+    } catch (err) {
+        console.error('[Meta Leadgen] Erro inesperado no processamento do lead:', err);
+    }
+}
+
 // ROTA 3.2: POST /api/meta-ads/webhook (Receiver com RAW body + HMAC SHA256)
 app.post('/api/meta-ads/webhook', express.raw({ type: '*/*' }), async (req, res) => {
     try {
@@ -215,6 +380,14 @@ app.post('/api/meta-ads/webhook', express.raw({ type: '*/*' }), async (req, res)
                     status: 'pending',
                     received_at: new Date().toISOString()
                 });
+
+                // Detectar e processar evento leadgen de formulário nativo do Meta Ads
+                if (fieldName === 'leadgen') {
+                    console.log(`[Meta Webhook] Evento leadgen recebido: form_id=${change.value?.form_id}, leadgen_id=${change.value?.leadgen_id}`);
+                    processMetaLeadgen(entry, change).catch(err => {
+                        console.error('[Meta Webhook Leadgen Immediate Processing Error]:', err);
+                    });
+                }
             });
         });
 
@@ -717,7 +890,7 @@ app.get('/api/auth/meta-ads/url', (req, res) => {
         const params = new URLSearchParams({
             client_id: META_APP_ID,
             redirect_uri: finalRedirectUri,
-            scope: 'ads_read,ads_management,business_management,pages_show_list,ads_mcp_management',
+            scope: 'ads_read,ads_management,business_management,pages_show_list,pages_read_engagement,lead_retrieval',
             state: state,
             response_type: 'code'
         });
@@ -1971,7 +2144,7 @@ app.post('/api/meta-ads/webhook/subscribe', async (req, res) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                subscribed_fields: 'effective_status,with_issues_ad_objects'
+                subscribed_fields: 'effective_status,with_issues_ad_objects,leadgen'
             })
         });
 
@@ -1988,6 +2161,52 @@ app.post('/api/meta-ads/webhook/subscribe', async (req, res) => {
     } catch (err) {
         console.error('[Meta Webhook Subscribe Exception]:', err);
         return res.status(err.status || 500).json({ error: err.message || 'Erro ao configurar inscrição de Webhook' });
+    }
+});
+
+// 3.4) GET /api/meta-ads/leads (Listar leads capturados de formulários nativos do Meta Ads)
+app.get('/api/meta-ads/leads', async (req, res) => {
+    try {
+        const authUser = await getAuthUser(req);
+        if (!authUser) return res.status(401).json({ error: 'Não autorizado' });
+
+        const client = supabaseAdmin || supabase;
+        
+        // Tenta buscar os leads com join na tabela leads
+        const { data: leads, error } = await client
+            .from('meta_lead_forms')
+            .select(`
+                *,
+                lead:leads(id, name, phone, email, status, temperature)
+            `)
+            .eq('user_id', authUser.id)
+            .order('created_time', { ascending: false })
+            .limit(100);
+
+        if (error) {
+            console.warn('[Meta Leads API] Aviso ao buscar meta_lead_forms com relação:', error.message);
+            // Se tabela ainda não foi criada no Supabase ou relação não existe, fallback gracioso
+            if (error.code === 'PGRST116' || error.message.includes('relation') || error.message.includes('does not exist')) {
+                // Tenta buscar sem a relação
+                const { data: simpleLeads, error: simpleErr } = await client
+                    .from('meta_lead_forms')
+                    .select('*')
+                    .eq('user_id', authUser.id)
+                    .order('created_time', { ascending: false })
+                    .limit(100);
+
+                if (simpleErr) {
+                    return res.json({ leads: [] });
+                }
+                return res.json({ leads: simpleLeads || [] });
+            }
+            return res.json({ leads: [] });
+        }
+
+        return res.json({ leads: leads || [] });
+    } catch (err) {
+        console.error('[Meta Leads Exception]:', err);
+        return res.status(500).json({ error: err.message || 'Erro ao buscar leads do Meta Ads' });
     }
 });
 
@@ -13381,6 +13600,9 @@ async function processMetaWebhookEvent(event) {
     } else if (field === 'with_issues_ad_objects') {
         // Anúncio com problemas
         console.log(`[Meta Webhook] Anúncio com issues: ad_id=${payload?.ad_id}, error=${payload?.error_message}`);
+    } else if (field === 'leadgen') {
+        console.log(`[Meta Webhook Worker] Processando evento leadgen:`, payload);
+        await processMetaLeadgen({ id: event.ad_account_id }, { value: payload }, event.user_id);
     } else {
         console.log(`[Meta Webhook] Tópico sem handler específico: ${field}`);
     }
