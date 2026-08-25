@@ -10123,8 +10123,16 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
         throw new Error('Sua conta do Google Sheets não está conectada ou o token expirou.');
     }
 
-    // 1. Buscar metadados para validar o token e obter abas existentes
-    let metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`, {
+    let targetSpreadsheetId = spreadsheetId ? String(spreadsheetId).trim() : '';
+    if (targetSpreadsheetId && targetSpreadsheetId.includes('spreadsheets/d/')) {
+        const match = targetSpreadsheetId.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (match && match[1]) {
+            targetSpreadsheetId = match[1];
+        }
+    }
+
+    // 1. Validar token e obter metadados das abas
+    let metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties`, {
         headers: { 'Authorization': `Bearer ${tokenToUse}` }
     });
     
@@ -10145,13 +10153,13 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
                 if (refreshData.access_token) {
                     tokenToUse = refreshData.access_token;
                     await client.from('profiles').update({ google_sheets_token: tokenToUse }).eq('id', userId);
-                    metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`, {
+                    metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties`, {
                         headers: { 'Authorization': `Bearer ${tokenToUse}` }
                     });
                 }
             }
         } catch (refErr) {
-            console.warn('[Sheets Export Helper] Erro na renovação automática do token:', refErr);
+            console.warn('[Google Ads Sheets Export] Erro na renovação automática do token:', refErr);
         }
     }
     
@@ -10161,8 +10169,36 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
     }
     
     const meta = await metaRes.json();
-    const existingSheets = (meta.sheets || []).map(s => s.properties?.title || '');
+    const sheetMap = {};
+    (meta.sheets || []).forEach(s => {
+        if (s.properties?.title !== undefined) {
+            sheetMap[s.properties.title] = s.properties.sheetId;
+        }
+    });
 
+    const tabNames = ['Google Ads - Campanhas', 'Google Ads - Grupos de Anuncios', 'Google Ads - Palavras-Chave'];
+
+    // Criar abas faltantes se necessário
+    const missingTabs = tabNames.filter(t => sheetMap[t] === undefined);
+    if (missingTabs.length > 0) {
+        const addRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requests: missingTabs.map(title => ({ addSheet: { properties: { title } } }))
+            })
+        });
+        if (addRes.ok) {
+            const addData = await addRes.json();
+            (addData.replies || []).forEach(r => {
+                if (r.addSheet?.properties) {
+                    sheetMap[r.addSheet.properties.title] = r.addSheet.properties.sheetId;
+                }
+            });
+        }
+    }
+
+    // 2. Buscar dados da API do Google Ads
     const { data: googleAds } = await client.from('google_ads_integrations').select('*').eq('user_id', userId).maybeSingle();
     if (!googleAds || !googleAds.customer_id) {
         throw new Error('Sua conta do Google Ads não está conectada ou não possui um ID de cliente configurado.');
@@ -10191,6 +10227,26 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
         WHERE campaign.status != 'REMOVED' 
         AND segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
     `;
+
+    const adGroupQuery = `
+        SELECT
+            ad_group.id,
+            ad_group.name,
+            ad_group.status,
+            campaign.id,
+            campaign.name,
+            segments.date,
+            metrics.clicks,
+            metrics.impressions,
+            metrics.cost_micros,
+            metrics.conversions,
+            metrics.conversions_value
+        FROM ad_group
+        WHERE campaign.status != 'REMOVED'
+        AND ad_group.status != 'REMOVED'
+        AND segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
+    `;
+
     const keywordQuery = `
         SELECT 
             ad_group_criterion.keyword.text, 
@@ -10200,6 +10256,7 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
             campaign.id,
             campaign.name, 
             ad_group.name, 
+            segments.date,
             metrics.clicks, 
             metrics.impressions, 
             metrics.cost_micros, 
@@ -10208,29 +10265,11 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
         FROM keyword_view 
         WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
     `;
-    const searchTermQuery = `
-        SELECT 
-            search_term_view.search_term, 
-            campaign.id,
-            campaign.name, 
-            ad_group.name,
-            metrics.clicks, 
-            metrics.impressions, 
-            metrics.cost_micros,
-            metrics.conversions, 
-            metrics.conversions_value,
-            metrics.ctr
-        FROM search_term_view
-        WHERE segments.date BETWEEN '${sanitizedStart}' AND '${sanitizedEnd}'
-        AND metrics.impressions > 0
-        ORDER BY metrics.cost_micros DESC
-        LIMIT 200
-    `;
 
-    const [campaignResults, keywordResults, searchTermResults] = await Promise.all([
+    const [campaignResults, adGroupResults, keywordResults] = await Promise.all([
         executeGoogleAdsQuery(userId, campaignQuery, false, customerId).catch(err => { console.error('Erro campanhas ads:', err); return []; }),
-        executeGoogleAdsQuery(userId, keywordQuery, false, customerId).catch(err => { console.error('Erro keywords ads:', err); return []; }),
-        executeGoogleAdsQuery(userId, searchTermQuery, false, customerId).catch(err => { console.error('Erro search terms ads:', err); return []; })
+        executeGoogleAdsQuery(userId, adGroupQuery, false, customerId).catch(err => { console.error('Erro ad_groups ads:', err); return []; }),
+        executeGoogleAdsQuery(userId, keywordQuery, false, customerId).catch(err => { console.error('Erro keywords ads:', err); return []; })
     ]);
 
     const campaignIdSet = new Set();
@@ -10240,352 +10279,322 @@ async function executeGoogleSheetsAdsExport(userId, spreadsheetId, campaignIds, 
 
     const filteredCampaignResults = (campaignResults || []).filter(row => {
         const cid = row.campaign?.id ? String(row.campaign.id) : '';
-        if (campaignIdSet.size > 0 && !campaignIdSet.has(cid)) {
-            return false;
-        }
-        return true;
+        return campaignIdSet.size === 0 || campaignIdSet.has(cid);
+    });
+
+    const filteredAdGroupResults = (adGroupResults || []).filter(row => {
+        const cid = row.campaign?.id ? String(row.campaign.id) : '';
+        return campaignIdSet.size === 0 || campaignIdSet.has(cid);
     });
 
     const filteredKeywordResults = (keywordResults || []).filter(row => {
         const cid = row.campaign?.id ? String(row.campaign.id) : '';
-        if (campaignIdSet.size > 0 && !campaignIdSet.has(cid)) {
-            return false;
-        }
-        return true;
+        return campaignIdSet.size === 0 || campaignIdSet.has(cid);
     });
 
-    const filteredSearchTermResults = (searchTermResults || []).filter(row => {
-        const cid = row.campaign?.id ? String(row.campaign.id) : '';
-        if (campaignIdSet.size > 0 && !campaignIdSet.has(cid)) {
-            return false;
+    // --- ABA 1: Google Ads - Campanhas ---
+    const campHeaders = ['Data', 'Campanha', 'Status', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'CPA (R$)', 'Valor Conv. (R$)', 'ROAS'];
+    const campGroups = {};
+    filteredCampaignResults.forEach(item => {
+        const key = item.campaign?.name || item.campaign?.id || 'Desconhecida';
+        if (!campGroups[key]) {
+            campGroups[key] = { id: item.campaign?.id, name: key, status: item.campaign?.status || 'ENABLED', items: [] };
         }
-        return true;
+        campGroups[key].items.push(item);
     });
 
-    const agg = aggregation || 'total';
-    let campaignHeaders = [];
-    let campaignRows = [];
+    const sortedCampKeys = Object.keys(campGroups).sort((a, b) => a.localeCompare(b));
+    let campRows = [];
+    let campRanges = [];
+    let curCampRow = 2; // Linha 1 é o cabeçalho
 
-    if (agg === 'daily') {
-        campaignHeaders = [
-            'Data', 'ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 
-            'Orçamento Diário', 'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 
-            'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
-            'Valor de Conversão (Receita)', 'ROAS'
+    sortedCampKeys.forEach(key => {
+        const group = campGroups[key];
+        const items = group.items;
+        if (!items || items.length === 0) return;
+
+        items.sort((a, b) => (a.segments?.date || '').localeCompare(b.segments?.date || ''));
+
+        const totalRowIndex = curCampRow;
+        const dayStartRow = totalRowIndex + 1;
+        const dayEndRow = totalRowIndex + items.length;
+        const status = group.status || 'ENABLED';
+
+        const totalRow = [
+            'TOTAL',
+            group.name,
+            status,
+            `=SUM(D${dayStartRow}:D${dayEndRow})`,
+            `=SUM(E${dayStartRow}:E${dayEndRow})`,
+            `=SUM(F${dayStartRow}:F${dayEndRow})`,
+            `=IF(E${totalRowIndex}>0, F${totalRowIndex}/E${totalRowIndex}*100, 0)`,
+            `=IF(F${totalRowIndex}>0, D${totalRowIndex}/F${totalRowIndex}, 0)`,
+            `=SUM(I${dayStartRow}:I${dayEndRow})`,
+            `=IF(I${totalRowIndex}>0, D${totalRowIndex}/I${totalRowIndex}, 0)`,
+            `=SUM(K${dayStartRow}:K${dayEndRow})`,
+            `=IF(D${totalRowIndex}>0, K${totalRowIndex}/D${totalRowIndex}, 0)`
         ];
-        
-        campaignRows = filteredCampaignResults.map(row => {
-            const budget = (parseInt(row.campaignBudget?.amountMicros) || 0) / 1000000;
-            const clicks = parseInt(row.metrics?.clicks) || 0;
-            const impressions = parseInt(row.metrics?.impressions) || 0;
+        campRows.push(totalRow);
+
+        items.forEach(row => {
+            const date = row.segments?.date || '';
             const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+            const impressions = parseInt(row.metrics?.impressions) || 0;
+            const clicks = parseInt(row.metrics?.clicks) || 0;
             const conversions = parseFloat(row.metrics?.conversions) || 0;
             const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
-            
+
             const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-            const averageCpc = clicks > 0 ? (cost / clicks) : 0;
+            const cpc = clicks > 0 ? (cost / clicks) : 0;
             const cpa = conversions > 0 ? (cost / conversions) : 0;
-            const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
             const roas = cost > 0 ? (convValue / cost) : 0;
-            
-            return [
-                row.segments?.date || '',
-                row.campaign?.id || '',
-                row.campaign?.name || '',
-                row.campaign?.status || '',
-                row.campaign?.advertisingChannelType || '',
-                `R$ ${budget.toFixed(2)}`,
+
+            campRows.push([
+                date,
+                group.name,
+                status,
+                cost,
                 impressions,
                 clicks,
-                `${ctr.toFixed(2)}%`,
-                `R$ ${averageCpc.toFixed(2)}`,
-                `R$ ${cost.toFixed(2)}`,
+                Number(ctr.toFixed(2)),
+                Number(cpc.toFixed(2)),
                 conversions,
-                conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
-                `${convRate.toFixed(2)}%`,
-                `R$ ${convValue.toFixed(2)}`,
-                `${roas.toFixed(2)}x`
-            ];
+                Number(cpa.toFixed(2)),
+                Number(convValue.toFixed(2)),
+                Number(roas.toFixed(2))
+            ]);
         });
-        campaignRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2])));
-    } else if (agg === 'monthly') {
-        campaignHeaders = [
-            'Mês', 'ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 
-            'Orçamento Diário', 'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 
-            'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
-            'Valor de Conversão (Receita)', 'ROAS'
-        ];
 
-        const monthlyGroups = {};
-        for (const row of filteredCampaignResults) {
+        campRows.push([]);
+        campRanges.push({ startIndex: dayStartRow - 1, endIndex: dayEndRow });
+        curCampRow = dayEndRow + 2;
+    });
+
+    // --- ABA 2: Google Ads - Grupos de Anuncios ---
+    const adGroupHeaders = ['Data', 'Grupo', 'Campanha (pai)', 'Status', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'ROAS'];
+    const adGroupGroups = {};
+    filteredAdGroupResults.forEach(item => {
+        const groupName = item.adGroup?.name || item.adGroup?.id || 'Desconhecido';
+        const campaignName = item.campaign?.name || '';
+        const key = `${groupName}___${campaignName}`;
+        if (!adGroupGroups[key]) {
+            adGroupGroups[key] = { id: item.adGroup?.id, name: groupName, campaignName, status: item.adGroup?.status || 'ENABLED', items: [] };
+        }
+        adGroupGroups[key].items.push(item);
+    });
+
+    const sortedAdGroupKeys = Object.keys(adGroupGroups).sort((a, b) => a.localeCompare(b));
+    let adGroupRows = [];
+    let adGroupRanges = [];
+    let curAdGroupRow = 2;
+
+    sortedAdGroupKeys.forEach(key => {
+        const group = adGroupGroups[key];
+        const items = group.items;
+        if (!items || items.length === 0) return;
+
+        items.sort((a, b) => (a.segments?.date || '').localeCompare(b.segments?.date || ''));
+
+        const totalRowIndex = curAdGroupRow;
+        const dayStartRow = totalRowIndex + 1;
+        const dayEndRow = totalRowIndex + items.length;
+        const status = group.status || 'ENABLED';
+
+        const totalRow = [
+            'TOTAL',
+            group.name,
+            group.campaignName,
+            status,
+            `=SUM(E${dayStartRow}:E${dayEndRow})`,
+            `=SUM(F${dayStartRow}:F${dayEndRow})`,
+            `=SUM(G${dayStartRow}:G${dayEndRow})`,
+            `=IF(F${totalRowIndex}>0, G${totalRowIndex}/F${totalRowIndex}*100, 0)`,
+            `=IF(G${totalRowIndex}>0, E${totalRowIndex}/G${totalRowIndex}, 0)`,
+            `=SUM(J${dayStartRow}:J${dayEndRow})`,
+            `=IF(E${totalRowIndex}>0, SUMPRODUCT(E${dayStartRow}:E${dayEndRow}, K${dayStartRow}:K${dayEndRow})/E${totalRowIndex}, 0)`
+        ];
+        adGroupRows.push(totalRow);
+
+        items.forEach(row => {
             const date = row.segments?.date || '';
-            const month = date ? date.substring(0, 7) : 'Desconhecido';
-            const campaignId = row.campaign?.id || 'unknown';
-            const key = `${campaignId}_${month}`;
-            
-            if (!monthlyGroups[key]) {
-                monthlyGroups[key] = {
-                    month,
-                    id: row.campaign?.id || '',
-                    name: row.campaign?.name || '',
-                    status: row.campaign?.status || '',
-                    channelType: row.campaign?.advertisingChannelType || '',
-                    budgetMicros: parseInt(row.campaignBudget?.amountMicros) || 0,
-                    impressions: 0,
-                    clicks: 0,
-                    costMicros: 0,
-                    conversions: 0,
-                    conversionsValue: 0
-                };
-            }
-            
-            monthlyGroups[key].impressions += parseInt(row.metrics?.impressions) || 0;
-            monthlyGroups[key].clicks += parseInt(row.metrics?.clicks) || 0;
-            monthlyGroups[key].costMicros += parseInt(row.metrics?.costMicros) || 0;
-            monthlyGroups[key].conversions += parseFloat(row.metrics?.conversions) || 0;
-            monthlyGroups[key].conversionsValue += parseFloat(row.metrics?.conversionsValue) || 0;
-        }
-        
-        campaignRows = Object.values(monthlyGroups).map(g => {
-            const budget = g.budgetMicros / 1000000;
-            const cost = g.costMicros / 1000000;
-            const ctr = g.impressions > 0 ? (g.clicks / g.impressions) * 100 : 0;
-            const averageCpc = g.clicks > 0 ? (cost / g.clicks) : 0;
-            const cpa = g.conversions > 0 ? (cost / g.conversions) : 0;
-            const convRate = g.clicks > 0 ? (g.conversions / g.clicks) * 100 : 0;
-            const roas = cost > 0 ? (g.conversionsValue / cost) : 0;
-            
-            return [
-                g.month,
-                g.id,
-                g.name,
-                g.status,
-                g.channelType,
-                `R$ ${budget.toFixed(2)}`,
-                g.impressions,
-                g.clicks,
-                `${ctr.toFixed(2)}%`,
-                `R$ ${averageCpc.toFixed(2)}`,
-                `R$ ${cost.toFixed(2)}`,
-                g.conversions,
-                g.conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
-                `${convRate.toFixed(2)}%`,
-                `R$ ${g.conversionsValue.toFixed(2)}`,
-                `${roas.toFixed(2)}x`
-            ];
-        });
-        campaignRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2])));
-    } else {
-        campaignHeaders = [
-            'ID da Campanha', 'Nome da Campanha', 'Status', 'Tipo de Canal', 
-            'Orçamento Diário', 'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 
-            'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
-            'Valor de Conversão (Receita)', 'ROAS'
-        ];
+            const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+            const impressions = parseInt(row.metrics?.impressions) || 0;
+            const clicks = parseInt(row.metrics?.clicks) || 0;
+            const conversions = parseFloat(row.metrics?.conversions) || 0;
+            const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
 
-        const totalGroups = {};
-        for (const row of filteredCampaignResults) {
-            const campaignId = row.campaign?.id || 'unknown';
-            
-            if (!totalGroups[campaignId]) {
-                totalGroups[campaignId] = {
-                    id: row.campaign?.id || '',
-                    name: row.campaign?.name || '',
-                    status: row.campaign?.status || '',
-                    channelType: row.campaign?.advertisingChannelType || '',
-                    budgetMicros: parseInt(row.campaignBudget?.amountMicros) || 0,
-                    impressions: 0,
-                    clicks: 0,
-                    costMicros: 0,
-                    conversions: 0,
-                    conversionsValue: 0
-                };
-            }
-            
-            totalGroups[campaignId].impressions += parseInt(row.metrics?.impressions) || 0;
-            totalGroups[campaignId].clicks += parseInt(row.metrics?.clicks) || 0;
-            totalGroups[campaignId].costMicros += parseInt(row.metrics?.costMicros) || 0;
-            totalGroups[campaignId].conversions += parseFloat(row.metrics?.conversions) || 0;
-            totalGroups[campaignId].conversionsValue += parseFloat(row.metrics?.conversionsValue) || 0;
-        }
-        
-        campaignRows = Object.values(totalGroups).map(g => {
-            const budget = g.budgetMicros / 1000000;
-            const cost = g.costMicros / 1000000;
-            const ctr = g.impressions > 0 ? (g.clicks / g.impressions) * 100 : 0;
-            const averageCpc = g.clicks > 0 ? (cost / g.clicks) : 0;
-            const cpa = g.conversions > 0 ? (cost / g.conversions) : 0;
-            const convRate = g.clicks > 0 ? (g.conversions / g.clicks) * 100 : 0;
-            const roas = cost > 0 ? (g.conversionsValue / cost) : 0;
-            
-            return [
-                g.id,
-                g.name,
-                g.status,
-                g.channelType,
-                `R$ ${budget.toFixed(2)}`,
-                g.impressions,
-                g.clicks,
-                `${ctr.toFixed(2)}%`,
-                `R$ ${averageCpc.toFixed(2)}`,
-                `R$ ${cost.toFixed(2)}`,
-                g.conversions,
-                g.conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
-                `${convRate.toFixed(2)}%`,
-                `R$ ${g.conversionsValue.toFixed(2)}`,
-                `${roas.toFixed(2)}x`
-            ];
-        });
-        campaignRows.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-    }
+            const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+            const cpc = clicks > 0 ? (cost / clicks) : 0;
+            const roas = cost > 0 ? (convValue / cost) : 0;
 
-    const keywordHeaders = [
-        'Palavra-Chave', 'Tipo de Correspondência', 'Status', 'Índice de Qualidade', 
-        'ID da Campanha', 'Campanha', 'Grupo de Anúncios', 'Impressões', 'Cliques', 
-        'CTR (%)', 'CPC Médio', 'Gasto Total', 'Conversões', 'Custo por Conversão (CPA)', 
-        'Taxa de Conversão (%)', 'Valor de Conversão (Receita)', 'ROAS'
-    ];
-    const keywordRows = filteredKeywordResults.map(row => {
-        const clicks = parseInt(row.metrics?.clicks) || 0;
-        const impressions = parseInt(row.metrics?.impressions) || 0;
-        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
-        const conversions = parseFloat(row.metrics?.conversions) || 0;
-        const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
-        
-        const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-        const averageCpc = clicks > 0 ? (cost / clicks) : 0;
-        const cpa = conversions > 0 ? (cost / conversions) : 0;
-        const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
-        const roas = cost > 0 ? (convValue / cost) : 0;
-        
-        return [
-            row.adGroupCriterion?.keyword?.text || '',
-            row.adGroupCriterion?.keyword?.matchType || '',
-            row.adGroupCriterion?.status || '',
-            row.adGroupCriterion?.qualityInfo?.qualityScore || '-',
-            row.campaign?.id || '',
-            row.campaign?.name || '',
-            row.adGroup?.name || '',
-            impressions,
-            clicks,
-            `${ctr.toFixed(2)}%`,
-            `R$ ${averageCpc.toFixed(2)}`,
-            `R$ ${cost.toFixed(2)}`,
-            conversions,
-            conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
-            `${convRate.toFixed(2)}%`,
-            `R$ ${convValue.toFixed(2)}`,
-            `${roas.toFixed(2)}x`
-        ];
+            adGroupRows.push([
+                date,
+                group.name,
+                group.campaignName,
+                status,
+                cost,
+                impressions,
+                clicks,
+                Number(ctr.toFixed(2)),
+                Number(cpc.toFixed(2)),
+                conversions,
+                Number(roas.toFixed(2))
+            ]);
+        });
+
+        adGroupRows.push([]);
+        adGroupRanges.push({ startIndex: dayStartRow - 1, endIndex: dayEndRow });
+        curAdGroupRow = dayEndRow + 2;
     });
 
-    const searchTermHeaders = [
-        'Termo de Pesquisa', 'ID da Campanha', 'Campanha', 'Grupo de Anúncios', 
-        'Impressões', 'Cliques', 'CTR (%)', 'CPC Médio', 'Gasto Total', 
-        'Conversões', 'Custo por Conversão (CPA)', 'Taxa de Conversão (%)', 
-        'Valor de Conversão (Receita)', 'ROAS'
-    ];
-    const searchTermRows = filteredSearchTermResults.map(row => {
-        const clicks = parseInt(row.metrics?.clicks) || 0;
-        const impressions = parseInt(row.metrics?.impressions) || 0;
-        const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
-        const conversions = parseFloat(row.metrics?.conversions) || 0;
-        const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
-        
-        const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-        const averageCpc = clicks > 0 ? (cost / clicks) : 0;
-        const cpa = conversions > 0 ? (cost / conversions) : 0;
-        const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
-        const roas = cost > 0 ? (convValue / cost) : 0;
-        
-        return [
-            row.searchTermView?.searchTerm || '',
-            row.campaign?.id || '',
-            row.campaign?.name || '',
-            row.adGroup?.name || '',
-            impressions,
-            clicks,
-            `${ctr.toFixed(2)}%`,
-            `R$ ${averageCpc.toFixed(2)}`,
-            `R$ ${cost.toFixed(2)}`,
-            conversions,
-            conversions > 0 ? `R$ ${cpa.toFixed(2)}` : 'R$ 0.00',
-            `${convRate.toFixed(2)}%`,
-            `R$ ${convValue.toFixed(2)}`,
-            `${roas.toFixed(2)}x`
-        ];
+    // --- ABA 3: Google Ads - Palavras-Chave ---
+    const keywordHeaders = ['Palavra-Chave', 'Campanha', 'Grupo', 'Tipo Correspondencia', 'Investimento (R$)', 'Impressoes', 'Cliques', 'CTR (%)', 'CPC (R$)', 'Conversoes', 'ROAS'];
+    const keywordGroups = {};
+    filteredKeywordResults.forEach(item => {
+        const kwText = item.adGroupCriterion?.keyword?.text || 'Palavra-Chave';
+        const matchType = item.adGroupCriterion?.keyword?.matchType || 'EXACT';
+        const campaignName = item.campaign?.name || '';
+        const adGroupName = item.adGroup?.name || '';
+        const key = `${kwText}___${adGroupName}___${campaignName}`;
+        if (!keywordGroups[key]) {
+            keywordGroups[key] = { text: kwText, matchType, campaignName, adGroupName, items: [] };
+        }
+        keywordGroups[key].items.push(item);
     });
 
-    const sheetsData = [
-        {
-            title: 'Google Ads - Campanhas',
-            headers: campaignHeaders,
-            rows: campaignRows
-        },
-        {
-            title: 'Google Ads - Palavras-Chave',
-            headers: keywordHeaders,
-            rows: keywordRows
-        },
-        {
-            title: 'Google Ads - Termos de Pesquisa',
-            headers: searchTermHeaders,
-            rows: searchTermRows
-        }
-    ];
+    const sortedKwKeys = Object.keys(keywordGroups).sort((a, b) => a.localeCompare(b));
+    let keywordRows = [];
+    let keywordRanges = [];
+    let curKwRow = 2;
 
-    const requiredSheets = sheetsData.map(s => s.title);
-    const sheetsToAdd = requiredSheets.filter(title => !existingSheets.includes(title));
+    sortedKwKeys.forEach(key => {
+        const group = keywordGroups[key];
+        const items = group.items;
+        if (!items || items.length === 0) return;
 
-    if (sheetsToAdd.length > 0) {
-        const addRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                requests: sheetsToAdd.map(title => ({
-                    addSheet: {
-                        properties: { title }
-                    }
-                }))
-            })
+        items.sort((a, b) => (a.segments?.date || '').localeCompare(b.segments?.date || ''));
+
+        const totalRowIndex = curKwRow;
+        const dayStartRow = totalRowIndex + 1;
+        const dayEndRow = totalRowIndex + items.length;
+
+        const totalRow = [
+            group.text,
+            group.campaignName,
+            group.adGroupName,
+            group.matchType,
+            `=SUM(E${dayStartRow}:E${dayEndRow})`,
+            `=SUM(F${dayStartRow}:F${dayEndRow})`,
+            `=SUM(G${dayStartRow}:G${dayEndRow})`,
+            `=IF(F${totalRowIndex}>0, G${totalRowIndex}/F${totalRowIndex}*100, 0)`,
+            `=IF(G${totalRowIndex}>0, E${totalRowIndex}/G${totalRowIndex}, 0)`,
+            `=SUM(J${dayStartRow}:J${dayEndRow})`,
+            `=IF(E${totalRowIndex}>0, SUMPRODUCT(E${dayStartRow}:E${dayEndRow}, K${dayStartRow}:K${dayEndRow})/E${totalRowIndex}, 0)`
+        ];
+        keywordRows.push(totalRow);
+
+        items.forEach(row => {
+            const date = row.segments?.date || group.text;
+            const cost = (parseInt(row.metrics?.costMicros) || 0) / 1000000;
+            const impressions = parseInt(row.metrics?.impressions) || 0;
+            const clicks = parseInt(row.metrics?.clicks) || 0;
+            const conversions = parseFloat(row.metrics?.conversions) || 0;
+            const convValue = parseFloat(row.metrics?.conversionsValue) || 0;
+
+            const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+            const cpc = clicks > 0 ? (cost / clicks) : 0;
+            const roas = cost > 0 ? (convValue / cost) : 0;
+
+            keywordRows.push([
+                date,
+                group.campaignName,
+                group.adGroupName,
+                group.matchType,
+                cost,
+                impressions,
+                clicks,
+                Number(ctr.toFixed(2)),
+                Number(cpc.toFixed(2)),
+                conversions,
+                Number(roas.toFixed(2))
+            ]);
         });
-        if (!addRes.ok) {
-            const addText = await addRes.text();
-            console.warn('[Sheets Export Helper] Erro ao adicionar abas:', addText);
-        }
-    }
 
-    for (const sheet of sheetsData) {
-        const values = [sheet.headers, ...sheet.rows];
-        
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheet.title + '!A1:Z20000')}:clear`, {
+        keywordRows.push([]);
+        keywordRanges.push({ startIndex: dayStartRow - 1, endIndex: dayEndRow });
+        curKwRow = dayEndRow + 2;
+    });
+
+    // Função auxiliar para escrever dados e criar Dimension Groups
+    const writeAndGroupTab = async (tabTitle, headers, rows, groupRanges) => {
+        const sheetId = sheetMap[tabTitle];
+
+        // Limpar valores anteriores
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(tabTitle + '!A1:Z50000')}:clear`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`
+            headers: { 'Authorization': `Bearer ${tokenToUse}` }
+        });
+
+        // Escrever com USER_ENTERED para preservar locale e fórmulas
+        const values = [headers, ...rows];
+        const writeRes = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(tabTitle + '!A1')}?valueInputOption=USER_ENTERED`,
+            {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values })
             }
-        });
-
-        const range = `${sheet.title}!A1`;
-        const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ values })
-        });
-
+        );
         if (!writeRes.ok) {
-            const errText = await writeRes.text();
-            throw new Error(`Erro ao escrever na aba ${sheet.title}: ${errText}`);
+            console.warn(`[Google Ads Sheets Export] Erro ao escrever na aba ${tabTitle}:`, await writeRes.text());
         }
-    }
 
-    return `Dados do Google Ads exportados com sucesso em 3 abas (Agregação: ${agg === 'daily' ? 'Diária' : agg === 'monthly' ? 'Mensal' : 'Total acumulado'})!`;
+        // Aplicar agrupamento de linhas (addDimensionGroup)
+        if (sheetId !== undefined && groupRanges && groupRanges.length > 0) {
+            try {
+                await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requests: [{
+                            deleteDimensionGroup: {
+                                range: { sheetId, dimension: 'ROWS', startIndex: 1, endIndex: 50000 }
+                            }
+                        }]
+                    })
+                });
+            } catch (e) { /* ignorar erro se não houver grupos anteriores */ }
+
+            const requests = groupRanges.map(r => ({
+                addDimensionGroup: {
+                    range: {
+                        sheetId: sheetId,
+                        dimension: 'ROWS',
+                        startIndex: r.startIndex,
+                        endIndex: r.endIndex
+                    }
+                }
+            }));
+
+            const batchRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requests })
+            });
+            if (!batchRes.ok) {
+                console.warn(`[Google Ads Sheets Export] Erro ao criar grupos na aba ${tabTitle}:`, await batchRes.text());
+            }
+        }
+    };
+
+    await writeAndGroupTab(tabNames[0], campHeaders, campRows, campRanges);
+    await writeAndGroupTab(tabNames[1], adGroupHeaders, adGroupRows, adGroupRanges);
+    await writeAndGroupTab(tabNames[2], keywordHeaders, keywordRows, keywordRanges);
+
+    return `Dados do Google Ads exportados com sucesso em 3 abas ("Google Ads - Campanhas", "Google Ads - Grupos de Anuncios", "Google Ads - Palavras-Chave") com agrupamento de linhas!`;
 }
+
+
 
 // ROTA: GET /api/export/metrics — Catálogo centralizado de métricas
 app.get('/api/export/metrics', (req, res) => {
@@ -10596,7 +10605,7 @@ app.get('/api/export/metrics', (req, res) => {
     return res.json({ ok: true, catalog: METRIC_CATALOG });
 });
 
-// FUNÇÃO AUXILIAR: Executar exportação de Mercado Livre para Google Sheets
+// FUNÇÃO AUXILIAR: Executar exportação de Mercado Livre para Google Sheets com Agrupamento de Linhas (Dimension Groups)
 async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dataType, startDate, endDate, sheetsToken, aggregation = 'total', selectedMetrics = []) {
     const client = supabaseAdmin || supabase;
     const { data: profile } = await client.from('profiles')
@@ -10609,8 +10618,7 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
         throw new Error('Sua conta do Google Sheets não está conectada ou o token expirou.');
     }
 
-    // Se for URL completa, extrair ID
-    let targetSpreadsheetId = spreadsheetId;
+    let targetSpreadsheetId = spreadsheetId ? String(spreadsheetId).trim() : '';
     if (targetSpreadsheetId && targetSpreadsheetId.includes('spreadsheets/d/')) {
         const match = targetSpreadsheetId.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
         if (match && match[1]) {
@@ -10618,8 +10626,8 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
         }
     }
 
-    // 1. Validar e renovar token se necessário
-    let metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties.title`, {
+    // 1. Validar e obter metadados das abas
+    let metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties`, {
         headers: { 'Authorization': `Bearer ${tokenToUse}` }
     });
 
@@ -10640,13 +10648,13 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
                 if (refreshData.access_token) {
                     tokenToUse = refreshData.access_token;
                     await client.from('profiles').update({ google_sheets_token: tokenToUse }).eq('id', userId);
-                    metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties.title`, {
+                    metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}?fields=sheets.properties`, {
                         headers: { 'Authorization': `Bearer ${tokenToUse}` }
                     });
                 }
             }
         } catch (refErr) {
-            console.warn('[ML Sheets Export Helper] Erro na renovação automática do token:', refErr);
+            console.warn('[ML Sheets Export] Erro na renovação automática do token:', refErr);
         }
     }
 
@@ -10656,7 +10664,34 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
     }
 
     const meta = await metaRes.json();
-    const existingSheets = (meta.sheets || []).map(s => s.properties?.title || '');
+    const sheetMap = {};
+    (meta.sheets || []).forEach(s => {
+        if (s.properties?.title !== undefined) {
+            sheetMap[s.properties.title] = s.properties.sheetId;
+        }
+    });
+
+    const tabNames = ['ML - Vendas', 'ML - Anuncios', 'ML - Ads', 'ML - Reputacao'];
+
+    // Criar abas faltantes
+    const missingTabs = tabNames.filter(t => sheetMap[t] === undefined);
+    if (missingTabs.length > 0) {
+        const addRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requests: missingTabs.map(title => ({ addSheet: { properties: { title } } }))
+            })
+        });
+        if (addRes.ok) {
+            const addData = await addRes.json();
+            (addData.replies || []).forEach(r => {
+                if (r.addSheet?.properties) {
+                    sheetMap[r.addSheet.properties.title] = r.addSheet.properties.sheetId;
+                }
+            });
+        }
+    }
 
     // Datas ISO
     let sDate = startDate ? new Date(startDate) : new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
@@ -10670,33 +10705,225 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
     const startISO = sDate.toISOString();
     const endISO = eDate.toISOString();
 
-    const data_type = dataType || 'dashboard';
+    // 2. Buscar Dados do Supabase
+    const [{ data: orders }, { data: campaigns }, { data: items }, { data: mlConn }] = await Promise.all([
+        client.from('ml_orders').select('date_created, total_amount, quantity, status, payment_status, item_title').eq('user_id', userId).gte('date_created', startISO).lte('date_created', endISO),
+        client.from('ml_ad_campaigns').select('name, status, clicks, prints, cost, total_amount, roas, tacos').eq('user_id', userId),
+        client.from('ml_items').select('item_id, title, price, available_quantity, sold_quantity, status, listing_type_id, is_sponsored').eq('user_id', userId),
+        client.from('ml_connections').select('ml_user_id, nickname, site_id, updated_at').eq('user_id', userId).maybeSingle()
+    ]);
 
-    // Helper para gravar aba
-    const writeTab = async (title, headers, rows) => {
-        if (!existingSheets.includes(title)) {
-            const addRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requests: [{ addSheet: { properties: { title } } }]
-                })
-            });
-            if (!addRes.ok) {
-                console.warn(`[ML Sheets Export] Erro ao criar aba ${title}:`, await addRes.text());
+    // --- ABA 1: ML - Vendas (Agrupado por Venda / Dia) ---
+    const salesHeaders = ['Data / Período', 'Dia da Semana', 'Faturamento (R$)', 'Total de Pedidos', 'Unidades Vendidas', 'Ticket Médio (R$)', 'Pedidos Cancelados', 'Valor Cancelado (R$)'];
+    
+    const dailyMap = {};
+    const dateList = [];
+    let cur = new Date(sDate);
+
+    while (cur <= eDate) {
+        const yyyy = cur.getFullYear();
+        const mm = String(cur.getMonth() + 1).padStart(2, '0');
+        const dd = String(cur.getDate()).padStart(2, '0');
+        const key = `${yyyy}-${mm}-${dd}`;
+        const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        dailyMap[key] = {
+            dateStr: `${dd}/${mm}/${yyyy}`,
+            dayName: dayNames[cur.getDay()],
+            revenue: 0,
+            ordersCount: 0,
+            units: 0,
+            cancelledCount: 0,
+            cancelledAmount: 0
+        };
+        dateList.push(key);
+        cur.setDate(cur.getDate() + 1);
+    }
+
+    (orders || []).forEach(o => {
+        if (!o.date_created) return;
+        const dt = new Date(o.date_created);
+        const yyyy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const key = `${yyyy}-${mm}-${dd}`;
+        const isCancelled = o.status === 'cancelled' || o.payment_status === 'cancelled';
+        const amt = Number(o.total_amount || 0);
+        const qty = Number(o.quantity || 1);
+
+        if (dailyMap[key]) {
+            if (isCancelled) {
+                dailyMap[key].cancelledCount += 1;
+                dailyMap[key].cancelledAmount += amt;
+            } else {
+                dailyMap[key].revenue += amt;
+                dailyMap[key].ordersCount += 1;
+                dailyMap[key].units += qty;
             }
         }
+    });
 
-        // Limpar aba anterior
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(title + '!A1:Z20000')}:clear`, {
+    let salesRows = [];
+    let salesRanges = [];
+
+    // Linha de TOTAL geral na linha 2
+    const totalRowIndex = 2;
+    const dayStartRow = 3;
+    const dayEndRow = 2 + dateList.length;
+
+    const totalSalesRow = [
+        'TOTAL GERAL',
+        'Período Completo',
+        `=SUM(C${dayStartRow}:C${dayEndRow})`,
+        `=SUM(D${dayStartRow}:D${dayEndRow})`,
+        `=SUM(E${dayStartRow}:E${dayEndRow})`,
+        `=IF(D${totalRowIndex}>0, C${totalRowIndex}/D${totalRowIndex}, 0)`,
+        `=SUM(G${dayStartRow}:G${dayEndRow})`,
+        `=SUM(H${dayStartRow}:H${dayEndRow})`
+    ];
+    salesRows.push(totalSalesRow);
+
+    dateList.forEach(k => {
+        const d = dailyMap[k];
+        const ticket = d.ordersCount > 0 ? (d.revenue / d.ordersCount) : 0;
+        salesRows.push([
+            d.dateStr,
+            d.dayName,
+            d.revenue,
+            d.ordersCount,
+            d.units,
+            Number(ticket.toFixed(2)),
+            d.cancelledCount,
+            d.cancelledAmount
+        ]);
+    });
+
+    salesRanges.push({ startIndex: dayStartRow - 1, endIndex: dayEndRow });
+
+    // --- ABA 2: ML - Anuncios ---
+    const itemsHeaders = ['Item ID', 'Título do Anúncio', 'Preço Atual (R$)', 'Estoque Disponível', 'Unidades Vendidas', 'Status', 'Tipo de Anúncio', 'Patrocinado (Ads)'];
+    const itemGroups = {};
+    (items || []).forEach(i => {
+        const statusKey = i.status === 'active' ? 'Anúncios Ativos' : 'Anúncios Inativos/Pausados';
+        if (!itemGroups[statusKey]) itemGroups[statusKey] = [];
+        itemGroups[statusKey].push(i);
+    });
+
+    let itemsRows = [];
+    let itemsRanges = [];
+    let curItemRow = 2;
+
+    Object.keys(itemGroups).forEach(statusKey => {
+        const list = itemGroups[statusKey];
+        if (list.length === 0) return;
+
+        const groupTotalRow = curItemRow;
+        const itemStartRow = groupTotalRow + 1;
+        const itemEndRow = groupTotalRow + list.length;
+
+        itemsRows.push([
+            'TOTAL',
+            statusKey,
+            `=AVERAGE(C${itemStartRow}:C${itemEndRow})`,
+            `=SUM(D${itemStartRow}:D${itemEndRow})`,
+            `=SUM(E${itemStartRow}:E${itemEndRow})`,
+            statusKey,
+            '—',
+            '—'
+        ]);
+
+        list.forEach(i => {
+            itemsRows.push([
+                i.item_id || '',
+                i.title || '',
+                Number(i.price || 0),
+                i.available_quantity || 0,
+                i.sold_quantity || 0,
+                i.status === 'active' ? 'Ativo' : i.status === 'paused' ? 'Pausado' : (i.status || 'Inativo'),
+                i.listing_type_id === 'gold_special' ? 'Clássico' : i.listing_type_id === 'gold_pro' ? 'Premium' : (i.listing_type_id || 'Grátis'),
+                i.is_sponsored ? 'Sim' : 'Não'
+            ]);
+        });
+
+        itemsRows.push([]);
+        itemsRanges.push({ startIndex: itemStartRow - 1, endIndex: itemEndRow });
+        curItemRow = itemEndRow + 2;
+    });
+
+    // --- ABA 3: ML - Ads ---
+    const adsHeaders = ['Campanha', 'Status', 'Cliques', 'Impressões', 'CTR (%)', 'CPC Médio (R$)', 'Investimento (R$)', 'Vendas com Ads (R$)', 'ROAS', 'TACOS (%)'];
+    let adsRows = [];
+    let adsRanges = [];
+    if ((campaigns || []).length > 0) {
+        const adsTotalRow = 2;
+        const adsStartRow = 3;
+        const adsEndRow = 2 + campaigns.length;
+
+        adsRows.push([
+            'TOTAL GERAL',
+            'Todas Campanhas',
+            `=SUM(C${adsStartRow}:C${adsEndRow})`,
+            `=SUM(D${adsStartRow}:D${adsEndRow})`,
+            `=IF(D${adsTotalRow}>0, C${adsTotalRow}/D${adsTotalRow}*100, 0)`,
+            `=IF(C${adsTotalRow}>0, G${adsTotalRow}/C${adsTotalRow}, 0)`,
+            `=SUM(G${adsStartRow}:G${adsEndRow})`,
+            `=SUM(H${adsStartRow}:H${adsEndRow})`,
+            `=IF(G${adsTotalRow}>0, H${adsTotalRow}/G${adsTotalRow}, 0)`,
+            '—'
+        ]);
+
+        campaigns.forEach(c => {
+            const clicks = c.clicks || 0;
+            const prints = c.prints || 0;
+            const cost = Number(c.cost || 0);
+            const totalAmt = Number(c.total_amount || 0);
+            const ctr = prints > 0 ? (clicks / prints) * 100 : 0;
+            const cpc = clicks > 0 ? (cost / clicks) : 0;
+            const roas = cost > 0 ? (totalAmt / cost) : 0;
+
+            adsRows.push([
+                c.name || 'Campanha Product Ads',
+                c.status || 'Ativa',
+                clicks,
+                prints,
+                Number(ctr.toFixed(2)),
+                Number(cpc.toFixed(2)),
+                cost,
+                totalAmt,
+                Number(roas.toFixed(2)),
+                c.tacos ? Number(c.tacos) : 0
+            ]);
+        });
+        adsRanges.push({ startIndex: adsStartRow - 1, endIndex: adsEndRow });
+    }
+
+    // --- ABA 4: ML - Reputacao ---
+    const repHeaders = ['Indicador Operacional', 'Valor / Métrica Registrada', 'Status de Desempenho'];
+    const totalValidOrders = (orders || []).filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled').length;
+    const totalCancelled = (orders || []).filter(o => o.status === 'cancelled' || o.payment_status === 'cancelled').length;
+    const cancellationRate = (totalValidOrders + totalCancelled) > 0 ? (totalCancelled / (totalValidOrders + totalCancelled) * 100).toFixed(2) : '0.00';
+
+    const repRows = [
+        ['ID da Conta Mercado Livre', mlConn?.ml_user_id || '—', 'Conectado'],
+        ['Apelido / Usuário', mlConn?.nickname || '—', 'Ativo'],
+        ['Total de Vendas Concluídas no Período', totalValidOrders, 'Excelente'],
+        ['Total de Cancelamentos no Período', totalCancelled, Number(cancellationRate) > 3 ? 'Atenção' : 'Excelente'],
+        ['Taxa de Cancelamento (%)', `${cancellationRate}%`, Number(cancellationRate) > 3 ? 'Atenção (> 3%)' : 'Dentro da Meta (< 3%)'],
+        ['Total de Anúncios Ativos', (items || []).filter(i => i.status === 'active').length, 'OK'],
+        ['Data de Sincronização do Relatório', new Date().toLocaleString('pt-BR'), 'Atualizado']
+    ];
+
+    // Escrever abas com USER_ENTERED e addDimensionGroup
+    const writeAndGroupTab = async (tabTitle, headers, rows, groupRanges) => {
+        const sheetId = sheetMap[tabTitle];
+
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(tabTitle + '!A1:Z50000')}:clear`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${tokenToUse}` }
         });
 
         const values = [headers, ...rows];
-        const range = `${title}!A1`;
         const writeRes = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+            `https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}/values/${encodeURIComponent(tabTitle + '!A1')}?valueInputOption=USER_ENTERED`,
             {
                 method: 'PUT',
                 headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
@@ -10704,387 +10931,55 @@ async function executeGoogleSheetsMLExport(userId, spreadsheetId, sheetName, dat
             }
         );
         if (!writeRes.ok) {
-            console.warn(`[ML Sheets Export] Erro ao escrever na aba ${title}:`, await writeRes.text());
+            console.warn(`[ML Sheets Export] Erro ao escrever na aba ${tabTitle}:`, await writeRes.text());
+        }
+
+        if (sheetId !== undefined && groupRanges && groupRanges.length > 0) {
+            try {
+                await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requests: [{
+                            deleteDimensionGroup: {
+                                range: { sheetId, dimension: 'ROWS', startIndex: 1, endIndex: 50000 }
+                            }
+                        }]
+                    })
+                });
+            } catch (e) { /* ignorar erro se não houver grupos */ }
+
+            const requests = groupRanges.map(r => ({
+                addDimensionGroup: {
+                    range: {
+                        sheetId: sheetId,
+                        dimension: 'ROWS',
+                        startIndex: r.startIndex,
+                        endIndex: r.endIndex
+                    }
+                }
+            }));
+
+            const batchRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetSpreadsheetId}:batchUpdate`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${tokenToUse}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requests })
+            });
+            if (!batchRes.ok) {
+                console.warn(`[ML Sheets Export] Erro ao criar grupos na aba ${tabTitle}:`, await batchRes.text());
+            }
         }
     };
 
-    // Se for exportação completa (Dashboard Multi-Abas)
-    if (data_type === 'dashboard' || data_type === 'all') {
-        // 1. Buscar Pedidos
-        const { data: orders } = await client.from('ml_orders')
-            .select('date_created, total_amount, quantity, status, payment_status')
-            .eq('user_id', userId)
-            .gte('date_created', startISO)
-            .lte('date_created', endISO);
+    await writeAndGroupTab(tabNames[0], salesHeaders, salesRows, salesRanges);
+    await writeAndGroupTab(tabNames[1], itemsHeaders, itemsRows, itemsRanges);
+    await writeAndGroupTab(tabNames[2], adsHeaders, adsRows, adsRanges);
+    await writeAndGroupTab(tabNames[3], repHeaders, repRows, []);
 
-        // 2. Buscar Campanhas de Ads
-        const { data: campaigns } = await client.from('ml_ad_campaigns')
-            .select('name, status, clicks, prints, cost, total_amount, roas, tacos')
-            .eq('user_id', userId);
-
-        // 3. Buscar Anúncios (Items)
-        const { data: items } = await client.from('ml_items')
-            .select('item_id, title, price, available_quantity, sold_quantity, status, listing_type_id, is_sponsored')
-            .eq('user_id', userId);
-
-        // 4. Buscar Conexão/Reputação
-        const { data: mlConn } = await client.from('ml_connections')
-            .select('ml_user_id, nickname, site_id, updated_at')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        // ---- ABA 1: ML - Vendas ----
-        const salesHeaders = [
-            'Data',
-            'Dia da Semana',
-            'Faturamento Total (R$)',
-            'Total de Pedidos',
-            'Unidades Vendidas',
-            'Ticket Médio (R$)',
-            'Pedidos Cancelados',
-            'Valor Cancelado (R$)',
-            'Taxa de Conversão Estimada (%)'
-        ];
-
-        const dailyMap = {};
-        const dateList = [];
-        let cur = new Date(sDate);
-
-        while (cur <= eDate) {
-            const yyyy = cur.getFullYear();
-            const mm = String(cur.getMonth() + 1).padStart(2, '0');
-            const dd = String(cur.getDate()).padStart(2, '0');
-            const key = `${yyyy}-${mm}-${dd}`;
-            const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-            dailyMap[key] = {
-                dateStr: `${dd}/${mm}/${yyyy}`,
-                monthStr: `${mm}/${yyyy}`,
-                dayName: dayNames[cur.getDay()],
-                revenue: 0,
-                ordersCount: 0,
-                units: 0,
-                cancelledCount: 0,
-                cancelledAmount: 0
-            };
-            dateList.push(key);
-            cur.setDate(cur.getDate() + 1);
-        }
-
-        (orders || []).forEach(o => {
-            if (!o.date_created) return;
-            const dt = new Date(o.date_created);
-            const yyyy = dt.getFullYear();
-            const mm = String(dt.getMonth() + 1).padStart(2, '0');
-            const dd = String(dt.getDate()).padStart(2, '0');
-            const key = `${yyyy}-${mm}-${dd}`;
-            const isCancelled = o.status === 'cancelled' || o.payment_status === 'cancelled';
-            const amt = Number(o.total_amount || 0);
-            const qty = Number(o.quantity || 1);
-
-            if (dailyMap[key]) {
-                if (isCancelled) {
-                    dailyMap[key].cancelledCount += 1;
-                    dailyMap[key].cancelledAmount += amt;
-                } else {
-                    dailyMap[key].revenue += amt;
-                    dailyMap[key].ordersCount += 1;
-                    dailyMap[key].units += qty;
-                }
-            }
-        });
-
-        let salesRows = [];
-        if (aggregation === 'monthly') {
-            const monthMap = {};
-            dateList.forEach(k => {
-                const d = dailyMap[k];
-                if (!monthMap[d.monthStr]) {
-                    monthMap[d.monthStr] = { month: d.monthStr, revenue: 0, orders: 0, units: 0, cancelled: 0, cancelledAmt: 0 };
-                }
-                monthMap[d.monthStr].revenue += d.revenue;
-                monthMap[d.monthStr].orders += d.ordersCount;
-                monthMap[d.monthStr].units += d.units;
-                monthMap[d.monthStr].cancelled += d.cancelledCount;
-                monthMap[d.monthStr].cancelledAmt += d.cancelledAmount;
-            });
-            salesRows = Object.values(monthMap).map(m => {
-                const ticket = m.orders > 0 ? (m.revenue / m.orders) : 0;
-                return [
-                    m.month,
-                    'Mensal',
-                    `R$ ${m.revenue.toFixed(2)}`,
-                    m.orders,
-                    m.units,
-                    `R$ ${ticket.toFixed(2)}`,
-                    m.cancelled,
-                    `R$ ${m.cancelledAmt.toFixed(2)}`,
-                    '—'
-                ];
-            });
-        } else if (aggregation === 'total') {
-            let totRev = 0, totOrders = 0, totUnits = 0, totCanc = 0, totCancAmt = 0;
-            dateList.forEach(k => {
-                const d = dailyMap[k];
-                totRev += d.revenue;
-                totOrders += d.ordersCount;
-                totUnits += d.units;
-                totCanc += d.cancelledCount;
-                totCancAmt += d.cancelledAmount;
-            });
-            const avgTicket = totOrders > 0 ? (totRev / totOrders) : 0;
-            salesRows = [
-                [
-                    `Total (${sDate.toLocaleDateString('pt-BR')} - ${eDate.toLocaleDateString('pt-BR')})`,
-                    'Acumulado',
-                    `R$ ${totRev.toFixed(2)}`,
-                    totOrders,
-                    totUnits,
-                    `R$ ${avgTicket.toFixed(2)}`,
-                    totCanc,
-                    `R$ ${totCancAmt.toFixed(2)}`,
-                    '—'
-                ]
-            ];
-            // Anexar também detalhamento diário abaixo do total
-            dateList.forEach(k => {
-                const d = dailyMap[k];
-                const ticket = d.ordersCount > 0 ? (d.revenue / d.ordersCount) : 0;
-                salesRows.push([
-                    d.dateStr,
-                    d.dayName,
-                    `R$ ${d.revenue.toFixed(2)}`,
-                    d.ordersCount,
-                    d.units,
-                    `R$ ${ticket.toFixed(2)}`,
-                    d.cancelledCount,
-                    `R$ ${d.cancelledAmount.toFixed(2)}`,
-                    '—'
-                ]);
-            });
-        } else {
-            // daily
-            dateList.forEach(k => {
-                const d = dailyMap[k];
-                const ticket = d.ordersCount > 0 ? (d.revenue / d.ordersCount) : 0;
-                salesRows.push([
-                    d.dateStr,
-                    d.dayName,
-                    `R$ ${d.revenue.toFixed(2)}`,
-                    d.ordersCount,
-                    d.units,
-                    `R$ ${ticket.toFixed(2)}`,
-                    d.cancelledCount,
-                    `R$ ${d.cancelledAmount.toFixed(2)}`,
-                    '—'
-                ]);
-            });
-        }
-
-        // ---- ABA 2: ML - Anuncios ----
-        const itemsHeaders = [
-            'Item ID',
-            'Título do Anúncio',
-            'Preço Atual (R$)',
-            'Estoque Disponível',
-            'Unidades Vendidas',
-            'Status',
-            'Tipo de Anúncio',
-            'Patrocinado (Ads)'
-        ];
-        const itemsRows = (items || []).map(i => [
-            i.item_id || '',
-            i.title || '',
-            `R$ ${Number(i.price || 0).toFixed(2)}`,
-            i.available_quantity || 0,
-            i.sold_quantity || 0,
-            i.status === 'active' ? 'Ativo' : i.status === 'paused' ? 'Pausado' : (i.status || 'Inativo'),
-            i.listing_type_id === 'gold_special' ? 'Clássico' : i.listing_type_id === 'gold_pro' ? 'Premium' : (i.listing_type_id || 'Grátis'),
-            i.is_sponsored ? 'Sim' : 'Não'
-        ]);
-
-        // ---- ABA 3: ML - Ads ----
-        const adsHeaders = [
-            'Campanha',
-            'Status',
-            'Cliques',
-            'Impressões',
-            'CTR (%)',
-            'CPC Médio (R$)',
-            'Investimento (R$)',
-            'Vendas com Ads (R$)',
-            'ROAS',
-            'TACOS (%)'
-        ];
-        const adsRows = (campaigns || []).map(c => [
-            c.name || 'Campanha Product Ads',
-            c.status || 'Ativa',
-            c.clicks || 0,
-            c.prints || 0,
-            c.prints > 0 ? `${((c.clicks || 0) / c.prints * 100).toFixed(2)}%` : '0.00%',
-            c.clicks > 0 ? `R$ ${(Number(c.cost || 0) / c.clicks).toFixed(2)}` : 'R$ 0.00',
-            `R$ ${Number(c.cost || 0).toFixed(2)}`,
-            `R$ ${Number(c.total_amount || 0).toFixed(2)}`,
-            c.roas ? `${Number(c.roas).toFixed(2)}x` : '—',
-            c.tacos ? `${Number(c.tacos).toFixed(2)}%` : '—'
-        ]);
-
-        // ---- ABA 4: ML - Reputacao ----
-        const repHeaders = ['Indicador Operacional', 'Valor / Métrica Registrada', 'Status de Desempenho'];
-        const totalValidOrders = (orders || []).filter(o => o.status !== 'cancelled' && o.payment_status !== 'cancelled').length;
-        const totalCancelled = (orders || []).filter(o => o.status === 'cancelled' || o.payment_status === 'cancelled').length;
-        const cancellationRate = (totalValidOrders + totalCancelled) > 0 ? (totalCancelled / (totalValidOrders + totalCancelled) * 100).toFixed(2) : '0.00';
-
-        const repRows = [
-            ['ID da Conta Mercado Livre', mlConn?.ml_user_id || '—', 'Conectado'],
-            ['Apelido / Usuário', mlConn?.nickname || '—', 'Ativo'],
-            ['Total de Vendas Concluídas no Período', totalValidOrders, 'Excelente'],
-            ['Total de Cancelamentos no Período', totalCancelled, Number(cancellationRate) > 3 ? 'Atenção' : 'Excelente'],
-            ['Taxa de Cancelamento (%)', `${cancellationRate}%`, Number(cancellationRate) > 3 ? 'Atenção (> 3%)' : 'Dentro da Meta (< 3%)'],
-            ['Total de Anúncios Ativos', (items || []).filter(i => i.status === 'active').length, 'OK'],
-            ['Data de Sincronização do Relatório', new Date().toLocaleString('pt-BR'), 'Atualizado']
-        ];
-
-        await writeTab('ML - Vendas', salesHeaders, salesRows);
-        await writeTab('ML - Anuncios', itemsHeaders, itemsRows);
-        await writeTab('ML - Ads', adsHeaders, adsRows);
-        await writeTab('ML - Reputacao', repHeaders, repRows);
-
-        return `Exportação do Mercado Livre concluída com sucesso em 4 abas estruturadas (ML - Vendas, ML - Anuncios, ML - Ads, ML - Reputacao)!`;
-    }
-
-    // Exportação de aba individual legada
-    const sheet_name = sheetName || 'AXIS_ML';
-    let headers = [];
-    let rows = [];
-
-    if (data_type === 'daily_metrics') {
-        headers = ['Data', 'Dia da Semana', 'Faturamento Total', 'Pedidos', 'Unidades Vendidas', 'Ticket Médio', 'Gasto Ads', 'Vendas Ads', 'ROAS', 'TACOS'];
-        const { data: orders } = await client.from('ml_orders')
-            .select('date_created, total_amount, quantity, status, payment_status')
-            .eq('user_id', userId)
-            .gte('date_created', startISO)
-            .lte('date_created', endISO);
-        const { data: campaigns } = await client.from('ml_ad_campaigns')
-            .select('cost, total_amount')
-            .eq('user_id', userId);
-
-        const totalAdCost = (campaigns || []).reduce((s, c) => s + Number(c.cost || 0), 0);
-        const totalAdSales = (campaigns || []).reduce((s, c) => s + Number(c.total_amount || 0), 0);
-
-        const dailyMap = {};
-        const dateList = [];
-        let cur = new Date(sDate);
-        while (cur <= eDate) {
-            const yyyy = cur.getFullYear();
-            const mm = String(cur.getMonth() + 1).padStart(2, '0');
-            const dd = String(cur.getDate()).padStart(2, '0');
-            const key = `${yyyy}-${mm}-${dd}`;
-            const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-            dailyMap[key] = { dateStr: `${dd}/${mm}/${yyyy}`, dayName: dayNames[cur.getDay()], revenue: 0, ordersCount: 0, units: 0 };
-            dateList.push(key);
-            cur.setDate(cur.getDate() + 1);
-        }
-
-        let totalPeriodRevenue = 0;
-        (orders || []).forEach(o => {
-            if (o.status === 'cancelled' || o.payment_status === 'cancelled') return;
-            if (!o.date_created) return;
-            const dt = new Date(o.date_created);
-            const yyyy = dt.getFullYear();
-            const mm = String(dt.getMonth() + 1).padStart(2, '0');
-            const dd = String(dt.getDate()).padStart(2, '0');
-            const key = `${yyyy}-${mm}-${dd}`;
-            if (dailyMap[key]) {
-                const rev = Number(o.total_amount || 0);
-                dailyMap[key].revenue += rev;
-                dailyMap[key].ordersCount += 1;
-                dailyMap[key].units += Number(o.quantity || 1);
-                totalPeriodRevenue += rev;
-            }
-        });
-
-        const daysCount = dateList.length || 1;
-        dateList.forEach(k => {
-            const d = dailyMap[k];
-            const rev = d.revenue;
-            const ords = d.ordersCount;
-            const units = d.units;
-            const ticket = ords > 0 ? (rev / ords) : 0;
-            const dayAdCost = totalPeriodRevenue > 0 ? (totalAdCost * (rev / totalPeriodRevenue)) : (totalAdCost / daysCount);
-            const dayAdSales = totalPeriodRevenue > 0 ? (totalAdSales * (rev / totalPeriodRevenue)) : (totalAdSales / daysCount);
-            const roas = dayAdCost > 0 ? (dayAdSales / dayAdCost) : 0;
-            const tacos = rev > 0 ? ((dayAdCost / rev) * 100) : 0;
-
-            rows.push([
-                d.dateStr,
-                d.dayName,
-                `R$ ${rev.toFixed(2)}`,
-                ords,
-                units,
-                `R$ ${ticket.toFixed(2)}`,
-                `R$ ${dayAdCost.toFixed(2)}`,
-                `R$ ${dayAdSales.toFixed(2)}`,
-                `${roas.toFixed(2)}x`,
-                `${tacos.toFixed(1)}%`
-            ]);
-        });
-    } else if (data_type === 'orders') {
-        headers = ['Data', 'Pedido ID', 'Comprador', 'Item', 'Qtd', 'Total', 'Status', 'Pagamento', 'Envio'];
-        const { data: orders } = await client.from('ml_orders')
-            .select('date_created, ml_order_id, buyer_nickname, item_title, quantity, total_amount, status, payment_status, shipping_status')
-            .eq('user_id', userId)
-            .gte('date_created', startISO)
-            .lte('date_created', endISO)
-            .order('date_created', { ascending: false })
-            .limit(2000);
-        rows = (orders || []).map(o => [
-            o.date_created ? new Date(o.date_created).toLocaleString('pt-BR') : '',
-            o.ml_order_id || '',
-            o.buyer_nickname || '',
-            o.item_title || '',
-            o.quantity || 1,
-            `R$ ${Number(o.total_amount || 0).toFixed(2)}`,
-            o.status || '',
-            o.payment_status || '',
-            o.shipping_status || '—'
-        ]);
-    } else if (data_type === 'items') {
-        headers = ['Item ID', 'Título', 'Preço', 'Estoque', 'Vendidos', 'Status', 'Tipo', 'Patrocinado'];
-        const { data: items } = await client.from('ml_items')
-            .select('item_id, title, price, available_quantity, sold_quantity, status, listing_type_id, is_sponsored')
-            .eq('user_id', userId);
-        rows = (items || []).map(i => [
-            i.item_id || '',
-            i.title || '',
-            `R$ ${Number(i.price || 0).toFixed(2)}`,
-            i.available_quantity || 0,
-            i.sold_quantity || 0,
-            i.status || '',
-            i.listing_type_id || '',
-            i.is_sponsored ? 'Sim' : 'Não'
-        ]);
-    } else if (data_type === 'ads') {
-        headers = ['Campanha', 'Status', 'Cliques', 'Impressões', 'CTR', 'CPC', 'Gasto', 'Vendas', 'ROAS', 'TACOS'];
-        const { data: campaigns } = await client.from('ml_ad_campaigns')
-            .select('name, status, clicks, prints, cost, total_amount, roas, tacos')
-            .eq('user_id', userId);
-        rows = (campaigns || []).map(c => [
-            c.name || '',
-            c.status || '',
-            c.clicks || 0,
-            c.prints || 0,
-            c.prints > 0 ? `${((c.clicks || 0) / c.prints * 100).toFixed(2)}%` : '0%',
-            c.clicks > 0 ? `R$ ${(Number(c.cost || 0) / c.clicks).toFixed(2)}` : 'R$ 0',
-            `R$ ${Number(c.cost || 0).toFixed(2)}`,
-            `R$ ${Number(c.total_amount || 0).toFixed(2)}`,
-            c.roas ? `${Number(c.roas).toFixed(1)}x` : '—',
-            c.tacos ? `${Number(c.tacos).toFixed(1)}%` : '—'
-        ]);
-    }
-
-    await writeTab(sheet_name, headers, rows);
-    return `Dados do Mercado Livre exportados com sucesso! (${rows.length} linhas escritas na aba ${sheet_name})`;
+    return `Exportação do Mercado Livre concluída com sucesso em 4 abas estruturadas ("ML - Vendas", "ML - Anuncios", "ML - Ads", "ML - Reputacao") com agrupamento de linhas!`;
 }
+
+
 
 // FUNÇÃO AUXILIAR: Executar exportação de Meta Ads para Google Sheets com Agrupamento de Linhas (Dimension Groups)
 async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, sheetsToken, selectedCampaigns, aggregation = 'total', selectedMetrics = []) {
@@ -12481,7 +12376,7 @@ app.post('/api/google-sheets/export', async (req, res) => {
 
                 // Gravar novos dados
                 const range = `${sheet.title}!A1`;
-                const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
+                const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
                     method: 'PUT',
                     headers: {
                         'Authorization': `Bearer ${tokenToUse}`,
