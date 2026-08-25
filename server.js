@@ -9631,7 +9631,7 @@ app.get('/api/ml/dashboard', async (req, res) => {
                     reputation = userData.seller_reputation || null;
                 }
 
-                const itemRows = await client.from('ml_items')
+                const { data: itemRows } = await client.from('ml_items')
                     .select('item_id')
                     .eq('user_id', authUser.id);
                 itemIds = (itemRows || []).map(i => i.item_id).filter(Boolean);
@@ -11156,8 +11156,8 @@ async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, shee
     const end = dateRange?.end || new Date().toISOString().split('T')[0];
     const time_range = JSON.stringify({ since: start, until: end });
 
-    // Campos completos da Graph API
-    const fieldsList = 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,cost_per_1k_people_reached,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,post_engagement,page_engagement,outbound_clicks,unique_clicks,unique_ctr,cost_per_unique_click,cost_per_outbound_click,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched_actions,cost_per_thruplay_watched_action,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,estimated_ad_recallers,cost_per_estimated_ad_recallers';
+    // Campos completos da Graph API v25.0
+    const fieldsList = 'spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,cpp,actions,action_values,conversions,conversion_values,website_purchase_roas,purchase_roas,cost_per_action_type,cost_per_conversion,cost_per_purchase,cost_per_lead,cost_per_add_to_cart,cost_per_initiate_checkout,cost_per_view_content,cost_per_complete_registration,cost_per_add_payment_info,post_engagement,outbound_clicks,outbound_ctr,unique_clicks,unique_ctr,unique_link_clicks,video_play_actions,video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched,cost_per_video_thruplay,cost_per_30_sec_video_view,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,messaging_conversations_started,cost_per_messaging_conversation_start,messaging_replies,cost_per_unique_click,cost_per_outbound_click,cost_per_landing_page_view,estimated_ad_recallers,cost_per_estimated_ad_recallers';
 
     // Helpers para extração segura de métricas
     const parseConv = (item) => {
@@ -11307,8 +11307,8 @@ async function executeMetaAdsSheetsExport(userId, spreadsheetId, dateRange, shee
             case 'video_p75_watched_actions': return parseVideoAction(item?.video_p75_watched_actions);
             case 'video_p100_watched_actions': return parseVideoAction(item?.video_p100_watched_actions);
             case 'video_30_sec_watched_actions': return parseVideoAction(item?.video_30_sec_watched_actions);
-            case 'video_avg_time_watched': return parseVideoAction(item?.video_avg_time_watched_actions || item?.video_avg_time_watched);
-            case 'cost_per_video_thruplay': return parseFloat(item?.cost_per_thruplay_watched_action || 0).toFixed(2);
+            case 'video_avg_time_watched': return parseVideoAction(item?.video_avg_time_watched || item?.video_avg_time_watched_actions);
+            case 'cost_per_video_thruplay': return parseFloat(item?.cost_per_video_thruplay || item?.cost_per_thruplay_watched_action || 0).toFixed(2);
             
             case 'onsite_conversion.messaging_conversation_started_7d': return parseActionCount(item, 'onsite_conversion.messaging_conversation_started_7d');
             case 'cost_per_messaging_conversation_start': return parseActionCost(item, 'onsite_conversion.messaging_conversation_started_7d');
